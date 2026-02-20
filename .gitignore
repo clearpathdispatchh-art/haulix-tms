@@ -1,4 +1,6 @@
+# ------------------------------
 # Logs
+# ------------------------------
 logs
 *.log
 npm-debug.log*
@@ -7,20 +9,60 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# ------------------------------
+# Node / Build folders
+# ------------------------------
 node_modules
 dist
 dist-ssr
+.build
+.cache
+coverage
+.tmp
+temp
+
+# ------------------------------
+# Environment variables (CRITICAL)
+# ------------------------------
+.env
+.env.*
+*.env
+functions/.env
+haulix-app/.env
+
+# ------------------------------
+# Local config files
+# ------------------------------
 *.local
 
+# ------------------------------
+# Firebase
+# ------------------------------
+.firebase/
+firebase-debug.log
+.firebaserc.local
+
+# ------------------------------
 # Editor directories and files
+# ------------------------------
 .vscode/*
 !.vscode/extensions.json
 .idea
 .DS_Store
+Thumbs.db
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
+*.swp
 
+# ------------------------------
+# Vercel / Deployment
+# ------------------------------
 .vercel
+
+# ------------------------------
+# OS generated files
+# ------------------------------
+Desktop.ini
