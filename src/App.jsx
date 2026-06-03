@@ -338,11 +338,17 @@ const getTrackingUrl = (carrier) => {
 };
 
 // ========== PDF & INVOICE (unchanged) ==========
-export const downloadPOD = (load, leg, setFeedback, companyName, companyDetails = {}) => {
+export const downloadPOD = (load, leg, setFeedback, companyName, companyDetails = {}, locationAddress = null) => {
   if (typeof window === "undefined" || !load) return;
   try {
     if (setFeedback) setFeedback("Generating POD PDF...");
-    const addressStr = [companyDetails?.address, companyDetails?.city, companyDetails?.postalCode].filter(Boolean).join(', ');
+    // Use location-specific address if provided, otherwise global company address
+let addressStr = '';
+if (locationAddress) {
+  addressStr = locationAddress;
+} else {
+  addressStr = [companyDetails?.address, companyDetails?.city, companyDetails?.postalCode].filter(Boolean).join(', ');
+}
     const currentDate = new Date().toISOString().split('T')[0];
     const originName = leg?.from?.split(' - ')[0] || 'N/A';
     const originAddr = leg?.from || 'Address provided separately';
@@ -463,7 +469,13 @@ export const downloadInvoice = (load, setFeedback, companyName, companyDetails =
   if (typeof window === "undefined" || !load) return;
   try {
     if (setFeedback) setFeedback("Generating Invoice PDF...");
-    const addressStr = [companyDetails?.address, companyDetails?.city, companyDetails?.postalCode].filter(Boolean).join(', ');
+    // Use location-specific address if provided, otherwise global company address
+let addressStr = '';
+if (locationAddress) {
+  addressStr = locationAddress;
+} else {
+  addressStr = [companyDetails?.address, companyDetails?.city, companyDetails?.postalCode].filter(Boolean).join(', ');
+}
     const currentDate = new Date().toISOString().split('T')[0];
     let rowsHtml = '';
     if (load.revenueItems && Array.isArray(load.revenueItems) && load.revenueItems.length > 0) {
@@ -2073,7 +2085,17 @@ const [invoiceEndDate, setInvoiceEndDate] = useState('');
 
   const handleEdit = useCallback((load) => { if (load?.id) { setEditingId(load.id); setIsFormOpen(true); } }, []);
   const handleCopy = useCallback((load, leg) => { copyDispatch(load, leg, setCopyFeedback); }, [setCopyFeedback]);
-  const handleDownload = useCallback((load, leg) => { downloadPOD(load, leg, setCopyFeedback, companyName, companyDetails); }, [setCopyFeedback, companyName, companyDetails]);
+  const handleDownload = useCallback((load, leg) => {
+  // Find the location address for this load
+  let locationAddress = companyDetails.address; // fallback to global address
+  if (load.locationId) {
+    const location = companyLocations.find(loc => loc.id === load.locationId);
+    if (location && location.address) {
+      locationAddress = location.address;
+    }
+  }
+  downloadPOD(load, leg, setCopyFeedback, companyName, companyDetails, locationAddress);
+}, [setCopyFeedback, companyName, companyDetails, companyLocations]);
   const handlePrint = useCallback((load) => { downloadInvoice(load, setCopyFeedback, companyName, companyDetails); }, [setCopyFeedback, companyName, companyDetails]);
   const handleSign = useCallback((loadId, leg) => { if (loadId && leg?.id) { setSigningContext({ loadId, legId: leg.id, arrivalTime: leg.arrivalTime || '', departureTime: leg.departureTime || '', receiverName: leg.receiverName || '' }); } }, []);
   const handleTrack = useCallback((load) => { if (load) setTrackingLoad(load); }, []);
