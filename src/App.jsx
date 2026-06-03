@@ -2028,36 +2028,42 @@ const App = () => {
         setUserEmail(user.email || '');
 
         const finishSetup = async (companyId, role, accessibleLocations = [], defaultLocation = null) => {
-          setCompanyId(companyId);
-          setAuthReady(true);
-          setUserRole(role || 'dispatcher');
-          setUserAccessibleLocations(accessibleLocations);
-          setCurrentLocation(defaultLocation || (accessibleLocations[0]?.id || ''));
-          try {
-            const companySnap = await getDoc(doc(db, 'companies', companyId));
-            if (companySnap.exists()) {
-              const cData = companySnap.data();
-              setCompanyName(cData.name || 'Workspace');
-              setCompanyLocations(cData.locations || []);
-              setDataSharingMode(cData.dataSharingMode || 'separate');
-              setCompanyDetails({
-                address: cData.address || '',
-                city: cData.city || '',
-                phone: cData.phone || '',
-                email: cData.email || ''
-              });
-            } else {
-              setCompanyName('Workspace');
-            }
-          } catch (err) {
-            console.error("Error loading company:", err);
-            setCompanyName('Workspace');
-          }
-          setActiveTab('summary');
-          setAppState('dashboard');
-          appStateRef.current = 'dashboard';
-          isAuthProcessing.current = false;
-        };
+  setCompanyId(companyId);
+  setAuthReady(true);
+  setUserRole(role || 'dispatcher');
+  setUserAccessibleLocations(accessibleLocations);
+  setCurrentLocation(defaultLocation || (accessibleLocations[0]?.id || ''));
+  try {
+    // Add a 10-second timeout to the company fetch
+    const companyPromise = getDoc(doc(db, 'companies', companyId));
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error("Company fetch timeout after 10s")), 10000)
+    );
+    const companySnap = await Promise.race([companyPromise, timeoutPromise]);
+    if (companySnap.exists()) {
+      const cData = companySnap.data();
+      setCompanyName(cData.name || 'Workspace');
+      setCompanyLocations(cData.locations || []);
+      setDataSharingMode(cData.dataSharingMode || 'separate');
+      setCompanyDetails({
+        address: cData.address || '',
+        city: cData.city || '',
+        phone: cData.phone || '',
+        email: cData.email || ''
+      });
+    } else {
+      setCompanyName('Workspace');
+    }
+  } catch (err) {
+    console.error("Error loading company (timeout or failure):", err);
+    setCompanyName('Workspace');
+    setCopyFeedback("Could not load company details. Some features may be limited.");
+  }
+  setActiveTab('summary');
+  setAppState('dashboard');
+  appStateRef.current = 'dashboard';
+  isAuthProcessing.current = false;
+};
 
         const userDocRef = doc(db, 'users', user.uid);
         let userSnap;
