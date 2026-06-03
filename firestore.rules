@@ -1,0 +1,69 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper: Check if the user is authenticated.
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // Helper: Verify that the authenticated user belongs to a given companyId.
+    function userBelongsToCompany(companyId) {
+      return isAuthenticated() &&
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.companyId == companyId;
+    }
+    
+    // ---------- LOADS ----------
+    match /loads/{document} {
+      allow read: if isAuthenticated() && userBelongsToCompany(resource.data.companyId);
+      allow create: if isAuthenticated() && userBelongsToCompany(request.resource.data.companyId);
+      allow update: if isAuthenticated() 
+                    && userBelongsToCompany(resource.data.companyId)
+                    && request.resource.data.companyId == resource.data.companyId; // prevent moving to another company
+      allow delete: if isAuthenticated() && userBelongsToCompany(resource.data.companyId);
+    }
+    
+    // ---------- CUSTOMERS ----------
+    match /customers/{document} {
+      allow read: if isAuthenticated() && userBelongsToCompany(resource.data.companyId);
+      allow create: if isAuthenticated() && userBelongsToCompany(request.resource.data.companyId);
+      allow update: if isAuthenticated() 
+                    && userBelongsToCompany(resource.data.companyId)
+                    && request.resource.data.companyId == resource.data.companyId;
+      allow delete: if isAuthenticated() && userBelongsToCompany(resource.data.companyId);
+    }
+    
+    // ---------- LOCATIONS ----------
+    match /locations/{document} {
+      allow read: if isAuthenticated() && userBelongsToCompany(resource.data.companyId);
+      allow create: if isAuthenticated() && userBelongsToCompany(request.resource.data.companyId);
+      allow update: if isAuthenticated() 
+                    && userBelongsToCompany(resource.data.companyId)
+                    && request.resource.data.companyId == resource.data.companyId;
+      allow delete: if isAuthenticated() && userBelongsToCompany(resource.data.companyId);
+    }
+    
+    // ---------- DRIVERS ----------
+    match /drivers/{document} {
+      allow read: if isAuthenticated() && userBelongsToCompany(resource.data.companyId);
+      allow create: if isAuthenticated() && userBelongsToCompany(request.resource.data.companyId);
+      allow update: if isAuthenticated() 
+                    && userBelongsToCompany(resource.data.companyId)
+                    && request.resource.data.companyId == resource.data.companyId;
+      allow delete: if isAuthenticated() && userBelongsToCompany(resource.data.companyId);
+    }
+    
+    // ---------- USERS ----------
+    match /users/{userId} {
+      allow read, write: if request.auth.uid == userId;
+    }
+    
+    // ---------- COMPANIES ----------
+    match /companies/{companyId} {
+      allow read: if isAuthenticated() && userBelongsToCompany(companyId);
+      allow create: if isAuthenticated() && request.resource.data.createdBy == request.auth.uid;
+      allow update, delete: if isAuthenticated() 
+                            && (request.auth.token.admin == true || userBelongsToCompany(companyId));
+    }
+  }
+}

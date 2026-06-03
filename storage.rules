@@ -1,0 +1,26 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Helper: Check if the authenticated user belongs to the given companyId.
+    function userBelongsToCompany(companyId) {
+      return request.auth != null &&
+             exists(/databases/(default)/documents/users/$(request.auth.uid)) &&
+             get(/databases/(default)/documents/users/$(request.auth.uid)).data.companyId == companyId;
+    }
+    
+    // Uploads (load confirmation, signed POD, etc.)
+    match /uploads/{companyId}/{userId}/{fileName} {
+      allow read, write: if userBelongsToCompany(companyId);
+    }
+    
+    // Invoices (generated PDFs)
+    match /invoices/{companyId}/{fileName} {
+      allow read, write: if userBelongsToCompany(companyId);
+    }
+    
+    // Deny any other paths
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

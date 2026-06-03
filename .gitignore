@@ -66,3 +66,7 @@ Thumbs.db
 # OS generated files
 # ------------------------------
 Desktop.ini
+.vercel
+# Firebase service account keys
+serviceAccountKey.json
+functions/firebase-backfill/service-account.json
