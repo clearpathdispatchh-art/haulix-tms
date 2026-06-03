@@ -1685,9 +1685,10 @@ const App = () => {
 
   // Reset pagination when tab changes
   useEffect(() => {
-    if (activeTab === 'summary' || activeTab === 'assignment' || activeTab === 'revenue') return;
-    fetchPaginatedLoads(true);
-  }, [activeTab, fetchPaginatedLoads]);
+  if (activeTab === 'summary' || activeTab === 'assignment' || activeTab === 'revenue') return;
+  setPaginatedLoads([]); // <-- clear old data immediately
+  fetchPaginatedLoads(true);
+}, [activeTab, fetchPaginatedLoads]);
 
   // ========== HANDLERS (add, delete, update) – all updated for subcollections ==========
   const handleAddCustomer = useCallback(async (e) => {
