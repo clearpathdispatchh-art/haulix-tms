@@ -44,6 +44,7 @@ import ErrorBoundary from "./ErrorBoundary";
 import HelpPanel from "./HelpPanel";
 import DOMPurify from 'dompurify';
 import html2pdf from 'html2pdf.js';
+import * as XLSX from 'xlsx';
 
 // ========== HELPER FUNCTIONS (UNCHANGED) ==========
 const escapeCsv = (value) => {
@@ -586,6 +587,100 @@ const downloadFullCompanyData = async (companyId, companyName, loads, savedCusto
     }
     setFeedback(`✅ Full data export complete! ${Object.keys(sheets).filter(k => sheets[k].length > 0).length} files downloaded.`);
   } catch (error) { console.error("Export error:", error); setFeedback("❌ Export failed. Please try again."); }
+};
+
+const exportInvoicesToExcel = (loads, startDate, endDate, companyName) => {
+  // Filter loads by invoice date (using appointmentDate or createdAt)
+  const filtered = loads.filter(load => {
+    const invoiceDate = load.appointmentDate || load.createdAt?.split('T')[0];
+    if (!invoiceDate) return false;
+    if (startDate && invoiceDate < startDate) return false;
+    if (endDate && invoiceDate > endDate) return false;
+    return true;
+  });
+
+  if (filtered.length === 0) {
+    alert('No invoices found in the selected date range.');
+    return;
+  }
+
+  const rows = [];
+
+  filtered.forEach(load => {
+    const invoiceNo = load.workOrderNo || String(load.id).substring(0,8).toUpperCase();
+    const customer = load.customerName || 'N/A';
+    const invoiceDate = load.appointmentDate || load.createdAt?.split('T')[0] || new Date().toISOString().split('T')[0];
+    
+    // Calculate due date (invoice date + 30 days)
+    const dueDateObj = new Date(invoiceDate);
+    dueDateObj.setDate(dueDateObj.getDate() + 30);
+    const dueDate = dueDateObj.toISOString().split('T')[0];
+    
+    const terms = 'NET30';
+    const memo = 'Internal reference';
+    const tax = 0;
+    const currency = 'CAD';
+
+    // Determine payment status
+    let paymentStatus = 'Unpaid';
+    if (load.status === 'Paid' || load.status === 'Completed') {
+      paymentStatus = 'Paid';
+    } else {
+      const today = new Date();
+      if (dueDateObj < today) {
+        paymentStatus = 'Overdue';
+      }
+    }
+
+    const revenueItems = load.revenueItems || [];
+    if (revenueItems.length === 0) {
+      // Add a single row with total amount
+      rows.push({
+        InvoiceNo: invoiceNo,
+        Customer: customer,
+        InvoiceDate: invoiceDate,
+        DueDate: dueDate,
+        Terms: terms,
+        PaymentStatus: paymentStatus,
+        Item: 'Freight Charge',
+        ItemDesc: '',
+        ItemQuantity: 1,
+        ItemRate: safeFloat(calculateTotal(load)),
+        ItemAmount: safeFloat(calculateTotal(load)),
+        Memo: memo,
+        ItemTax: tax,
+        Currency: currency
+      });
+    } else {
+      revenueItems.forEach(item => {
+        rows.push({
+          InvoiceNo: invoiceNo,
+          Customer: customer,
+          InvoiceDate: invoiceDate,
+          DueDate: dueDate,
+          Terms: terms,
+          PaymentStatus: paymentStatus,
+          Item: item.item || 'Service',
+          ItemDesc: '',
+          ItemQuantity: item.qty || 1,
+          ItemRate: safeFloat(item.rate),
+          ItemAmount: safeFloat(item.amount),
+          Memo: memo,
+          ItemTax: tax,
+          Currency: currency
+        });
+      });
+    }
+  });
+
+  // Create worksheet and workbook
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'SalesInvoices');
+  const fileName = startDate && endDate 
+    ? `Invoices_${startDate}_to_${endDate}.xlsx`
+    : `Invoices_${new Date().toISOString().split('T')[0]}.xlsx`;
+  XLSX.writeFile(wb, fileName);
 };
 
 const importExcelData = async (file, companyId, setFeedback, onProgress) => {
@@ -1442,6 +1537,8 @@ const App = () => {
   const [currentLocation, setCurrentLocation] = useState('');
   const [dataSharingMode, setDataSharingMode] = useState('separate');
   const [userAccessibleLocations, setUserAccessibleLocations] = useState([]);
+  const [invoiceStartDate, setInvoiceStartDate] = useState('');
+const [invoiceEndDate, setInvoiceEndDate] = useState('');
   
   // *** FIX #2: Replaced single allLoads with targeted listeners ***
   const [loadsToday, setLoadsToday] = useState([]);          // loads with appointmentDate = today
@@ -2157,7 +2254,48 @@ const App = () => {
           {activeTab === 'summary' && (<div className="animate-in fade-in space-y-8"><div><div className="flex justify-between items-center mb-6 flex-wrap gap-4"><h2 className="text-2xl font-black text-slate-900">Daily Summary</h2><div className="flex gap-3"><button onClick={() => { downloadDailyReportCSV(summaryLoads.filter(l => l?.appointmentDate === new Date().toISOString().split('T')[0]), companyName); setCopyFeedback("Daily Report Downloaded"); }} className="flex items-center gap-2 bg-green-50 text-green-700 hover:text-green-800 px-4 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest border border-green-200 hover:bg-green-100 transition-all active:scale-95 shadow-sm"><FileDown className="w-4 h-4" /><span className="hidden sm:inline">Export Daily Report</span><span className="sm:hidden">Daily</span></button>{isAdmin && (<button onClick={async () => { await downloadFullCompanyData(companyId, companyName, summaryLoads, savedCustomers, savedDestinations, savedDrivers, setCopyFeedback); }} className="flex items-center gap-2 bg-purple-50 text-purple-700 hover:text-purple-800 px-4 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest border border-purple-200 hover:bg-purple-100 transition-all active:scale-95 shadow-sm"><Archive className="w-4 h-4" /><span className="hidden sm:inline">Export ALL Company Data</span><span className="sm:hidden">Full Export</span></button>)}{isAdmin && (<button onClick={() => setIsImportModalOpen(true)} className="flex items-center gap-2 bg-blue-50 text-blue-700 hover:text-blue-800 px-4 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest border border-blue-200 hover:bg-blue-100 transition-all active:scale-95 shadow-sm"><Upload className="w-4 h-4" /><span className="hidden sm:inline">Import Old Data</span><span className="sm:hidden">Import</span></button>)}</div></div><DailySummary loads={summaryLoads} /></div><ActionRequired loads={summaryLoads} onEdit={handleEdit} onStatusChange={quickUpdateStatus} /><div className="bg-white rounded-[32px] border border-slate-200 shadow-sm overflow-hidden"><div className="p-6 border-b border-slate-100 bg-slate-50/50 flex items-center gap-3"><div className="bg-blue-600 p-2 rounded-xl text-white"><Clock className="w-5 h-5" /></div><h3 className="font-black text-lg text-slate-900">Today's Active Dispatches</h3></div><LoadTable loads={summaryLoads.filter(l => l?.appointmentDate === new Date().toISOString().split('T')[0] && l?.status === 'Open')} onEdit={handleEdit} onDelete={confirmDeleteLoad} onStatusChange={quickUpdateStatus} onViewDoc={setViewingDoc} onSign={handleSign} onCopy={handleCopy} onDownload={handleDownload} onTrack={handleTrack} companyName={companyName} /></div></div>)}
           {(activeTab === 'loads' || activeTab === 'billing' || activeTab === 'history') && (<div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm mb-6 flex gap-4"><div className="relative flex-1"><Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" /><input type="text" placeholder="Search Container #, PO#, WO#, or Customer..." className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-all" onChange={(e) => debouncedSearch(e.target.value)} /></div></div>)}
           {activeTab === 'loads' && (<LoadTable loads={paginatedLoads} onEdit={handleEdit} onDelete={confirmDeleteLoad} onStatusChange={quickUpdateStatus} onViewDoc={setViewingDoc} onSign={handleSign} onCopy={handleCopy} onDownload={handleDownload} onTrack={handleTrack} companyName={companyName} currentPage={loadsPage} pageSize={pageSize} isLoadingMore={isLoadingMore} onNextPage={() => { if (paginatedLoads.length === pageSize) { setLoadsPage(p => p + 1); fetchPaginatedLoads(false); } }} onPrevPage={() => { if (loadsPage > 0) { setLoadsPage(0); lastDocSnapshotRef.current = null; fetchPaginatedLoads(true); } }} hasNextPage={paginatedLoads.length === pageSize} />)}
-          {activeTab === 'billing' && (<BillingTable loads={paginatedLoads} onStatusChange={quickUpdateStatus} onDraftEmail={handleDraftEmail} onEdit={handleEdit} onPrint={handlePrint} onViewDoc={setViewingDoc} onSendInvoice={handleSendInvoiceEmail} companyName={companyName} companyEmail={companyDetails.email} />)}
+          {activeTab === 'billing' && (
+  <>
+    <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm mb-6 flex flex-wrap gap-4 items-end">
+      <div>
+        <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">From Date</label>
+        <input
+          type="date"
+          value={invoiceStartDate}
+          onChange={(e) => setInvoiceStartDate(e.target.value)}
+          className="px-4 py-2 border rounded-xl text-sm font-bold"
+        />
+      </div>
+      <div>
+        <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">To Date</label>
+        <input
+          type="date"
+          value={invoiceEndDate}
+          onChange={(e) => setInvoiceEndDate(e.target.value)}
+          className="px-4 py-2 border rounded-xl text-sm font-bold"
+        />
+      </div>
+      <button
+        onClick={() => exportInvoicesToExcel(paginatedLoads, invoiceStartDate, invoiceEndDate, companyName)}
+        className="px-6 py-2 bg-green-600 text-white rounded-xl font-bold text-sm hover:bg-green-700 flex items-center gap-2"
+      >
+        <FileSpreadsheet className="w-4 h-4" />
+        Export to Excel
+      </button>
+    </div>
+    <BillingTable 
+      loads={paginatedLoads} 
+      onStatusChange={quickUpdateStatus} 
+      onDraftEmail={handleDraftEmail} 
+      onEdit={handleEdit} 
+      onPrint={handlePrint} 
+      onViewDoc={setViewingDoc} 
+      onSendInvoice={handleSendInvoiceEmail} 
+      companyName={companyName} 
+      companyEmail={companyDetails.email} 
+    />
+  </>
+)}
           {activeTab === 'history' && (<HistoryTable loads={paginatedLoads} onStatusChange={quickUpdateStatus} onViewDoc={setViewingDoc} onDelete={confirmDeleteLoad} onEdit={handleEdit} />)}
           {activeTab === 'addressBook' && (<AddressBook savedCustomers={savedCustomers} savedDestinations={savedDestinations} savedDrivers={savedDrivers} onDeleteCustomer={confirmDeleteCustomer} onDeleteLocation={confirmDeleteLocation} onDeleteDriver={confirmDeleteDriver} newCust={newCust} setNewCust={setNewCust} newLoc={newLoc} setNewLoc={setNewLoc} newDriver={newDriver} setNewDriver={setNewDriver} onAddCustomer={handleAddCustomer} onAddLocation={handleAddLocation} onAddDriver={handleAddDriver} />)}
           {activeTab === 'assignment' && (<AssignmentView loads={assignmentLoads} assignmentDate={assignmentDate} setAssignmentDate={setAssignmentDate} assignmentSlots={assignmentSlots} />)}
