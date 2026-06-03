@@ -1990,37 +1990,136 @@ const App = () => {
 
   // ========== AUTH STATE LISTENER (unchanged) ==========
   useEffect(() => {
-    let isMounted = true; let userDocUnsubscribe = null; let loadingTimeout = null; let unsubscribe = null;
-    const appStateRef = { current: 'loading' }; setAppState('loading');
-    auth.authStateReady().then(() => {
+  let isMounted = true;
+  let userDocUnsubscribe = null;
+  let loadingTimeout = null;
+  let unsubscribe = null;
+
+  const appStateRef = { current: 'loading' };
+  setAppState('loading');
+
+  // Timeout fallback – if auth takes more than 15 seconds, go to landing
+  loadingTimeout = setTimeout(() => {
+    if (isMounted && appStateRef.current === 'loading') {
+      console.error("Auth initialization timeout");
+      setAppState('landing');
+      setCopyFeedback("Login timed out. Please try again.");
+    }
+  }, 15000);
+
+  auth.authStateReady()
+    .then(() => {
       if (!isMounted) return;
       unsubscribe = onAuthStateChanged(auth, async (user) => {
         if (!isMounted) return;
-        if (!user) { setAppState('landing'); appStateRef.current = 'landing'; setAuthReady(false); return; }
-        if (isAuthProcessing.current) return; isAuthProcessing.current = true;
-        setUser(user); setUserEmail(user.email || '');
+
+        // No user -> landing page
+        if (!user) {
+          setAppState('landing');
+          appStateRef.current = 'landing';
+          setAuthReady(false);
+          return;
+        }
+
+        if (isAuthProcessing.current) return;
+        isAuthProcessing.current = true;
+        setUser(user);
+        setUserEmail(user.email || '');
+
         const finishSetup = async (companyId, role, accessibleLocations = [], defaultLocation = null) => {
-          setCompanyId(companyId); setAuthReady(true); setUserRole(role || 'dispatcher'); setUserAccessibleLocations(accessibleLocations); setCurrentLocation(defaultLocation || (accessibleLocations[0]?.id || ''));
-          try { const companySnap = await getDoc(doc(db, 'companies', companyId)); if (companySnap.exists()) { const cData = companySnap.data(); setCompanyName(cData.name || 'Workspace'); setCompanyLocations(cData.locations || []); setDataSharingMode(cData.dataSharingMode || 'separate'); setCompanyDetails({ address: cData.address || '', city: cData.city || '', phone: cData.phone || '', email: cData.email || '' }); } else { setCompanyName('Workspace'); } } catch (err) { setCompanyName('Workspace'); }
-          setActiveTab('summary'); setAppState('dashboard'); appStateRef.current = 'dashboard'; isAuthProcessing.current = false;
+          setCompanyId(companyId);
+          setAuthReady(true);
+          setUserRole(role || 'dispatcher');
+          setUserAccessibleLocations(accessibleLocations);
+          setCurrentLocation(defaultLocation || (accessibleLocations[0]?.id || ''));
+          try {
+            const companySnap = await getDoc(doc(db, 'companies', companyId));
+            if (companySnap.exists()) {
+              const cData = companySnap.data();
+              setCompanyName(cData.name || 'Workspace');
+              setCompanyLocations(cData.locations || []);
+              setDataSharingMode(cData.dataSharingMode || 'separate');
+              setCompanyDetails({
+                address: cData.address || '',
+                city: cData.city || '',
+                phone: cData.phone || '',
+                email: cData.email || ''
+              });
+            } else {
+              setCompanyName('Workspace');
+            }
+          } catch (err) {
+            console.error("Error loading company:", err);
+            setCompanyName('Workspace');
+          }
+          setActiveTab('summary');
+          setAppState('dashboard');
+          appStateRef.current = 'dashboard';
+          isAuthProcessing.current = false;
         };
-        const userDocRef = doc(db, 'users', user.uid); let userSnap;
-        try { userSnap = await getDoc(userDocRef); } catch (error) { setAppState('landing'); appStateRef.current = 'landing'; isAuthProcessing.current = false; return; }
-        if (!userSnap.exists()) { setAppState('landing'); appStateRef.current = 'landing'; isAuthProcessing.current = false; return; }
-        const userData = userSnap.data(); const companyId = userData.companyId; const role = userData.role;
+
+        const userDocRef = doc(db, 'users', user.uid);
+        let userSnap;
+        try {
+          userSnap = await getDoc(userDocRef);
+        } catch (error) {
+          console.error("Error fetching user doc:", error);
+          setAppState('landing');
+          appStateRef.current = 'landing';
+          setCopyFeedback("Unable to load user data. Please try again.");
+          isAuthProcessing.current = false;
+          return;
+        }
+
+        if (!userSnap.exists()) {
+          console.error("User document missing for uid:", user.uid);
+          setAppState('landing');
+          appStateRef.current = 'landing';
+          setCopyFeedback("User profile not found. Please re-register or contact support.");
+          isAuthProcessing.current = false;
+          return;
+        }
+
+        const userData = userSnap.data();
+        const companyId = userData.companyId;
+        const role = userData.role;
+
         if (companyId) {
-          if (userData.role === 'owner' && userData.setupComplete === false) { setPendingCompanyId(companyId); setPendingOwnerUid(user.uid); setAppState('rolesetup'); appStateRef.current = 'rolesetup'; isAuthProcessing.current = false; return; }
+          // Owner with incomplete setup -> role setup page
+          if (userData.role === 'owner' && userData.setupComplete === false) {
+            setPendingCompanyId(companyId);
+            setPendingOwnerUid(user.uid);
+            setAppState('rolesetup');
+            appStateRef.current = 'rolesetup';
+            isAuthProcessing.current = false;
+            return;
+          }
           await finishSetup(companyId, role, userData.accessibleLocations, userData.defaultLocation);
         } else {
-          setAppState('loading'); appStateRef.current = 'loading';
-          userDocUnsubscribe = onSnapshot(userDocRef, (snap) => { if (!snap.exists()) return; const newData = snap.data(); const newCompanyId = newData.companyId; if (newCompanyId) { if (userDocUnsubscribe) userDocUnsubscribe(); finishSetup(newCompanyId, newData.role, newData.accessibleLocations, newData.defaultLocation); } }, (error) => { setAppState('landing'); appStateRef.current = 'landing'; isAuthProcessing.current = false; });
+          // No companyId – user has not joined a workspace yet
+          setAppState('landing');
+          appStateRef.current = 'landing';
+          setCopyFeedback("You are not assigned to any workspace. Please contact your administrator.");
           isAuthProcessing.current = false;
-          loadingTimeout = setTimeout(() => { if (isMounted && appStateRef.current === 'loading') { setAppState('landing'); appStateRef.current = 'landing'; isAuthProcessing.current = false; } }, 10000);
+          return;
         }
       });
+    })
+    .catch((err) => {
+      console.error("auth.authStateReady() error:", err);
+      if (isMounted) {
+        setAppState('landing');
+        setCopyFeedback("Authentication service unavailable. Please try again later.");
+      }
     });
-    return () => { isMounted = false; if (unsubscribe) unsubscribe(); if (userDocUnsubscribe) userDocUnsubscribe(); if (loadingTimeout) clearTimeout(loadingTimeout); };
-  }, []);
+
+  return () => {
+    isMounted = false;
+    if (unsubscribe) unsubscribe();
+    if (userDocUnsubscribe) userDocUnsubscribe();
+    if (loadingTimeout) clearTimeout(loadingTimeout);
+  };
+}, []);
 
   useEffect(() => { if (userRole === 'accounting' && ['loads', 'assignment'].includes(activeTab)) setActiveTab('billing'); if (userRole === 'dispatcher' && ['billing', 'revenue'].includes(activeTab)) setActiveTab('loads'); }, [userRole, activeTab]);
 
