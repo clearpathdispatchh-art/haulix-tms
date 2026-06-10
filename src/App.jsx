@@ -109,6 +109,13 @@ const calculateProfit = (load) => {
   return (safeFloat(calculateTotal(load)) - safeFloat(calculateCost(load))).toFixed(2);
 };
 
+const formatMoney = (amount, currency = 'CAD') => {
+  const num = parseFloat(amount);
+  if (isNaN(num)) return `$0.00 ${currency}`;
+  const symbol = '$';
+  return `${symbol}${num.toFixed(2)} ${currency}`;
+};
+
 const validateLoadForm = (formData) => {
   const requiredFields = {
     containerNo: "Container Number",
@@ -320,7 +327,8 @@ const createEmptyLoadForm = () => ({
   returnRvNo: "",
   returnDate: "",
   returnRvTir: "",
-  locationId: ""
+  locationId: "",
+  currency: "CAD"
 });
 
 const MAX_UPLOAD_SIZE_BYTES = 10 * 1024 * 1024;
@@ -478,10 +486,11 @@ if (locationAddress) {
 }
     const currentDate = new Date().toISOString().split('T')[0];
     let rowsHtml = '';
+    const currency = load.currency || 'CAD';
     if (load.revenueItems && Array.isArray(load.revenueItems) && load.revenueItems.length > 0) {
       load.revenueItems.forEach(item => {
         if (safeFloat(item?.amount) > 0 || safeFloat(item?.rate) > 0) {
-          rowsHtml += `<tr><td style="padding: 12px; border-bottom: 1px solid #e5e7eb;"><div class="font-bold text-base">${sanitizeInput(item.item || 'Service Charge')}</div></td><td style="padding: 12px; border-bottom: 1px solid #e5e7eb; text-align: center;">${item.qty || 1}</td><td style="padding: 12px; border-bottom: 1px solid #e5e7eb; text-align: right;">$${safeFloat(item.rate).toFixed(2)}</td><td style="padding: 12px; border-bottom: 1px solid #e5e7eb; text-align: right;" class="font-black text-base">$${safeFloat(item.amount).toFixed(2)}</td></tr>`;
+          rowsHtml += `<tr><td style="padding: 12px; border-bottom: 1px solid #e5e7eb;"><div class="font-bold text-base">${sanitizeInput(item.item || 'Service Charge')}</div></td><td style="padding: 12px; border-bottom: 1px solid #e5e7eb; text-align: center;">${item.qty || 1}</td><td style="padding: 12px; border-bottom: 1px solid #e5e7eb; text-align: right;">${formatMoney(safeFloat(item.rate), currency)}</td><td style="padding: 12px; border-bottom: 1px solid #e5e7eb; text-align: right;" class="font-black text-base">${formatMoney(safeFloat(item.amount), currency)}</td></tr>`;
         }
       });
     }
@@ -528,7 +537,9 @@ if (locationAddress) {
           <div class="w-1-2"><div class="section-title">SHIPMENT SUMMARY</div><div class="card flex" style="height: 120px; flex-wrap: wrap; gap: 15px;"><div style="width: 45%;"><div class="text-xs" style="color: #6b7280;">CONTAINER #</div><div class="font-bold">${sanitizeInput(load.containerNo || 'N/A')}</div></div><div style="width: 45%;"><div class="text-xs" style="color: #6b7280;">SIZE / TYPE</div><div class="font-bold">${sanitizeInput(load.size || 'N/A')}</div></div><div style="width: 45%;"><div class="text-xs" style="color: #6b7280;">WEIGHT</div><div class="font-bold">${sanitizeInput(load.weight || 'N/A')}</div></div><div style="width: 45%;"><div class="text-xs" style="color: #6b7280;">REF NO</div><div class="font-bold">${sanitizeInput(load.customerRefNo || 'N/A')}</div></div></div></div>
         </div>
         <table class="invoice-table"><thead><tr><th style="width: 50%;">Description</th><th style="width: 15%; text-align: center;">Qty</th><th style="width: 15%; text-align: right;">Rate</th><th style="width: 20%; text-align: right;">Amount</th></tr></thead><tbody>${rowsHtml || `<tr><td style="padding: 12px; border-bottom: 1px solid #e5e7eb;"><div class="font-bold text-base">Freight Charge</div></td><td style="padding: 12px; border-bottom: 1px solid #e5e7eb; text-align: center;">1</td><td style="padding: 12px; border-bottom: 1px solid #e5e7eb; text-align: right;">$${safeFloat(calculateTotal(load)).toFixed(2)}</td><td style="padding: 12px; border-bottom: 1px solid #e5e7eb; text-align: right;" class="font-black text-base">$${safeFloat(calculateTotal(load)).toFixed(2)}</td></tr>`}</tbody></table>
-        <div class="flex justify-between" style="margin-top: 30px; align-items: flex-start;"><div style="width: 50%; color: #6b7280; font-size: 11px; padding-right: 20px;"><p>Thank you for your business.</p><p>Please include invoice number on your check or remittance advice.</p></div><div style="width: 40%;"><div class="totals-box"><div class="totals-row"><span class="label font-bold" style="color: #4b5563;">Subtotal</span><span class="value font-bold">$${calculateTotal(load)}</span></div><div class="totals-row"><span class="label font-bold" style="color: #4b5563;">Tax (0%)</span><span class="value font-bold">$0.00</span></div><div class="totals-row grand"><span class="label">TOTAL DUE</span><span class="value">$${calculateTotal(load)}</span></div></div></div></div>
+        <div class="flex justify-between" style="margin-top: 30px; align-items: flex-start;"><div style="width: 50%; color: #6b7280; font-size: 11px; padding-right: 20px;"><p>Thank you for your business.</p><p>Please include invoice number on your check or remittance advice.</p></div><div style="width: 40%;"><div class="totals-box"><div class="totals-row"><span class="label font-bold" style="color: #4b5563;">Subtotal</span><span class="value font-bold">${formatMoney(safeFloat(calculateTotal(load)), currency)}</span></div>
+<div class="totals-row"><span class="label font-bold" style="color: #4b5563;">Tax (0%)</span><span class="value font-bold">${formatMoney(0, currency)}</span></div>
+<div class="totals-row grand"><span class="label">TOTAL DUE</span><span class="value">${formatMoney(safeFloat(calculateTotal(load)), currency)}</span></div>
       </div>
     `;
     const sanitizedHtml = DOMPurify.sanitize(invoiceContent, { ALLOWED_TAGS: ['div','span','style','table','thead','tbody','tr','td','th','p','h3','h4','strong','b','i','em','br','hr','ul','li','pre','img','a','input','label','select','option'], ALLOWED_ATTR: ['class','style','href','src','alt','title','type','name','value','checked','for','id','colspan','rowspan','align','border','cellpadding'] });
@@ -631,7 +642,7 @@ const exportInvoicesToExcel = (loads, startDate, endDate, companyName) => {
     const terms = 'NET30';
     const memo = 'Internal reference';
     const tax = 0;
-    const currency = 'CAD';
+    const currency = load.currency || 'CAD';  // NEW
 
     // Determine payment status
     let paymentStatus = 'Unpaid';
@@ -1318,7 +1329,22 @@ const LoadForm = ({
           <div className="space-y-4 bg-slate-50 p-6 rounded-[32px] border border-slate-100"><div className="flex items-center gap-2"><FileText className="w-4 h-4 text-slate-600" /><h3 className="font-black text-xs uppercase tracking-widest">Documentation</h3></div><div className="grid grid-cols-1 md:grid-cols-2 gap-6"><div className="space-y-2"><label className="text-[10px] font-black text-slate-400 uppercase">Load Confirmation</label><div className="flex items-center gap-3"><label className={`cursor-pointer flex items-center gap-2 px-4 py-3 bg-white border border-slate-200 rounded-xl transition-colors w-full justify-center border-dashed ${uploadingFile ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-50'}`}><FileUp className="w-4 h-4 text-blue-600" /><span className="text-xs font-bold text-slate-600">{uploadingFile ? "Uploading..." : "Upload PDF / Image"}</span><input type="file" accept=".pdf,image/*" className="hidden" onChange={(e) => handleFileUpload(e, 'loadConfirmation')} disabled={uploadingFile} /></label>{formData.loadConfirmation && <div className="p-2 bg-green-50 text-green-600 rounded-lg"><CheckCircle2 className="w-5 h-5" /></div>}</div>{formData.loadConfirmation && <div className="text-[10px] font-bold text-slate-400 pl-1 truncate">{formData.loadConfirmation.name}</div>}</div><div className="space-y-2"><label className="text-[10px] font-black text-slate-400 uppercase">Signed POD</label><div className="flex items-center gap-3"><label className={`cursor-pointer flex items-center gap-2 px-4 py-3 bg-white border border-slate-200 rounded-xl transition-colors w-full justify-center border-dashed ${uploadingFile ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-50'}`}><FileUp className="w-4 h-4 text-green-600" /><span className="text-xs font-bold text-slate-600">{uploadingFile ? "Uploading..." : "Upload Signed POD"}</span><input type="file" accept=".pdf,image/*" className="hidden" onChange={(e) => handleFileUpload(e, 'signedPodDoc')} disabled={uploadingFile} /></label>{formData.signedPodDoc && <div className="p-2 bg-green-50 text-green-600 rounded-lg"><CheckCircle2 className="w-5 h-5" /></div>}</div>{formData.signedPodDoc && <div className="text-[10px] font-bold text-slate-400 pl-1 truncate">{formData.signedPodDoc.name}</div>}</div></div></div>
 
           {/* Appointment & Customer */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8"><div className="space-y-4"><div className="flex items-center gap-2"><Clock className="w-4 h-4 text-orange-600" /><h3 className="font-black text-xs uppercase tracking-widest">Appointment Schedule</h3></div><div className="grid grid-cols-2 gap-4"><input type="date" name="appointmentDate" value={formData.appointmentDate} onChange={handleChange} className="w-full px-4 py-3 bg-slate-50 border border-orange-200 rounded-2xl font-black text-orange-700 outline-none" /><input type="time" name="appointmentTime" value={formData.appointmentTime} onChange={handleChange} className="w-full px-4 py-3 bg-slate-50 border border-orange-200 rounded-2xl font-black text-orange-700 outline-none" /></div></div><div className="space-y-4 relative"><div className="flex items-center gap-2"><Building className="text-blue-600 w-4 h-4" /><h3 className="font-black text-xs uppercase tracking-widest">Customer Profile</h3></div><div className="relative"><select name="customerName" value={formData.customerName} onChange={(e) => { const selectedName = e.target.value; const cust = savedCustomers.find(c => c.name === selectedName); setFormData(prev => { if (cust) { return { ...prev, customerName: cust.name, customerEmail: cust.email || '', customerPhone: cust.phone || '', customerAddress: cust.address || '' }; } return { ...prev, customerName: selectedName }; }); }} className="w-full px-4 py-3 bg-slate-50 border rounded-2xl font-bold outline-none appearance-none"><option value="" disabled>Select saved customer...</option>{savedCustomers.map((c, i) => (<option key={c.id || i} value={c.name}>{c.name}</option>))}</select><ChevronDown className="absolute right-4 top-4 w-5 h-5 text-slate-400 pointer-events-none" /></div><div className="pt-2 grid grid-cols-2 gap-3"><div><label className="text-[10px] font-black text-slate-400 uppercase" htmlFor="customerEmail">Billing Email</label><input id="customerEmail" name="customerEmail" value={formData.customerEmail} onChange={handleChange} className="w-full px-4 py-2 bg-slate-50 border rounded-xl font-bold text-sm outline-none" placeholder="email@example.com" /></div><div><label className="text-[10px] font-black text-slate-400 uppercase" htmlFor="customerPhone">Phone</label><input id="customerPhone" name="customerPhone" value={formData.customerPhone} onChange={handleChange} className="w-full px-4 py-2 bg-slate-50 border rounded-xl font-bold text-sm outline-none" placeholder="Phone Number" /></div></div></div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8"><div className="space-y-4"><div className="flex items-center gap-2"><Clock className="w-4 h-4 text-orange-600" /><h3 className="font-black text-xs uppercase tracking-widest">Appointment Schedule</h3></div><div className="grid grid-cols-2 gap-4"><input type="date" name="appointmentDate" value={formData.appointmentDate} onChange={handleChange} className="w-full px-4 py-3 bg-slate-50 border border-orange-200 rounded-2xl font-black text-orange-700 outline-none" /><input type="time" name="appointmentTime" value={formData.appointmentTime} onChange={handleChange} className="w-full px-4 py-3 bg-slate-50 border border-orange-200 rounded-2xl font-black text-orange-700 outline-none" /></div></div><div className="space-y-4 relative"><div className="flex items-center gap-2"><Building className="text-blue-600 w-4 h-4" /><h3 className="font-black text-xs uppercase tracking-widest">Customer Profile</h3></div><div className="relative"><select name="customerName" value={formData.customerName} onChange={(e) => { 
+  const selectedName = e.target.value; 
+  const cust = savedCustomers.find(c => c.name === selectedName); 
+  setFormData(prev => { 
+    if (cust) { 
+      return { ...prev, 
+        customerName: cust.name, 
+        customerEmail: cust.email || '', 
+        customerPhone: cust.phone || '', 
+        customerAddress: cust.address || '',
+        currency: cust.currency || 'CAD'   // ← ADD THIS
+      }; 
+    } 
+    return { ...prev, customerName: selectedName }; 
+  }); 
+}}> className="w-full px-4 py-3 bg-slate-50 border rounded-2xl font-bold outline-none appearance-none"><option value="" disabled>Select saved customer...</option>{savedCustomers.map((c, i) => (<option key={c.id || i} value={c.name}>{c.name}</option>))}</select><ChevronDown className="absolute right-4 top-4 w-5 h-5 text-slate-400 pointer-events-none" /></div><div className="pt-2 grid grid-cols-2 gap-3"><div><label className="text-[10px] font-black text-slate-400 uppercase" htmlFor="customerEmail">Billing Email</label><input id="customerEmail" name="customerEmail" value={formData.customerEmail} onChange={handleChange} className="w-full px-4 py-2 bg-slate-50 border rounded-xl font-bold text-sm outline-none" placeholder="email@example.com" /></div><div><label className="text-[10px] font-black text-slate-400 uppercase" htmlFor="customerPhone">Phone</label><input id="customerPhone" name="customerPhone" value={formData.customerPhone} onChange={handleChange} className="w-full px-4 py-2 bg-slate-50 border rounded-xl font-bold text-sm outline-none" placeholder="Phone Number" /></div></div></div>
             {recurringTemplate && (
               <div className="mt-3 bg-green-50 p-3 rounded-xl border border-green-100 flex items-center gap-3">
                 <CheckCircle2 className="w-5 h-5 text-green-600" />
@@ -1392,7 +1418,11 @@ const BillingTable = ({ loads, onStatusChange, onDraftEmail, onEdit, onPrint, on
         <td className="px-6 py-4"><div className="font-bold text-slate-900 text-sm">{load.containerNo || 'N/A'} <span className="text-xs text-slate-400 ml-2 font-normal">({load.workOrderNo || 'No WO'})</span></div><div className="text-[10px] font-black text-slate-400 mt-1 uppercase">{load.customerName || 'N/A'}</div></td>
         <td className="px-6 py-4 text-center"><div className="flex justify-center gap-2">{load.loadConfirmation && <button onClick={() => onViewDoc && onViewDoc({...load.loadConfirmation, title: "Confirmation"})} className="p-1.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100"><Paperclip className="w-3.5 h-3.5" /></button>}{load.signedPodDoc && <button onClick={() => onViewDoc && onViewDoc({...load.signedPodDoc, title: "POD"})} className="p-1.5 bg-green-50 text-green-600 rounded-lg hover:bg-green-100"><ClipboardCheck className="w-3.5 h-3.5" /></button>}</div></td>
         <td className="px-6 py-4"><select value={load.status || 'Ready for Billing'} onChange={(e) => onStatusChange && onStatusChange(load.id, e.target.value)} className="px-3 py-1.5 rounded-xl border border-green-200 bg-green-50 text-green-600 text-[10px] font-black uppercase transition-all"><option value="Ready for Billing">Ready for Billing</option><option value="Invoiced">Invoiced</option><option value="Paid">Mark Paid</option><option value="Open">Revert to Open</option></select></td>
-        <td className="px-6 py-4"><div className="font-black text-slate-900 text-sm">Rev: ${calculateTotal(load)}</div><div className="font-bold text-red-500 text-[10px] mt-0.5 uppercase">Cost: ${calculateCost(load)}</div><div className="font-black text-green-600 text-[11px] mt-0.5 uppercase">Profit: ${calculateProfit(load)}</div></td>
+        <td className="px-6 py-4">
+  <div className="font-black text-slate-900 text-sm">Rev: {formatMoney(calculateTotal(load), load.currency || 'CAD')}</div>
+  <div className="font-bold text-red-500 text-[10px] mt-0.5 uppercase">Cost: {formatMoney(calculateCost(load), load.currency || 'CAD')}</div>
+  <div className="font-black text-green-600 text-[11px] mt-0.5 uppercase">Profit: {formatMoney(calculateProfit(load), load.currency || 'CAD')}</div>
+</td>
         <td className="px-6 py-4 text-right"><div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-all"><button onClick={() => onEdit && onEdit(load)} className="p-2 text-slate-400 hover:text-blue-600 rounded-lg transition-colors"><Edit3 className="w-4 h-4" /></button><button onClick={() => onPrint && onPrint(load)} className="p-2 text-slate-400 hover:text-green-600 rounded-lg transition-colors"><Printer className="w-4 h-4" /></button><button onClick={() => setShowInvoiceInput(!showInvoiceInput)} className="p-2 rounded-lg transition-colors bg-blue-600 text-white hover:bg-blue-700" title="Send Invoice Email"><Send className="w-4 h-4" /></button></div>{showInvoiceInput && (<div className="mt-2 flex items-center gap-2 bg-white p-2 rounded-lg shadow-lg border border-slate-200"><input type="email" value={invoiceFromEmail} onChange={(e) => setInvoiceFromEmail(e.target.value)} placeholder="Your accounting email" className="px-2 py-1 border rounded text-xs w-48" /><button onClick={() => { onSendInvoice && onSendInvoice(load, invoiceFromEmail); setShowInvoiceInput(false); }} className="px-2 py-1 bg-green-600 text-white rounded text-xs font-bold">Send</button></div>)}</td>
       </tr>
     );
@@ -1563,7 +1593,7 @@ const [invoiceEndDate, setInvoiceEndDate] = useState('');
   const [savedCustomers, setSavedCustomers] = useState([]);
   const [savedDestinations, setSavedDestinations] = useState([]);
   const [savedDrivers, setSavedDrivers] = useState([]);
-  const [newCust, setNewCust] = useState({ name: '', email: '', phone: '', address: '', contactName: '', contactTitle: '', fax: '', city: '', postalCode: '', defaultTax: '', accountingId: '', division: '' });
+  const [newCust, setNewCust] = useState({ name: '', email: '', phone: '', address: '', contactName: '', contactTitle: '', fax: '', city: '', postalCode: '', defaultTax: '', accountingId: '', division: '', currency: 'CAD' });
   const [newLoc, setNewLoc] = useState({ name: '', address: '' });
   const [newDriver, setNewDriver] = useState({ name: '', truckNo: '', type: 'Company Driver' });
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -1817,6 +1847,7 @@ const [invoiceEndDate, setInvoiceEndDate] = useState('');
         defaultTax: sanitizeInput(newCust.defaultTax),
         accountingId: sanitizeInput(newCust.accountingId),
         division: sanitizeInput(newCust.division),
+        currency: newCust.currency,
         companyId: companyId
       });
       if (isMountedRef.current) {
@@ -1940,7 +1971,8 @@ const [invoiceEndDate, setInvoiceEndDate] = useState('');
       signedPodDoc: normalizeFileRef(migratedData.signedPodDoc),
       updatedAt: now,
       locationId: dataSharingMode === 'separate' ? currentLocation : null,
-      companyId: companyId
+      companyId: companyId,
+      currency: migratedData.currency || 'CAD'   // ← MISSING COMMA AFTER companyId!
     };
     if (!editingId) {
   cleanedData.createdAt = now;
@@ -2050,6 +2082,7 @@ const [invoiceEndDate, setInvoiceEndDate] = useState('');
     try {
       const addressStr = [companyDetails?.address, companyDetails?.city, companyDetails?.postalCode].filter(Boolean).join(', ');
       const currentDate = new Date().toISOString().split('T')[0];
+      const currency = load.currency || 'CAD';
       let rowsHtml = '';
       if (load.revenueItems && Array.isArray(load.revenueItems) && load.revenueItems.length > 0) {
         load.revenueItems.forEach(item => {
