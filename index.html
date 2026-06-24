@@ -1,12 +1,27 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>NEXDRAY</title>
+    <title>Haulix TMS</title>
   </head>
   <body>
+    <!-- ✅ CRITICAL: Firebase polyfill - MUST be before any scripts -->
+    <script>
+      // Polyfill for process in browser
+      if (typeof process === 'undefined') {
+        window.process = { env: {} };
+        globalThis.process = { env: {} };
+      }
+      // Also handle global
+      if (typeof global === 'undefined') {
+        window.global = window;
+        globalThis.global = window;
+      }
+    </script>
+    <!-- ✅ END POLYFILL -->
+    
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>

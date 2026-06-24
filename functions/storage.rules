@@ -1,0 +1,40 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    // ========== POD PHOTOS (uploaded by drivers) ==========
+    match /pod/{companyId}/{loadId}/{legId}/{fileName} {
+      // Anyone can read POD photos (needed for driver app without Firebase Auth)
+      allow read: if true;
+      // Write is allowed - drivers use custom login, not Firebase Auth
+      // Limit file size and type
+      allow create: if request.resource.size < 10 * 1024 * 1024
+                    && request.resource.contentType.matches('image/.*');
+      allow delete: if false; // Don't allow deletion of PODs
+    }
+    
+    // ========== UPLOADS (by authenticated dispatchers/admins) ==========
+    match /uploads/{companyId}/{userId}/{fileName} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+                    && request.auth.uid == userId
+                    && request.resource.size < 10 * 1024 * 1024
+                    && request.resource.contentType.matches('application/pdf|image/.*');
+      allow delete: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // ========== INVOICES (by authenticated users) ==========
+    match /invoices/{companyId}/{fileName} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+                    && request.resource.size < 10 * 1024 * 1024
+                    && request.resource.contentType == 'application/pdf';
+      allow delete: if request.auth != null;
+    }
+    
+    // Deny everything else
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

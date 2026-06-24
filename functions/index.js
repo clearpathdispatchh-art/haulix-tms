@@ -16,7 +16,6 @@ const validateLoadForm = (data) => {
     shippingLine: "Shipping Line",
     customerName: "Customer Name",
     status: "Status"
-    // appointmentDate is NOT required – loads can be created before an appointment is booked
   };
   for (const [field, label] of Object.entries(requiredFields)) {
     if (!data[field] || String(data[field]).trim() === "") {
@@ -26,7 +25,12 @@ const validateLoadForm = (data) => {
   if (!Array.isArray(data.legs) || data.legs.length === 0) {
     return { valid: false, error: "At least one trip leg is required." };
   }
-  // Financial validation (line items)
+  
+  // Validate currency if provided
+  if (data.currency && !['CAD', 'USD'].includes(data.currency)) {
+    return { valid: false, error: "Invalid currency. Must be CAD or USD." };
+  }
+  
   const revenueItems = data.revenueItems || [];
   const hasBasePrice = safeFloat(data.basePrice) > 0 || safeFloat(data.waitingTime) > 0 || safeFloat(data.fuelSurcharge) > 0;
   const hasLineItems = revenueItems.length > 0;
@@ -45,27 +49,39 @@ const validateLoadForm = (data) => {
   return { valid: true };
 };
 
-// ====== NEW: Input sanitization helpers (XSS prevention) ======
+// ====== Input sanitization helpers (XSS prevention) ======
 const sanitizeString = (input) => {
   if (typeof input !== 'string') return input;
   return input
     .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-    .replace(/on\w+=/gi, '')
-    .replace(/javascript:/gi, '')
+    .replace(/on\w+\s*=/gi, '')
+    .replace(/javascript\s*:/gi, '')
+    .replace(/vbscript\s*:/gi, '')
+    .replace(/data\s*:\s*text\/html/gi, '')
     .trim();
 };
 
+// FIXED: Returns new object instead of mutating input
 const sanitizeObject = (obj) => {
-  if (typeof obj !== 'object' || obj === null) return;
+  if (typeof obj !== 'object' || obj === null) return obj;
+  
+  if (Array.isArray(obj)) {
+    return obj.map(item => sanitizeObject(item));
+  }
+  
+  const sanitized = {};
   for (const key in obj) {
     if (typeof obj[key] === 'string') {
-      obj[key] = sanitizeString(obj[key]);
+      sanitized[key] = sanitizeString(obj[key]);
     } else if (Array.isArray(obj[key])) {
-      obj[key].forEach(item => sanitizeObject(item));
-    } else if (typeof obj[key] === 'object') {
-      sanitizeObject(obj[key]);
+      sanitized[key] = obj[key].map(item => sanitizeObject(item));
+    } else if (typeof obj[key] === 'object' && obj[key] !== null) {
+      sanitized[key] = sanitizeObject(obj[key]);
+    } else {
+      sanitized[key] = obj[key];
     }
   }
+  return sanitized;
 };
 
 // ---------- 1. Send Email (Support & Contact Form) [Resend] ----------
@@ -100,8 +116,25 @@ exports.createTeamMember = onCall(async (request) => {
   if (!request.auth) throw new HttpsError("unauthenticated", "Must be logged in.");
   const callerUid = request.auth.uid;
   const { email, password, role, companyId } = request.data;
+  
   if (!email || !password || !role || !companyId)
     throw new HttpsError("invalid-argument", "Missing required fields.");
+
+  // Validate role
+  if (!['dispatcher', 'accounting', 'admin'].includes(role)) {
+    throw new HttpsError("invalid-argument", "Invalid role specified.");
+  }
+  
+  // Validate email format
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+  if (!emailRegex.test(email)) {
+    throw new HttpsError("invalid-argument", "Invalid email format.");
+  }
+  
+  // Validate password strength
+  if (password.length < 6) {
+    throw new HttpsError("invalid-argument", "Password must be at least 6 characters.");
+  }
 
   const callerDoc = await admin.firestore().collection("users").doc(callerUid).get();
   if (!callerDoc.exists) throw new HttpsError("not-found", "Caller account not found.");
@@ -113,7 +146,17 @@ exports.createTeamMember = onCall(async (request) => {
   try {
     newUser = await admin.auth().createUser({ email, password });
   } catch (error) {
-    throw new HttpsError("already-exists", error.message);
+    // FIXED: Better error handling for specific auth errors
+    if (error.code === 'auth/email-already-exists') {
+      throw new HttpsError("already-exists", "A user with this email already exists.");
+    }
+    if (error.code === 'auth/invalid-email') {
+      throw new HttpsError("invalid-argument", "Invalid email format.");
+    }
+    if (error.code === 'auth/weak-password') {
+      throw new HttpsError("invalid-argument", "Password is too weak. Must be at least 6 characters.");
+    }
+    throw new HttpsError("internal", error.message);
   }
 
   const companySnap = await admin.firestore().collection("companies").doc(companyId).get();
@@ -135,10 +178,13 @@ exports.createTeamMember = onCall(async (request) => {
     memberUids: admin.firestore.FieldValue.arrayUnion(newUser.uid)
   });
 
+  // FIXED: Add audit log
+  console.log(`Team member created: ${email} (${role}) by ${callerData.email || callerUid}`);
+
   return { success: true, uid: newUser.uid };
 });
 
-// ---------- 3. Validate & Write Load function (with role enforcement & sanitization) ----------
+// ---------- 3. Validate & Write Load function (FIXED COLLECTION PATH) ----------
 exports.validateAndWriteLoad = onCall(async (request) => {
   try {
     if (!request.auth) throw new HttpsError("unauthenticated", "Must be logged in.");
@@ -150,53 +196,62 @@ exports.validateAndWriteLoad = onCall(async (request) => {
     const userRole = user.role;
     if (!userCompany) throw new HttpsError("failed-precondition", "User has no company.");
 
+    // FIXED: Location access validation
+    const loadData = request.data.load || {};
+    if (loadData.locationId) {
+      const userAccessibleLocations = user.accessibleLocations || [];
+      if (userAccessibleLocations.length > 0 && !userAccessibleLocations.includes(loadData.locationId)) {
+        throw new HttpsError("permission-denied", "You don't have access to this location.");
+      }
+    }
+
     // ---------------------------------------------------------------
-// Rate limiting (rolling window – server side)
-const rateDocRef = admin.firestore().collection(`rateLimits_${userCompany}`).doc(uid);
-const rateDoc = await rateDocRef.get();
-const now = Date.now();
-const COOLDOWN_MS = 5000;          // 5 seconds between individual writes
-const MAX_PER_MINUTE = 10;         // max 10 loads per rolling minute
+    // Rate limiting (rolling window – server side)
+    const rateDocRef = admin.firestore().collection(`rateLimits_${userCompany}`).doc(uid);
+    const rateDoc = await rateDocRef.get();
+    const now = Date.now();
+    const COOLDOWN_MS = 5000;
+    const MAX_PER_MINUTE = 10;
 
-if (rateDoc.exists) {
-  const data = rateDoc.data();
-  const lastWrite = data.lastWrite?.toMillis() || 0;
+    if (rateDoc.exists) {
+      const data = rateDoc.data();
+      const lastWrite = data.lastWrite?.toMillis() || 0;
 
-  // 1. Cooldown between writes (prevents rapid clicking)
-  if (now - lastWrite < COOLDOWN_MS) {
-    throw new HttpsError("resource-exhausted", "Please wait a few seconds before creating another load.");
-  }
+      if (now - lastWrite < COOLDOWN_MS) {
+        throw new HttpsError("resource-exhausted", "Please wait a few seconds before creating another load.");
+      }
 
-  // 2. Rolling window: keep an array of timestamps for the last minute
-  let timestamps = data.timestamps || [];
-  const oneMinuteAgo = admin.firestore.Timestamp.fromMillis(now - 60_000);
-  timestamps = timestamps.filter(ts => ts >= oneMinuteAgo);
+      let timestamps = data.timestamps || [];
+      const oneMinuteAgo = admin.firestore.Timestamp.fromMillis(now - 60_000);
+      timestamps = timestamps.filter(ts => ts >= oneMinuteAgo);
 
-  if (timestamps.length >= MAX_PER_MINUTE) {
-    throw new HttpsError("resource-exhausted", `Too many loads created. Please wait a minute. (max ${MAX_PER_MINUTE} per minute)`);
-  }
+      if (timestamps.length >= MAX_PER_MINUTE) {
+        throw new HttpsError("resource-exhausted", `Too many loads created. Please wait a minute. (max ${MAX_PER_MINUTE} per minute)`);
+      }
 
-  timestamps.push(admin.firestore.Timestamp.now());
+      timestamps.push(admin.firestore.Timestamp.now());
 
-  await rateDocRef.set({
-    lastWrite: admin.firestore.FieldValue.serverTimestamp(),
-    timestamps,
-  }, { merge: true });
-} else {
-  // First write for this user
-  await rateDocRef.set({
-    lastWrite: admin.firestore.FieldValue.serverTimestamp(),
-    timestamps: [admin.firestore.Timestamp.now()],
-  });
-}
-// ---------------------------------------------------------------
+      await rateDocRef.set({
+        lastWrite: admin.firestore.FieldValue.serverTimestamp(),
+        timestamps,
+      }, { merge: true });
+    } else {
+      await rateDocRef.set({
+        lastWrite: admin.firestore.FieldValue.serverTimestamp(),
+        timestamps: [admin.firestore.Timestamp.now()],
+      });
+    }
+    // ---------------------------------------------------------------
 
-    const loadData = request.data.load;
     const loadId = request.data.loadId || null;
 
     // --- Role‑based locking check (only when updating an existing load) ---
     if (loadId) {
-      const loadSnap = await admin.firestore().collection(`loads_${userCompany}`).doc(loadId).get();
+      // FIXED: Use correct collection path
+      const loadSnap = await admin.firestore()
+        .collection('companies').doc(userCompany)
+        .collection('loads').doc(loadId).get();
+        
       if (!loadSnap.exists) throw new HttpsError("not-found", "Load not found.");
       const existingStatus = loadSnap.data().status;
 
@@ -216,15 +271,16 @@ if (rateDoc.exists) {
     loadData.companyId = userCompany;
 
     // --- Sanitize all string inputs to prevent stored XSS ---
-    sanitizeObject(loadData);
+    // FIXED: Use returned sanitized object instead of mutating
+    const sanitizedData = sanitizeObject(loadData);
 
-    // --- Write to Firestore ---
+    // --- Write to Firestore (FIXED: Use correct collection path) ---
     const loadRef = loadId
-      ? admin.firestore().collection(`loads_${userCompany}`).doc(loadId)
-      : admin.firestore().collection(`loads_${userCompany}`).doc();
+      ? admin.firestore().collection('companies').doc(userCompany).collection('loads').doc(loadId)
+      : admin.firestore().collection('companies').doc(userCompany).collection('loads').doc();
 
     const writePayload = {
-      ...loadData,
+      ...sanitizedData,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     };
     if (!loadId) {
@@ -251,8 +307,27 @@ exports.extractLoadDataFromDocument = onCall(
     const { fileUrl } = request.data;
     if (!fileUrl) throw new HttpsError("invalid-argument", "Missing fileUrl.");
 
+    // FIXED: SSRF protection - validate URL before downloading
+    const MY_STORAGE_BUCKET = process.env.STORAGE_BUCKET || "haulix-tms.firebasestorage.app";
+    const isValidStorageUrl = (url) => {
+      return url && (url.includes(`firebasestorage.googleapis.com/v0/b/${MY_STORAGE_BUCKET}`) 
+                      || url.includes(`${MY_STORAGE_BUCKET}/`));
+    };
+    
+    if (!isValidStorageUrl(fileUrl)) {
+      throw new HttpsError("invalid-argument", "Invalid file URL. Must be from our storage.");
+    }
+
     try {
       const fetch = (await import("node-fetch")).default;
+      
+      // FIXED: Check file size before downloading (max 10MB)
+      const headResponse = await fetch(fileUrl, { method: 'HEAD' });
+      const contentLength = parseInt(headResponse.headers.get('content-length') || '0', 10);
+      if (contentLength > 10 * 1024 * 1024) {
+        throw new HttpsError("invalid-argument", "File too large. Maximum size is 10MB.");
+      }
+      
       const response = await fetch(fileUrl);
       if (!response.ok) throw new Error(`Failed to fetch document: ${response.statusText}`);
       const buffer = await response.arrayBuffer();
@@ -302,7 +377,10 @@ Do not include any other text or explanation.`;
 
       const aiData = await aiResponse.json();
 
-      console.log("Gemini API response:", JSON.stringify(aiData).slice(0, 500));
+      // FIXED: Removed verbose logging in production
+      if (process.env.NODE_ENV === 'development') {
+        console.log("Gemini API response:", JSON.stringify(aiData).slice(0, 500));
+      }
 
       if (aiData.error) {
         console.error("Gemini API error:", aiData.error);
@@ -318,7 +396,7 @@ Do not include any other text or explanation.`;
       }
 
       if (!rawText) {
-        console.error("No text in response. Full response:", JSON.stringify(aiData));
+        console.error("No text in response");
         if (aiData.contents) {
           rawText = aiData.contents[0]?.parts?.[0]?.text;
         }
@@ -337,7 +415,7 @@ Do not include any other text or explanation.`;
   }
 );
 
-// ---------- 5. Send Invoice Email (Resend – with SSRF protection) ----------
+// ---------- 5. Send Invoice Email (Resend – with SSRF protection & currency fix) ----------
 exports.sendInvoiceEmail = onCall(
   { secrets: ["RESEND_API_KEY"] },
   async (request) => {
@@ -352,18 +430,21 @@ exports.sendInvoiceEmail = onCall(
       const { Resend } = await import("resend");
       const resend = new Resend(process.env.RESEND_API_KEY);
 
-      // ====== NEW: SSRF protection – only allow URLs from our own storage bucket ======
+      // ====== SSRF protection ======
       const MY_STORAGE_BUCKET = process.env.STORAGE_BUCKET || "haulix-tms.firebasestorage.app";
       const isValidStorageUrl = (url) => {
         return url && (url.includes(`firebasestorage.googleapis.com/v0/b/${MY_STORAGE_BUCKET}`) 
                         || url.includes(`${MY_STORAGE_BUCKET}/`));
       };
 
+      // FIXED: Currency-aware formatting
+      const currencySymbol = loadData.currency === 'USD' ? 'US$' : 'C$';
+      const currencyCode = loadData.currency || 'CAD';
+
       const attachments = [];
 
       const fetchAndAttach = async (fileRef, filename) => {
         if (!fileRef || !fileRef.url) return;
-        // Skip if URL is not from our storage (prevents SSRF)
         if (!isValidStorageUrl(fileRef.url)) {
           console.warn(`Rejected unsafe URL: ${fileRef.url}`);
           return;
@@ -382,13 +463,11 @@ exports.sendInvoiceEmail = onCall(
         }
       };
 
-      // Attach Load Confirmation & Signed POD (if they exist)
       await fetchAndAttach(loadData.loadConfirmation,
         `${loadData.workOrderNo || "load"}_confirmation.pdf`);
       await fetchAndAttach(loadData.signedPodDoc,
         `${loadData.workOrderNo || "load"}_POD.pdf`);
 
-      // Attach the invoice PDF (only if it's a valid storage URL)
       if (invoiceUrl) {
         if (isValidStorageUrl(invoiceUrl)) {
           await fetchAndAttach({ url: invoiceUrl },
@@ -398,45 +477,48 @@ exports.sendInvoiceEmail = onCall(
         }
       }
 
-      // 2. Prepare email content
-      const customerName = loadData.customerName || "Valued Customer";
-      const woNumber = loadData.workOrderNo || "N/A";
-      const containerNo = loadData.containerNo || "N/A";
-      const customerRef = loadData.customerRefNo || "N/A";
+      // FIXED: Sanitize all customer-facing data
+      const customerName = sanitizeString(loadData.customerName || "Valued Customer");
+      const woNumber = sanitizeString(loadData.workOrderNo || "N/A");
+      const containerNo = sanitizeString(loadData.containerNo || "N/A");
+      const customerRef = sanitizeString(loadData.customerRefNo || "N/A");
+      const safeCompanyName = sanitizeString(companyName || "Nexdray");
 
       const textBody = `Hello,
 
 Please see attached invoice ${woNumber} and POD for your reference for container ${containerNo}.
+Amount: ${currencySymbol}${calculateTotalServer(loadData)} ${currencyCode}
+
 Should you have any questions, please contact us at ${fromEmail}.
 
-${companyName || "Nexdray"}
+${safeCompanyName}
 
-This email contains confidential information…`;
+This email contains confidential information intended for the recipient only.`;
 
       const htmlBody = `<!DOCTYPE html>
 <html><head><meta charset="UTF-8"></head>
 <body style="font-family:Arial,sans-serif;color:#1e293b;">
 <p>Hello,</p>
 <p>Please see attached invoice <strong>${woNumber}</strong> and POD for your reference for container <strong>${containerNo}</strong>.</p>
+<p><strong>Amount Due:</strong> ${currencySymbol}${calculateTotalServer(loadData)} ${currencyCode}</p>
 <p>Should you have any questions, please contact us at <a href="mailto:${fromEmail}">${fromEmail}</a>.</p>
-<p>${companyName || "Nexdray"}</p>
+<p>${safeCompanyName}</p>
 <br>
-<p style="font-size:11px;color:#64748b;">This email contains confidential information…</p>
+<p style="font-size:11px;color:#64748b;">This email contains confidential information intended for the recipient only.</p>
 </body></html>`;
 
-      // 3. Send via Resend – CC to accounting email, reply-to the same
       const response = await resend.emails.send({
-        from: `${companyName || "Nexdray"} <invoices@nexdray.com>`,
+        from: `${safeCompanyName} <invoices@nexdray.com>`,
         to: [loadData.customerEmail],
-        cc: [fromEmail],               // accounting team gets a copy
-        reply_to: fromEmail,           // replies go to accounting
-        subject: `Invoice: ${woNumber}, Container: ${containerNo}, Customer Ref: ${customerRef}`,
+        cc: [fromEmail],
+        reply_to: fromEmail,
+        subject: `Invoice: ${woNumber}, Container: ${containerNo}, Ref: ${customerRef}`,
         text: textBody,
         html: htmlBody,
         attachments: attachments.length > 0 ? attachments : undefined,
       });
 
-      if (response.error) throw new Error(response.error.message);
+      if (response?.error) throw new Error(response.error.message);
       return { success: true, messageId: response.id };
     } catch (error) {
       console.error("Invoice email error:", error);
@@ -445,7 +527,7 @@ This email contains confidential information…`;
   }
 );
 
-// ---------- 6. Update Load Status ----------
+// ---------- 6. Update Load Status (FIXED COLLECTION PATH) ----------
 exports.updateLoadStatus = onCall(async (request) => {
   if (!request.auth) throw new HttpsError("unauthenticated", "Must be logged in.");
 
@@ -460,7 +542,11 @@ exports.updateLoadStatus = onCall(async (request) => {
 
   const { companyId, role } = userDoc.data();
 
-  const loadRef = admin.firestore().collection(`loads_${companyId}`).doc(loadId);
+  // FIXED: Use correct collection path
+  const loadRef = admin.firestore()
+    .collection('companies').doc(companyId)
+    .collection('loads').doc(loadId);
+    
   const loadSnap = await loadRef.get();
   if (!loadSnap.exists) throw new HttpsError("not-found", "Load not found.");
 
@@ -484,7 +570,7 @@ exports.updateLoadStatus = onCall(async (request) => {
 
   const auditEntry = {
     timestamp: new Date().toISOString(),
-    user: request.auth.token?.email || "unknown",
+    user: request.auth.token?.email || uid,
     role,
     action: "Status Update",
     changes: [{ field: "status", from: loadData.status, to: newStatus }],
@@ -499,24 +585,117 @@ exports.updateLoadStatus = onCall(async (request) => {
   return { success: true, newStatus };
 });
 
-// Helper: build invoice HTML (simple, printer-friendly)
-function buildInvoiceHtml(loadData, companyName) {
-  let rows = "";
-  const items = loadData.revenueItems || [];
-  items.forEach(item => {
-    if (parseFloat(item.amount) > 0 || parseFloat(item.rate) > 0) {
-      rows += `<tr><td style="padding:8px;border-bottom:1px solid #ddd;">${sanitizeHtml(item.item || "Service")}</td><td style="padding:8px;text-align:center;border-bottom:1px solid #ddd;">${item.qty || 1}</td><td style="padding:8px;text-align:right;border-bottom:1px solid #ddd;">$${parseFloat(item.rate||0).toFixed(2)}</td><td style="padding:8px;text-align:right;border-bottom:1px solid #ddd;">$${parseFloat(item.amount||0).toFixed(2)}</td></tr>`;
-    }
-  });
-  const total = calculateTotalServer(loadData);
-  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>body{font-family:Arial,sans-serif;padding:40px;color:#1e293b;}</style></head><body>
-<h1>${sanitizeHtml(companyName||"Nexdray")}</h1><h2>INVOICE</h2>
-<table style="width:100%;margin-bottom:20px;"><tr><td><strong>Invoice #:</strong> ${sanitizeHtml(loadData.workOrderNo||"N/A")}<br><strong>Date:</strong> ${new Date().toLocaleDateString()}<br><strong>Container:</strong> ${sanitizeHtml(loadData.containerNo||"N/A")}</td><td><strong>Bill To:</strong><br>${sanitizeHtml(loadData.customerName||"")}<br>${sanitizeHtml(loadData.customerEmail||"")}</td></tr></table>
-<table style="width:100%;border-collapse:collapse;"><thead><tr style="background:#f1f5f9;"><th style="text-align:left;padding:8px;">Description</th><th style="text-align:center;padding:8px;">Qty</th><th style="text-align:right;padding:8px;">Rate</th><th style="text-align:right;padding:8px;">Amount</th></tr></thead><tbody>${rows}</tbody></table>
-<div style="text-align:right;margin-top:20px;font-size:18px;font-weight:800;">TOTAL DUE: $${parseFloat(total).toLocaleString("en-US",{minimumFractionDigits:2})}</div>
-</body></html>`;
-}
+// ---------- 7. Delete Team Member (FIXED: Added audit log) ----------
+exports.deleteTeamMember = onCall(async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Must be logged in.");
 
+  const { targetUid, companyId } = request.data;
+  const callerUid = request.auth.uid;
+
+  if (!targetUid || !companyId) {
+    throw new HttpsError("invalid-argument", "Missing targetUid or companyId.");
+  }
+
+  try {
+    const callerDoc = await admin.firestore().collection("users").doc(callerUid).get();
+    if (!callerDoc.exists) {
+      throw new HttpsError("not-found", "Caller not found");
+    }
+
+    const callerData = callerDoc.data();
+    if (!["owner", "admin"].includes(callerData.role)) {
+      throw new HttpsError("permission-denied", "Only owners and admins can delete users");
+    }
+
+    if (callerData.companyId !== companyId) {
+      throw new HttpsError("permission-denied", "Not in the same company");
+    }
+
+    if (targetUid === callerUid) {
+      throw new HttpsError("permission-denied", "Cannot delete yourself");
+    }
+
+    const targetDoc = await admin.firestore().collection("users").doc(targetUid).get();
+    if (!targetDoc.exists) {
+      throw new HttpsError("not-found", "Target user not found");
+    }
+
+    const targetData = targetDoc.data();
+    
+    if (targetData.role === "owner") {
+      throw new HttpsError("permission-denied", "Cannot delete the company owner");
+    }
+
+    // FIXED: Log the deletion before it happens
+    console.log(`Team member deleted: ${targetData.email || targetUid} (${targetData.role}) by ${callerData.email || callerUid}`);
+
+    const companyRef = admin.firestore().collection("companies").doc(companyId);
+    await companyRef.update({
+      memberUids: admin.firestore.FieldValue.arrayRemove(targetUid)
+    });
+
+    await admin.firestore().collection("users").doc(targetUid).delete();
+    await admin.auth().deleteUser(targetUid);
+
+    return { success: true, message: "User deleted successfully" };
+  } catch (error) {
+    console.error("Error deleting team member:", error);
+    if (error instanceof HttpsError) throw error;
+    throw new HttpsError("internal", error.message || "Failed to delete user");
+  }
+});
+
+// ---------- 8. Get Team Members ----------
+exports.getTeamMembers = onCall(async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Must be logged in.");
+
+  const { companyId } = request.data;
+  const callerUid = request.auth.uid;
+
+  if (!companyId) {
+    throw new HttpsError("invalid-argument", "Missing companyId.");
+  }
+
+  try {
+    const callerDoc = await admin.firestore().collection("users").doc(callerUid).get();
+    if (!callerDoc.exists || callerDoc.data().companyId !== companyId) {
+      throw new HttpsError("permission-denied", "Not authorized");
+    }
+
+    const companyDoc = await admin.firestore().collection("companies").doc(companyId).get();
+    if (!companyDoc.exists) {
+      throw new HttpsError("not-found", "Company not found");
+    }
+
+    const memberUids = companyDoc.data().memberUids || [];
+    const members = [];
+
+    for (const uid of memberUids) {
+      try {
+        const userDoc = await admin.firestore().collection("users").doc(uid).get();
+        if (userDoc.exists) {
+          const userData = userDoc.data();
+          members.push({
+            uid: uid,
+            email: userData.email || "Unknown",
+            role: userData.role || "dispatcher",
+            setupComplete: userData.setupComplete || false
+          });
+        }
+      } catch (err) {
+        console.warn(`Could not fetch user ${uid}:`, err.message);
+      }
+    }
+
+    return { success: true, members };
+  } catch (error) {
+    console.error("Error getting team members:", error);
+    if (error instanceof HttpsError) throw error;
+    throw new HttpsError("internal", error.message || "Failed to get team members");
+  }
+});
+
+// Helper functions
 function calculateTotalServer(loadData) {
   const items = loadData.revenueItems || [];
   if (items.length === 0) return "0.00";
