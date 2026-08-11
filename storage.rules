@@ -1,24 +1,40 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-    // Helper: Check if the authenticated user belongs to the given companyId.
-    function userBelongsToCompany(companyId) {
+    
+    function isCompanyMember(companyId) {
       return request.auth != null &&
-             exists(/databases/(default)/documents/users/$(request.auth.uid)) &&
-             get(/databases/(default)/documents/users/$(request.auth.uid)).data.companyId == companyId;
+        request.auth.uid in 
+        firestore.get(/databases/(default)/documents/companies/$(companyId)).data.memberUids;
     }
     
-    // Uploads (load confirmation, signed POD, etc.)
+    match /pod/{companyId}/{loadId}/{legId}/{fileName} {
+      allow read: if isCompanyMember(companyId);
+      allow write: if isCompanyMember(companyId) && 
+        request.resource.size < 10 * 1024 * 1024;
+    }
+    
     match /uploads/{companyId}/{userId}/{fileName} {
-      allow read, write: if userBelongsToCompany(companyId);
+      allow read: if isCompanyMember(companyId);
+      allow write: if isCompanyMember(companyId) && 
+        request.auth.uid == userId &&
+        request.resource.size < 10 * 1024 * 1024;
+      allow delete: if isCompanyMember(companyId) && 
+        request.auth.uid == userId;
     }
     
-    // Invoices (generated PDFs)
     match /invoices/{companyId}/{fileName} {
-      allow read, write: if userBelongsToCompany(companyId);
+      allow read: if isCompanyMember(companyId);
+      allow write: if isCompanyMember(companyId) &&
+        request.resource.size < 10 * 1024 * 1024;
     }
     
-    // Deny any other paths
+    match /signatures/{companyId}/{loadId}/{legId}/{fileName} {
+      allow read: if isCompanyMember(companyId);
+      allow write: if isCompanyMember(companyId) &&
+        request.resource.size < 5 * 1024 * 1024;
+    }
+    
     match /{allPaths=**} {
       allow read, write: if false;
     }

@@ -38,7 +38,7 @@ const DriverPayroll = ({
     { value: 'custom', label: 'Custom Range' }
   ];
 
-  // Calculate driver pay summary
+  // ✅ STEP 1 & 2: FIXED calculateDriverPay with driver type logic
   const calculateDriverPay = useCallback((driverId, start, end) => {
     const driver = drivers.find(d => d.id === driverId);
     if (!driver) return null;
@@ -67,11 +67,14 @@ const DriverPayroll = ({
           const pay = parseFloat(leg.driverPay) || 0;
           const fuel = parseFloat(leg.fuelCost) || 0;
           const detention = parseFloat(leg.detentionPay) || 0;
-          const gross = pay + detention;
 
           totalPay += pay;
           totalFuel += fuel;
           totalDetention += detention;
+
+          // ✅ FIX: Gross pay is driver pay + detention ONLY
+          // Fuel is tracked separately based on driver type
+          const gross = pay + detention;
           totalGross += gross;
 
           trips.push({
@@ -95,16 +98,34 @@ const DriverPayroll = ({
     // Sort trips by date
     trips.sort((a, b) => (a.date > b.date ? -1 : 1));
 
+    // ✅ FIX: Calculate net pay based on driver type
+    let netPay = totalGross; // Start with gross pay
+    
+    if (driver.type === 'Company Driver') {
+      // Company Driver: Company pays for fuel
+      // Net pay = Gross pay + Fuel cost (company reimburses fuel)
+      netPay = totalGross + totalFuel;
+    } else if (driver.type === 'Owner Operator') {
+      // Owner Operator: Pays their own fuel
+      // Net pay = Gross pay ONLY (no fuel added)
+      netPay = totalGross;
+      // Fuel is tracked separately for reporting
+    } else {
+      // Third-Party Driver: Separate arrangement, just gross pay
+      netPay = totalGross;
+    }
+
     return {
       driver: driver,
       totalPay: totalPay,
       totalFuel: totalFuel,
       totalDetention: totalDetention,
       totalGross: totalGross,
-      netPay: totalGross - (totalFuel * 0.5), // Example: deduction for fuel (50% of fuel cost)
+      netPay: netPay, // ✅ CORRECT: Based on driver type
       tripCount: trips.length,
       trips: trips,
-      period: { start, end }
+      period: { start, end },
+      driverType: driver.type || 'Company Driver' // ✅ Add driver type to return
     };
   }, [drivers, loads]);
 
@@ -151,7 +172,7 @@ const DriverPayroll = ({
     }
   }, [selectedDriverId, generatePayroll]);
 
-  // Export payroll report
+  // ✅ STEP 6: Export payroll report with driver type
   const exportPayroll = useCallback(() => {
     if (!payrollData) return;
 
@@ -160,13 +181,15 @@ const DriverPayroll = ({
       '=======================',
       `Driver: ${payrollData.driver.name}`,
       `Truck: ${payrollData.driver.truckNo}`,
+      `Driver Type: ${payrollData.driver.type || 'Company Driver'}`,
       `Period: ${payrollData.period.start} to ${payrollData.period.end}`,
       '',
       'SUMMARY',
       '-------',
       `Total Trips: ${payrollData.tripCount}`,
       `Gross Pay: $${payrollData.totalGross.toFixed(2)}`,
-      `Fuel Deduction: $${(payrollData.totalFuel * 0.5).toFixed(2)}`,
+      `Total Fuel: $${payrollData.totalFuel.toFixed(2)}`,
+      `Fuel Included In Pay: ${payrollData.driver.type === 'Company Driver' ? 'Yes' : 'No'}`,
       `Net Pay: $${payrollData.netPay.toFixed(2)}`,
       '',
       'TRIP DETAILS',
@@ -201,6 +224,17 @@ const DriverPayroll = ({
     }).filter(Boolean);
   }, [drivers, startDate, endDate, calculateDriverPay]);
 
+  // ✅ Helper function for driver type badge
+  const getDriverTypeBadge = (driver) => {
+    const type = driver?.type || 'Company Driver';
+    const styles = {
+      'Company Driver': 'bg-blue-100 text-blue-700',
+      'Owner Operator': 'bg-purple-100 text-purple-700',
+      'Third-Party Driver': 'bg-orange-100 text-orange-700'
+    };
+    return styles[type] || 'bg-slate-100 text-slate-700';
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in">
       {/* Header */}
@@ -211,7 +245,7 @@ const DriverPayroll = ({
             Driver Payroll
           </h2>
           <p className="text-sm text-slate-500 font-medium">
-            Calculate driver pay by trip legs for weekly, bi-weekly, or monthly periods
+            Calculate driver pay by trip legs - Owner-operators fuel costs are NOT included
           </p>
         </div>
         <button
@@ -237,7 +271,7 @@ const DriverPayroll = ({
               <option value="">Choose a driver...</option>
               {drivers.map(d => (
                 <option key={d.id} value={d.id}>
-                  {d.name} (Truck: {d.truckNo || 'N/A'}) - {d.tripStatus || 'Idle'}
+                  {d.name} (Truck: {d.truckNo || 'N/A'}) - {d.tripStatus || 'Idle'} - {d.type || 'Company Driver'}
                 </option>
               ))}
             </select>
@@ -314,8 +348,9 @@ const DriverPayroll = ({
         </div>
       </div>
 
-      {/* Payroll Summary Cards */}
+      {/* ✅ STEP 3: Payroll Summary Cards with driver type */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        {/* Driver Card */}
         <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -327,10 +362,18 @@ const DriverPayroll = ({
                 <p className="text-lg font-black text-slate-900">
                   {payrollData?.driver?.name || 'None Selected'}
                 </p>
+                {/* ✅ Driver type badge */}
+                {payrollData?.driver && (
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${getDriverTypeBadge(payrollData.driver)}`}>
+                    {payrollData.driver.type || 'Company Driver'}
+                  </span>
+                )}
               </div>
             </div>
           </div>
         </div>
+
+        {/* Trips Card */}
         <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -346,6 +389,8 @@ const DriverPayroll = ({
             </div>
           </div>
         </div>
+
+        {/* Gross Pay Card */}
         <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -361,20 +406,45 @@ const DriverPayroll = ({
             </div>
           </div>
         </div>
+
+        {/* ✅ STEP 4: Net Pay Card with driver type specific info */}
         <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-green-100 rounded-xl">
-                <DollarSign className="w-5 h-5 text-green-700" />
+              <div className={`p-2 rounded-xl ${
+                payrollData?.driver?.type === 'Owner Operator' 
+                  ? 'bg-purple-100' 
+                  : 'bg-green-100'
+              }`}>
+                <DollarSign className={`w-5 h-5 ${
+                  payrollData?.driver?.type === 'Owner Operator' 
+                    ? 'text-purple-700' 
+                    : 'text-green-700'
+                }`} />
               </div>
               <div>
                 <p className="text-xs font-bold text-slate-400 uppercase">Net Pay</p>
-                <p className="text-lg font-black text-green-700">
+                <p className={`text-lg font-black ${
+                  payrollData?.driver?.type === 'Owner Operator' 
+                    ? 'text-purple-700' 
+                    : 'text-green-700'
+                }`}>
                   ${payrollData?.netPay?.toFixed(2) || '0.00'}
                 </p>
-                {payrollData && (
-                  <p className="text-[9px] text-slate-400 font-bold">
-                    Fuel deduction: ${(payrollData.totalFuel * 0.5).toFixed(2)}
+                {/* ✅ Driver type specific info */}
+                {payrollData && payrollData.driver?.type === 'Company Driver' && (
+                  <p className="text-[9px] text-blue-600 font-bold">
+                    ✅ Fuel included: +${payrollData.totalFuel.toFixed(2)}
+                  </p>
+                )}
+                {payrollData && payrollData.driver?.type === 'Owner Operator' && (
+                  <p className="text-[9px] text-purple-600 font-bold">
+                    ⚠️ Fuel NOT included (owner pays own fuel): ${payrollData.totalFuel.toFixed(2)}
+                  </p>
+                )}
+                {payrollData && !payrollData.driver?.type && (
+                  <p className="text-[9px] text-orange-600 font-bold">
+                    ℹ️ Third-party - fuel not included
                   </p>
                 )}
               </div>
@@ -468,7 +538,7 @@ const DriverPayroll = ({
         </div>
       )}
 
-      {/* All Drivers Summary */}
+      {/* ✅ STEP 5: All Drivers Summary with Driver Type column */}
       {driverSummary.length > 0 && (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="p-4 border-b border-slate-100 bg-slate-50/50">
@@ -485,6 +555,7 @@ const DriverPayroll = ({
                   <th className="px-4 py-3">Truck</th>
                   <th className="px-4 py-3 text-right">Trips</th>
                   <th className="px-4 py-3 text-right">Gross Pay</th>
+                  <th className="px-4 py-3">Driver Type</th>
                   <th className="px-4 py-3 text-right">Net Pay</th>
                   <th className="px-4 py-3 text-center">Status</th>
                 </tr>
@@ -497,6 +568,17 @@ const DriverPayroll = ({
                     <td className="px-4 py-3 text-right font-bold">{data.tripCount}</td>
                     <td className="px-4 py-3 text-right font-bold text-blue-600">
                       ${data.totalGross.toFixed(2)}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`text-[10px] font-bold px-2 py-1 rounded ${
+                        data.driver.type === 'Company Driver' 
+                          ? 'bg-blue-100 text-blue-700' 
+                          : data.driver.type === 'Owner Operator'
+                          ? 'bg-purple-100 text-purple-700'
+                          : 'bg-orange-100 text-orange-700'
+                      }`}>
+                        {data.driver.type || 'Company Driver'}
+                      </span>
                     </td>
                     <td className="px-4 py-3 text-right font-bold text-green-700">
                       ${data.netPay.toFixed(2)}

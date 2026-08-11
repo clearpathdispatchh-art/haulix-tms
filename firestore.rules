@@ -2,185 +2,37 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    function isAuthenticated() {
-      return request.auth != null;
-    }
-    
-    // ✅ FIXED: Simpler helper that doesn't cause circular dependencies
-    function getUserCompanyId() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.companyId;
-    }
-    
-    // ✅ FIXED: Check if user is a member of the company
     function isCompanyMember(companyId) {
-      return isAuthenticated() && 
-        companyId == getUserCompanyId();
+      return request.auth != null && 
+        request.auth.uid in get(/databases/$(database)/documents/companies/$(companyId)).data.memberUids;
     }
     
-    // ✅ FIXED: Check if user is the creator/owner
-    function isCompanyCreator(companyId) {
-      return isAuthenticated() && 
-        get(/databases/$(database)/documents/companies/$(companyId)).data.createdBy == request.auth.uid;
+    function getUserRole(companyId) {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
     }
     
-    // ================================================
-    // USERS - Allow users to read ANY user doc for recovery
-    // ================================================
     match /users/{userId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && request.auth.uid == userId;
-      allow update: if isAuthenticated() && request.auth.uid == userId;
+      allow read, create, update: if request.auth != null && request.auth.uid == userId;
       allow delete: if false;
     }
     
-    // ================================================
-    // COMPANIES - Allow read if user is member or creator
-    // ================================================
     match /companies/{companyId} {
-      allow read: if isAuthenticated() && (
-        isCompanyCreator(companyId) || 
-        isCompanyMember(companyId)
-      );
-      
-      allow create: if isAuthenticated();
-      allow update: if isAuthenticated() && (
-        isCompanyCreator(companyId) || 
-        isCompanyMember(companyId)
-      );
+      allow create: if request.auth != null;
+      allow read: if isCompanyMember(companyId);
+      allow update: if isCompanyMember(companyId) && 
+        getUserRole(companyId) in ['owner', 'admin'];
       allow delete: if false;
       
-      // ================================================
-      // LOADS
-      // ================================================
-      match /loads/{loadId} {
-        allow read: if isAuthenticated() && (
-          isCompanyCreator(companyId) || 
-          isCompanyMember(companyId)
-        );
-        allow create: if isAuthenticated() && (
-          isCompanyCreator(companyId) || 
-          isCompanyMember(companyId)
-        );
-        allow update: if isAuthenticated() && (
-          isCompanyCreator(companyId) || 
-          isCompanyMember(companyId)
-        );
-        allow delete: if isAuthenticated() && (
-          isCompanyCreator(companyId) || 
-          isCompanyMember(companyId)
-        );
-      }
-      
-      // ================================================
-      // DRIVERS
-      // ================================================
-      match /drivers/{driverId} {
-        allow read: if isAuthenticated() && (
-          isCompanyCreator(companyId) || 
-          isCompanyMember(companyId)
-        );
-        allow create: if isAuthenticated() && (
-          isCompanyCreator(companyId) || 
-          isCompanyMember(companyId)
-        );
-        allow update: if isAuthenticated() && (
-          isCompanyCreator(companyId) || 
-          isCompanyMember(companyId)
-        );
-        allow delete: if isAuthenticated() && (
-          isCompanyCreator(companyId) || 
-          isCompanyMember(companyId)
-        );
-      }
-      
-      // ================================================
-      // CUSTOMERS
-      // ================================================
-      match /customers/{customerId} {
-        allow read: if isAuthenticated() && (
-          isCompanyCreator(companyId) || 
-          isCompanyMember(companyId)
-        );
-        allow create: if isAuthenticated() && (
-          isCompanyCreator(companyId) || 
-          isCompanyMember(companyId)
-        );
-        allow update: if isAuthenticated() && (
-          isCompanyCreator(companyId) || 
-          isCompanyMember(companyId)
-        );
-        allow delete: if isAuthenticated() && (
-          isCompanyCreator(companyId) || 
-          isCompanyMember(companyId)
-        );
-      }
-      
-      // ================================================
-      // LOCATIONS
-      // ================================================
-      match /locations/{locationId} {
-        allow read: if isAuthenticated() && (
-          isCompanyCreator(companyId) || 
-          isCompanyMember(companyId)
-        );
-        allow create: if isAuthenticated() && (
-          isCompanyCreator(companyId) || 
-          isCompanyMember(companyId)
-        );
-        allow update: if isAuthenticated() && (
-          isCompanyCreator(companyId) || 
-          isCompanyMember(companyId)
-        );
-        allow delete: if isAuthenticated() && (
-          isCompanyCreator(companyId) || 
-          isCompanyMember(companyId)
-        );
-      }
-      
-      // ================================================
-      // ANY OTHER SUB-COLLECTIONS
-      // ================================================
-      match /{collection}/{docId} {
-        allow read: if isAuthenticated() && (
-          isCompanyCreator(companyId) || 
-          isCompanyMember(companyId)
-        );
-        allow create: if isAuthenticated() && (
-          isCompanyCreator(companyId) || 
-          isCompanyMember(companyId)
-        );
-        allow update: if isAuthenticated() && (
-          isCompanyCreator(companyId) || 
-          isCompanyMember(companyId)
-        );
-        allow delete: if isAuthenticated() && (
-          isCompanyCreator(companyId) || 
-          isCompanyMember(companyId)
-        );
+      match /{document=**} {
+        allow read: if isCompanyMember(companyId);
+        allow create, update: if isCompanyMember(companyId);
+        allow delete: if isCompanyMember(companyId) && 
+          getUserRole(companyId) in ['owner', 'admin'];
       }
     }
     
-    // ================================================
-    // STORAGE RULES (Firebase Storage)
-    // ================================================
-    match /pod/{companyId}/{loadId}/{legId}/{fileName} {
-      allow read: if isAuthenticated();
-      allow write: if isAuthenticated();
-    }
-    
-    match /signatures/{companyId}/{loadId}/{legId}/{fileName} {
-      allow read: if isAuthenticated();
-      allow write: if isAuthenticated();
-    }
-    
-    match /uploads/{companyId}/{userId}/{fileName} {
-      allow read: if isAuthenticated();
-      allow write: if isAuthenticated() && request.auth.uid == userId;
-    }
-    
-    match /invoices/{companyId}/{loadId}/{fileName} {
-      allow read: if isAuthenticated();
-      allow write: if isAuthenticated();
+    match /setup/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
     }
   }
 }

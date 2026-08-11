@@ -1,12 +1,12 @@
 // src/firebase.js - VITE COMPATIBLE
 
 import { initializeApp, getApp, getApps } from 'firebase/app';
-import { getFirestore, connectFirestoreEmulator } from 'firebase/firestore';
+import { getFirestore, initializeFirestore, connectFirestoreEmulator } from 'firebase/firestore'; // ✅ ADD initializeFirestore
 import { 
   getAuth, 
   connectAuthEmulator, 
-  setPersistence,      // ✅ ADD THIS
-  browserLocalPersistence  // ✅ ADD THIS
+  setPersistence,
+  browserLocalPersistence
 } from 'firebase/auth';
 import { getStorage, connectStorageEmulator } from 'firebase/storage';
 
@@ -52,16 +52,24 @@ const getFirebaseServices = () => {
     return { db: null, auth: null, storage: null, app: null };
   }
 
-  const db = getFirestore(firebaseApp);
+  // ✅ NEW: Initialize Firestore with cache settings (replaces enableIndexedDbPersistence)
+  const db = initializeFirestore(firebaseApp, {
+    cache: {
+      kind: 'persistent',  // This replaces enableIndexedDbPersistence()
+      tabManager: { kind: 'auto' }  // Handles multiple tabs automatically
+    }
+  });
+
   const auth = getAuth(firebaseApp);
   
-  // ✅ FIXED: Set persistence to LOCAL so user stays logged in
+  // Auth persistence - keeps user logged in
   setPersistence(auth, browserLocalPersistence).catch(err => {
     console.warn('Auth persistence warning:', err);
   });
   
   const storage = getStorage(firebaseApp);
 
+  // Emulator support (only in development)
   if (import.meta.env.DEV && import.meta.env.VITE_USE_EMULATORS === 'true') {
     try {
       connectFirestoreEmulator(db, 'localhost', 8080);

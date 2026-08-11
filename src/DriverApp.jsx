@@ -1,12 +1,18 @@
-// DriverApp.jsx - COMPLETE FIXED VERSION
+// DriverApp.jsx - COMPLETE FIXED VERSION WITH EMAIL/PASSWORD LOGIN
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { initializeApp, getApp, getApps } from "firebase/app";
 import { 
   getFirestore,
   collection, query, where, getDocs, onSnapshot, doc, updateDoc, getDoc, 
-  addDoc, orderBy, limit, enableNetwork, disableNetwork,
+  addDoc, orderBy, limit, enableNetwork, disableNetwork
 } from 'firebase/firestore';
+import { 
+  getAuth, 
+  signInWithEmailAndPassword, 
+  signOut as firebaseSignOut,
+  onAuthStateChanged 
+} from 'firebase/auth';
 import { 
   getStorage, ref, uploadBytes, getDownloadURL 
 } from 'firebase/storage';
@@ -16,10 +22,43 @@ import {
   Building, AlertCircle, Play, Flag, MapPinCheck,
   TruckIcon, Loader2, Camera, Moon, Sun, MessageCircle,
   AlertTriangle, PhoneCall, MessageSquare,
-  Search, Lock, Key, Eye, FileDown, Upload, EyeOff, Wifi, WifiOff,
+  Search, Lock, Eye, FileDown, Upload, EyeOff, Wifi, WifiOff,
   Package, Home, Layers, Navigation2, Send, PenTool, Phone,
-  DollarSign
+  DollarSign,
+  FileText,
+  Copy,
+  FileUp
 } from 'lucide-react';
+
+// ========== CLIPBOARD HELPER ==========
+const copyToClipboard = (text) => {
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).catch(() => {
+      // Fallback
+      const textArea = document.createElement('textarea');
+      textArea.value = text;
+      textArea.style.position = 'fixed';
+      textArea.style.left = '-9999px';
+      textArea.style.top = '-9999px';
+      document.body.appendChild(textArea);
+      textArea.focus();
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+    });
+  } else {
+    const textArea = document.createElement('textarea');
+    textArea.value = text;
+    textArea.style.position = 'fixed';
+    textArea.style.left = '-9999px';
+    textArea.style.top = '-9999px';
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+    document.execCommand('copy');
+    document.body.removeChild(textArea);
+  }
+};
 
 // ========== FIREBASE CONFIG ==========
 const firebaseConfig = {
@@ -33,37 +72,22 @@ const firebaseConfig = {
 
 // Initialize Firebase ONCE
 const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
-const db = getFirestore(app);
-const storage = getStorage(app);
 
-// ========== OFFLINE PERSISTENCE ==========
-try {
-  enableIndexedDbPersistence(db).catch((err) => {
-    if (err.code === 'failed-precondition') console.warn('Offline already enabled');
-    else if (err.code === 'unimplemented') console.warn('Browser does not support offline');
-  });
-} catch (e) { console.warn('Offline persistence not available'); }
+const db = getFirestore(app);
+
+const storage = getStorage(app);
+const auth = getAuth(app);
+
+// Network status handling
+if (typeof window !== 'undefined') {
+  window.addEventListener('online', () => { enableNetwork(db).catch(console.warn); });
+  window.addEventListener('offline', () => { disableNetwork(db).catch(console.warn); });
+}
 
 // ========== CONSTANTS ==========
-const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
 const STATUS_UPDATE_COOLDOWN_MS = 3000;
-const MAX_COMPANIES_LOAD = 100;
 const EMERGENCY_NUMBER = '911';
 const FEEDBACK_DURATION_MS = 4000;
-
-// ========== STATUS FLOW ==========
-const LEG_STATUS_FLOW = {
-  'Pending': ['Started'],
-  'Started': ['Arrived Pickup'],
-  'Arrived Pickup': ['Loaded'],
-  'Loaded': ['In Transit'],
-  'In Transit': ['Arrived Delivery'],
-  'Arrived Delivery': ['Delivered'],
-  'Delivered': ['POD Uploaded'],
-  'POD Uploaded': ['Heading to Yard'],
-  'Heading to Yard': ['Arrived Yard'],
-  'Arrived Yard': ['Completed']
-};
 
 // ========== LEG TYPES ==========
 const getLegTypeLabel = (type) => {
@@ -71,6 +95,7 @@ const getLegTypeLabel = (type) => {
     case 'pickup': return '📦 Pickup';
     case 'delivery': return '🚚 Delivery';
     case 'termination': return '🏁 Termination';
+    case 'drop': return '📦 Drop';
     default: return '📍 Leg';
   }
 };
@@ -80,6 +105,7 @@ const getLegTypeColor = (type) => {
     case 'pickup': return 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300';
     case 'delivery': return 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300';
     case 'termination': return 'bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300';
+    case 'drop': return 'bg-orange-100 dark:bg-orange-900 text-orange-700 dark:text-orange-300';
     default: return 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400';
   }
 };
@@ -267,8 +293,16 @@ function ChatModal({ isOpen, onClose, partnerName, messages, onSend }) {
 const DriverApp = () => {
   // Auth state
   const [driverProfile, setDriverProfile] = useState(null);
+  const [arrivalTime, setArrivalTime] = useState('');
+  const [departureTime, setDepartureTime] = useState('');
   const [companyInfo, setCompanyInfo] = useState(null);
   const [loading, setLoading] = useState(true);
+  
+  // Login state
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [authError, setAuthError] = useState('');
+  const [authLoading, setAuthLoading] = useState(false);
   
   // Data state
   const [assignedLoads, setAssignedLoads] = useState([]);
@@ -279,12 +313,12 @@ const DriverApp = () => {
   
   // UI state
   const [showPODModal, setShowPODModal] = useState(false);
-  const [podData, setPodData] = useState({ photo: null, receiverName: '', legId: null });
-  const [darkMode, setDarkMode] = useState(false);
-  const [showProfile, setShowProfile] = useState(false);
+  const [podData, setPodData] = useState({ photo: null, receiverName: '', legId: null, isEIR: false });
+  // Dark mode removed - always light mode
+const [darkMode, setDarkMode] = useState(false);
   const [showSignaturePad, setShowSignaturePad] = useState(false);
   
-  // Track which buttons have been clicked per leg
+  // Track clicked buttons per leg
   const [clickedButtons, setClickedButtons] = useState({});
   
   // POD state
@@ -297,8 +331,6 @@ const DriverApp = () => {
   const [unreadMessages, setUnreadMessages] = useState(0);
 
   // Pay state
-  const [driverPay, setDriverPay] = useState(0);
-  const [payHistory, setPayHistory] = useState([]);
   const [showPayModal, setShowPayModal] = useState(false);
   const [totalEarnings, setTotalEarnings] = useState(0);
   const [pendingPayments, setPendingPayments] = useState(0);
@@ -306,16 +338,7 @@ const DriverApp = () => {
   // GPS state
   const [currentLocation, setCurrentLocation] = useState(null);
   const [isTracking, setIsTracking] = useState(false);
-  const [distanceToDest, setDistanceToDest] = useState(null);
   const watchIdRef = useRef(null);
-  
-  // Login state
-  const [loginStep, setLoginStep] = useState(1);
-  const [selectedCompany, setSelectedCompany] = useState(null);
-  const [companies, setCompanies] = useState([]);
-  const [companySearch, setCompanySearch] = useState('');
-  const [loginError, setLoginError] = useState('');
-  const [availableDrivers, setAvailableDrivers] = useState([]);
   
   // Network state
   const [isOnline, setIsOnline] = useState(navigator.onLine);
@@ -334,14 +357,160 @@ const DriverApp = () => {
     if (saved === 'true') { setDarkMode(true); document.documentElement.classList.add('dark'); }
   }, []);
 
-  // Network monitoring
-  useEffect(() => {
-    const handleOnline = () => { setIsOnline(true); enableNetwork(db).catch(console.warn); };
-    const handleOffline = () => { setIsOnline(false); disableNetwork(db).catch(console.warn); };
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-    return () => { window.removeEventListener('online', handleOnline); window.removeEventListener('offline', handleOffline); };
-  }, [db]);
+// Network monitoring - FIXED
+useEffect(() => {
+  const handleOnline = () => { 
+    setIsOnline(true); 
+    console.log('🌐 Online - Enabling Firestore network');
+    enableNetwork(db).then(() => {
+      console.log('✅ Firestore network enabled');
+      if (auth.currentUser) {
+        console.log('🔄 Re-checking auth state...');
+      }
+    }).catch(err => {
+      console.warn('⚠️ enableNetwork failed:', err);
+    });
+  };
+  
+  const handleOffline = () => { 
+    setIsOnline(false); 
+    console.log('📴 Offline - Disabling Firestore network');
+    disableNetwork(db).catch(console.warn);
+  };
+  
+  // Force enable network on mount
+  enableNetwork(db).catch(() => {});
+  
+  window.addEventListener('online', handleOnline);
+  window.addEventListener('offline', handleOffline);
+  return () => { 
+    window.removeEventListener('online', handleOnline); 
+    window.removeEventListener('offline', handleOffline); 
+  };
+}, [db]);
+
+// Auth state listener - handles auto-login (FIXED VERSION)
+useEffect(() => {
+  const unsubscribe = onAuthStateChanged(auth, async (user) => {
+    if (user) {
+      console.log('✅ Driver authenticated:', user.email);
+      try {
+        // First try to get user doc directly
+        const userDocRef = doc(db, 'users', user.uid);
+        let userDocSnap;
+        
+        try {
+          userDocSnap = await getDoc(userDocRef);
+        } catch (e) {
+          console.warn('⚠️ Cannot read user document (permissions):', e.message);
+          // If we can't read the user doc, try fallback search
+          userDocSnap = { exists: () => false };
+        }
+        
+        if (userDocSnap.exists()) {
+          const userData = userDocSnap.data();
+          const companyId = userData.companyId;
+          
+          if (companyId) {
+            try {
+              const driversSnap = await getDocs(
+                collection(db, 'companies', companyId, 'drivers')
+              );
+              
+              for (const driverDoc of driversSnap.docs) {
+                const driverData = driverDoc.data();
+                if (driverData.email === user.email || driverData.uid === user.uid) {
+                  if (isMountedRef.current) {
+                    setDriverProfile({
+                      driverId: driverDoc.id,
+                      companyId: companyId,
+                      name: driverData.name,
+                      truckNo: driverData.truckNo,
+                      email: user.email
+                    });
+                    try {
+                      const companyDoc = await getDoc(doc(db, 'companies', companyId));
+                      if (companyDoc.exists()) setCompanyInfo(companyDoc.data());
+                    } catch (e) {
+                      console.warn('Could not read company info');
+                    }
+                    startGPSTracking();
+                    setLoading(false);
+                  }
+                  return;
+                }
+              }
+            } catch (e) {
+              console.warn('⚠️ Cannot access company drivers:', e.message);
+            }
+          }
+        }
+        
+        // Fallback: Search all companies (only if we have permission)
+        try {
+          const companiesSnap = await getDocs(collection(db, 'companies'));
+          let foundDriver = null;
+          let foundCompanyId = null;
+          
+          for (const companyDoc of companiesSnap.docs) {
+            try {
+              const driversSnap = await getDocs(
+                collection(db, 'companies', companyDoc.id, 'drivers')
+              );
+              for (const driverDoc of driversSnap.docs) {
+                const driverData = driverDoc.data();
+                if (driverData.email === user.email || driverData.uid === user.uid) {
+                  foundDriver = { id: driverDoc.id, ...driverData };
+                  foundCompanyId = companyDoc.id;
+                  break;
+                }
+              }
+            } catch (e) {
+              continue;
+            }
+            if (foundDriver) break;
+          }
+          
+          if (foundDriver && isMountedRef.current) {
+            setDriverProfile({
+              driverId: foundDriver.id,
+              companyId: foundCompanyId,
+              name: foundDriver.name,
+              truckNo: foundDriver.truckNo,
+              email: user.email
+            });
+            try {
+              const companyDoc = await getDoc(doc(db, 'companies', foundCompanyId));
+              if (companyDoc.exists()) setCompanyInfo(companyDoc.data());
+            } catch (e) {}
+            startGPSTracking();
+            setLoading(false);
+            return;
+          }
+        } catch (e) {
+          console.warn('⚠️ Fallback search failed:', e.message);
+        }
+        
+        // If we get here, no driver profile was found
+        console.warn('No driver profile found for:', user.email);
+        setAuthError('No driver profile found. Contact your dispatcher. Your account may not be fully set up yet.');
+        await firebaseSignOut(auth);
+        setLoading(false);
+        
+      } catch (error) {
+        console.error('Error loading driver profile:', error);
+        setAuthError('Error loading profile: ' + error.message);
+        setLoading(false);
+      }
+    } else {
+      setDriverProfile(null);
+      setCompanyInfo(null);
+      setLoading(false);
+    }
+  });
+  
+  return () => unsubscribe();
+}, []);
 
   // GPS Tracking
   const startGPSTracking = useCallback(() => {
@@ -376,61 +545,6 @@ const DriverApp = () => {
     return () => { if (watchIdRef.current) navigator.geolocation.clearWatch(watchIdRef.current); };
   }, []);
 
-  // Load companies
-  useEffect(() => {
-    if (!db) return;
-    const loadCompanies = async () => {
-      try {
-        const q = query(collection(db, 'companies'), orderBy('name'), limit(MAX_COMPANIES_LOAD));
-        const snap = await getDocs(q);
-        if (isMountedRef.current) {
-          const companyList = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-          setCompanies(companyList);
-        }
-      } catch (e) { logError('loadCompanies', e); }
-    };
-    loadCompanies();
-  }, [db]);
-
-  // Check session
-  useEffect(() => {
-    const saved = localStorage.getItem('driverSession');
-    if (saved) {
-      try {
-        const session = JSON.parse(saved);
-        if (Date.now() - session.timestamp > SESSION_EXPIRY_MS) { localStorage.removeItem('driverSession'); setLoading(false); return; }
-        handleAutoLogin(session);
-      } catch { localStorage.removeItem('driverSession'); setLoading(false); }
-    } else { setLoading(false); }
-  }, []);
-
-  const handleAutoLogin = async (session) => {
-    if (!db) return;
-    try {
-      const driverDoc = await getDoc(doc(db, 'companies', session.companyId, 'drivers', session.driverId));
-      if (driverDoc.exists() && isMountedRef.current) {
-        const d = driverDoc.data();
-        setDriverProfile({ driverId: session.driverId, companyId: session.companyId, name: d.name, truckNo: d.truckNo });
-        const cDoc = await getDoc(doc(db, 'companies', session.companyId));
-        if (cDoc.exists()) setCompanyInfo(cDoc.data());
-        startGPSTracking();
-        setLoading(false); return;
-      }
-    } catch (e) { logError('autoLogin', e); }
-    localStorage.removeItem('driverSession'); setLoading(false);
-  };
-
-  // Load drivers for selected company
-  useEffect(() => {
-    if (!selectedCompany || !db) return;
-    (async () => {
-      try {
-        const snap = await getDocs(collection(db, 'companies', selectedCompany.id, 'drivers'));
-        if (isMountedRef.current) setAvailableDrivers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-      } catch (e) { logError('loadDrivers', e); }
-    })();
-  }, [selectedCompany, db]);
-
   // Fetch loads
   useEffect(() => {
     if (!driverProfile?.companyId || !db) return;
@@ -442,27 +556,6 @@ const DriverApp = () => {
       const all = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       const assigned = all.filter(l => (l.legs || []).some(leg => leg.truckNo === driverProfile.truckNo));
       setAssignedLoads(assigned);
-      
-      // If no loads assigned, reset driver status
-      if (assigned.length === 0 && driverProfile.tripStatus && driverProfile.tripStatus !== 'Idle') {
-        const driverRef = doc(db, 'companies', driverProfile.companyId, 'drivers', driverProfile.driverId);
-        updateDoc(driverRef, {
-          tripStatus: 'Idle',
-          tripStartedAt: null,
-          arrivedPickupAt: null,
-          loadedAt: null,
-          inTransitAt: null,
-          arrivedDeliveryAt: null,
-          deliveredAt: null,
-          podUploadedAt: null,
-          headingToYardAt: null,
-          arrivedYardAt: null,
-          completedAt: null,
-          podPhotoUrl: null,
-          receiverName: null,
-          lastTripUpdate: new Date().toISOString()
-        }).catch(() => {});
-      }
     }, (error) => logError('loadsListener', error));
     
     listenersRef.current.loads = unsub;
@@ -524,17 +617,14 @@ const DriverApp = () => {
     });
   }, [getDriverLegs]);
 
-  // ========== PAY TRACKING FUNCTIONS ==========
+  // ========== PAY TRACKING ==========
   const calculateDriverPay = useCallback((load) => {
     if (!load?.legs) return 0;
     let total = 0;
     const driverLegs = getDriverLegs(load);
     driverLegs.forEach(leg => {
-      if (leg.driverPay) {
-        total += parseFloat(leg.driverPay) || 0;
-      } else {
-        total += 50;
-      }
+      if (leg.driverPay) total += parseFloat(leg.driverPay) || 0;
+      else total += 50;
     });
     return total;
   }, [getDriverLegs]);
@@ -566,12 +656,9 @@ const DriverApp = () => {
     return total;
   }, [assignedLoads, getDriverLegs]);
 
-  // Update pay when loads change
   useEffect(() => {
-    const earnings = calculateTotalEarnings();
-    const pending = calculatePendingPayments();
-    setTotalEarnings(earnings);
-    setPendingPayments(pending);
+    setTotalEarnings(calculateTotalEarnings());
+    setPendingPayments(calculatePendingPayments());
   }, [assignedLoads, calculateTotalEarnings, calculatePendingPayments]);
 
   // Cleanup
@@ -584,36 +671,90 @@ const DriverApp = () => {
     feedbackTimerRef.current = setTimeout(() => { if (isMountedRef.current) setFeedback(''); }, FEEDBACK_DURATION_MS);
   }, [feedback]);
 
-  // Login handlers
-  const handleCompanySelect = (company) => { 
-    setSelectedCompany(company); 
-    setLoginError(''); 
+  // ========== LOGIN HANDLER ==========
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    if (!email || !password) {
+      setAuthError('Please enter email and password');
+      return;
+    }
+    
+    setAuthLoading(true);
+    setAuthError('');
+    
+    try {
+      await signInWithEmailAndPassword(auth, email.trim(), password);
+      // onAuthStateChanged will handle the rest
+    } catch (error) {
+      console.error('Login error:', error);
+      switch (error.code) {
+        case 'auth/invalid-email':
+          setAuthError('Invalid email address');
+          break;
+        case 'auth/user-not-found':
+          setAuthError('No driver account found with this email');
+          break;
+        case 'auth/wrong-password':
+          setAuthError('Incorrect password');
+          break;
+        case 'auth/invalid-credential':
+          setAuthError('Invalid email or password');
+          break;
+        default:
+          setAuthError('Login failed. Please try again.');
+      }
+    } finally {
+      setAuthLoading(false);
+    }
   };
 
-  const handleDriverSelect = (driver) => {
-    setDriverProfile({ 
-      driverId: driver.id, 
-      companyId: selectedCompany.id, 
-      name: driver.name, 
-      truckNo: driver.truckNo 
-    });
-    setCompanyInfo(selectedCompany);
-    localStorage.setItem('driverSession', JSON.stringify({ 
-      companyId: selectedCompany.id, 
-      driverId: driver.id, 
-      timestamp: Date.now() 
-    }));
-    startGPSTracking();
-  };
+    const [showTimeoutWarning, setShowTimeoutWarning] = useState(false);
+  const INACTIVITY_TIMEOUT_DRIVER_MS = 30 * 60 * 1000; // 30 minutes
+  const WARNING_BEFORE_MS = 5 * 60 * 1000; // 5 minutes warning
+  const inactivityTimerRefDriver = useRef(null);
+  const warningTimerRefDriver = useRef(null);
 
-  const handleSignOut = () => {
+  const resetDriverInactivityTimer = useCallback(() => {
+    if (inactivityTimerRefDriver.current) clearTimeout(inactivityTimerRefDriver.current);
+    if (warningTimerRefDriver.current) clearTimeout(warningTimerRefDriver.current);
+    setShowTimeoutWarning(false);
+    
+    // Set warning timer (25 minutes)
+    warningTimerRefDriver.current = setTimeout(() => {
+      setShowTimeoutWarning(true);
+    }, INACTIVITY_TIMEOUT_DRIVER_MS - WARNING_BEFORE_MS);
+    
+    // Set logout timer (30 minutes)
+    inactivityTimerRefDriver.current = setTimeout(async () => {
+      setShowTimeoutWarning(false);
+      stopGPSTracking();
+      await firebaseSignOut(auth);
+      setDriverProfile(null); 
+      setCompanyInfo(null); 
+      setAssignedLoads([]); 
+      setSelectedLoad(null);
+    }, INACTIVITY_TIMEOUT_DRIVER_MS);
+  }, []);
+
+  useEffect(() => {
+    if (!driverProfile) return;
+    const events = ['mousedown', 'keydown', 'scroll', 'touchstart', 'click'];
+    events.forEach(event => window.addEventListener(event, resetDriverInactivityTimer));
+    resetDriverInactivityTimer();
+    return () => {
+      events.forEach(event => window.removeEventListener(event, resetDriverInactivityTimer));
+      if (inactivityTimerRefDriver.current) clearTimeout(inactivityTimerRefDriver.current);
+      if (warningTimerRefDriver.current) clearTimeout(warningTimerRefDriver.current);
+    };
+  }, [driverProfile, resetDriverInactivityTimer]);
+
+  const handleSignOut = async () => {
     stopGPSTracking();
-    localStorage.removeItem('driverSession');
+    await firebaseSignOut(auth);
     setDriverProfile(null); 
     setCompanyInfo(null); 
     setAssignedLoads([]); 
     setSelectedLoad(null);
-    setSelectedCompany(null);
   };
 
   const toggleDarkMode = () => {
@@ -658,7 +799,7 @@ const DriverApp = () => {
     
     const now = Date.now();
     if (now - lastStatusUpdateRef.current < STATUS_UPDATE_COOLDOWN_MS) { 
-      setFeedback('⏳ Please wait 3 seconds before updating again'); 
+      setFeedback('⏳ Please wait before updating again'); 
       return; 
     }
     
@@ -670,7 +811,7 @@ const DriverApp = () => {
     
     lastStatusUpdateRef.current = now; 
     setUpdating(true);
-    setFeedback(`⏳ Updating Leg ${targetLeg.legOrder || 1} to "${newStatus}"...`);
+    setFeedback(`⏳ Updating to "${newStatus}"...`);
     
     try {
       const loadRef = doc(db, 'companies', driverProfile.companyId, 'loads', targetLoad.id);
@@ -731,47 +872,23 @@ const DriverApp = () => {
         if (!prev) return prev;
         const newLegs = prev.legs.map(leg => {
           if (leg.id !== targetLeg.id) return leg;
-          const updatedLeg = { ...leg, tripStatus: newStatus, status: newStatus };
-          const timeStr2 = new Date().toLocaleTimeString();
-          if (newStatus === 'Started') updatedLeg.startedAt = timeStr2;
-          if (newStatus === 'Arrived Pickup') updatedLeg.arrivedPickupAt = timeStr2;
-          if (newStatus === 'Loaded') updatedLeg.loadedAt = timeStr2;
-          if (newStatus === 'In Transit') updatedLeg.inTransitAt = timeStr2;
-          if (newStatus === 'Arrived Delivery') updatedLeg.arrivedDeliveryAt = timeStr2;
-          if (newStatus === 'Delivered') updatedLeg.deliveredAt = timeStr2;
-          if (newStatus === 'POD Uploaded') updatedLeg.podUploadedAt = timeStr2;
-          if (newStatus === 'Heading to Yard') updatedLeg.headingToYardAt = timeStr2;
-          if (newStatus === 'Arrived Yard') updatedLeg.arrivedYardAt = timeStr2;
-          if (newStatus === 'Completed') updatedLeg.completedAt = timeStr2;
-          return updatedLeg;
+          return { ...leg, tripStatus: newStatus, status: newStatus };
         });
         return { ...prev, legs: newLegs };
       });
       
-      setFeedback(`✅ ${newStatus} for Leg ${targetLeg.legOrder || 1}`);
+      setFeedback(`✅ ${newStatus}`);
       setShowPODModal(false); 
       setPodData({ photo: null, receiverName: '', legId: null });
       
-      const allComplete = updatedLegs.every(leg => {
-        const s = leg.tripStatus || leg.status || 'Pending';
-        return s === 'Completed' || s === 'Delivered';
-      });
-      if (allComplete && updatedLegs.length >= 2) {
-        setFeedback('🎉 Both legs complete! Dispatch closed for today.');
-        setTimeout(() => {
-          setSelectedLoad(null);
-          setSelectedLeg(null);
-        }, 3000);
-      }
-      
     } catch (error) { 
       logError('updateDriverStatus', error);
-      setFeedback('❌ Update failed: ' + (error.message || 'Unknown error')); 
+      setFeedback('❌ Update failed'); 
     }
     finally { setUpdating(false); }
   };
 
-  // POD handlers
+  // POD handlers (keep existing ones from your original code)
   const handlePODPhoto = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -788,86 +905,106 @@ const DriverApp = () => {
     }
   };
 
-  const handlePODSubmit = async () => {
-    if (!podData.legId) { setFeedback('❌ No leg selected'); return; }
-    if (!podData.receiverName.trim()) { setFeedback('❌ Please enter receiver name'); return; }
-    if (!selectedLoad) { setFeedback('❌ No load selected'); return; }
-    
-    setUpdating(true);
-    try {
-      let photoUrl = null;
-      if (podData.photo) {
-        const blob = await fetch(podData.photo).then(r => r.blob());
-        const path = `pod/${driverProfile.companyId}/${selectedLoad.id}/${podData.legId}/${Date.now()}.jpg`;
-        const photoRef = ref(storage, path);
-        await uploadBytes(photoRef, blob);
-        photoUrl = await getDownloadURL(photoRef);
-      }
-      
-      const loadRef = doc(db, 'companies', driverProfile.companyId, 'loads', selectedLoad.id);
-      const loadSnap = await getDoc(loadRef);
-      if (!loadSnap.exists()) {
-        setFeedback('❌ Load not found');
-        return;
-      }
-      
-      const loadData = loadSnap.data();
-      const legs = loadData.legs || [];
-      
-      const updatedLegs = legs.map(leg => {
-        if (leg.id !== podData.legId) return leg;
-        return {
-          ...leg,
-          receiverName: podData.receiverName.trim(),
-          podPhotoUrl: photoUrl,
-          tripStatus: 'POD Uploaded',
-          status: 'POD Uploaded',
-          podUploadedAt: new Date().toLocaleTimeString()
-        };
-      });
-      
-      await updateDoc(loadRef, { 
-        legs: updatedLegs,
-        updatedAt: new Date().toISOString()
-      });
-      
-      const driverRef = doc(db, 'companies', driverProfile.companyId, 'drivers', driverProfile.driverId);
-      await updateDoc(driverRef, { 
-        receiverName: podData.receiverName.trim(), 
-        podPhotoUrl: photoUrl,
-        tripStatus: 'POD Uploaded',
-        podUploadedAt: new Date().toLocaleTimeString()
-      });
-      
-      const buttonKey = `${selectedLoad.id}-${podData.legId}-POD`;
-      setClickedButtons(prev => ({ ...prev, [buttonKey]: true }));
-      
-      setSelectedLoad(prev => {
-        if (!prev) return prev;
-        const newLegs = prev.legs.map(leg => {
-          if (leg.id !== podData.legId) return leg;
-          return {
-            ...leg,
-            receiverName: podData.receiverName.trim(),
-            podPhotoUrl: photoUrl,
-            tripStatus: 'POD Uploaded',
-            status: 'POD Uploaded',
-            podUploadedAt: new Date().toLocaleTimeString()
-          };
-        });
-        return { ...prev, legs: newLegs };
-      });
-      
-      setFeedback(`✅ POD Uploaded for Leg ${selectedLeg?.legOrder || 1}`);
-      setShowPODModal(false); 
-      setPodData({ photo: null, receiverName: '', legId: null });
-      
-    } catch (error) { 
-      logError('handlePODSubmit', error);
-      setFeedback('❌ Upload failed: ' + (error.message || 'Unknown error')); 
+const handlePODSubmit = async () => {
+  if (!podData.legId) { setFeedback('❌ No leg selected'); return; }
+  if (!podData.receiverName.trim()) { 
+    setFeedback(podData.isEIR ? '❌ Please enter EIR number' : '❌ Please enter receiver name'); 
+    return; 
+  }
+  if (!selectedLoad) { setFeedback('❌ No load selected'); return; }
+  
+  setUpdating(true);
+  try {
+    let photoUrl = null;
+    if (podData.photo) {
+      const blob = await fetch(podData.photo).then(r => r.blob());
+      const path = `pod/${driverProfile.companyId}/${selectedLoad.id}/${podData.legId}/${Date.now()}.jpg`;
+      const photoRef = ref(storage, path);
+      await uploadBytes(photoRef, blob);
+      photoUrl = await getDownloadURL(photoRef);
+      console.log('✅ POD uploaded to:', photoUrl);
     }
-    finally { setUpdating(false); }
-  };
+    
+    const loadRef = doc(db, 'companies', driverProfile.companyId, 'loads', selectedLoad.id);
+    const loadSnap = await getDoc(loadRef);
+    if (!loadSnap.exists()) {
+      setFeedback('❌ Load not found');
+      return;
+    }
+    
+    const loadData = loadSnap.data();
+    const legs = loadData.legs || [];
+    
+    const updatedLegs = legs.map(leg => {
+      if (leg.id !== podData.legId) return leg;
+      
+      const status = podData.isEIR ? 'Completed' : 'POD Uploaded';
+      const statusField = podData.isEIR ? 'completedAt' : 'podUploadedAt';
+      
+      const updatedLeg = {
+        ...leg,
+        receiverName: podData.receiverName.trim(),
+        podPhotoUrl: photoUrl,
+        tripStatus: status,
+        status: status,
+        [statusField]: new Date().toLocaleTimeString()
+      };
+      
+      console.log('✅ Updated leg with POD URL:', updatedLeg);
+      return updatedLeg;
+    });
+    
+    await updateDoc(loadRef, { 
+      legs: updatedLegs,
+      updatedAt: new Date().toISOString()
+    });
+    
+    // ✅ CHANGED: Store POD and EIR separately in driver document
+    const driverRef = doc(db, 'companies', driverProfile.companyId, 'drivers', driverProfile.driverId);
+    
+    // Base updates always applied
+    const driverUpdates = {
+      receiverName: podData.receiverName.trim(),
+      tripStatus: podData.isEIR ? 'Completed' : 'POD Uploaded',
+      podUploadedAt: new Date().toLocaleTimeString()
+    };
+    
+    if (podData.isEIR) {
+      // ✅ Store as EIR
+      driverUpdates.eirPhotoUrl = photoUrl;
+      driverUpdates.eirReceiverName = podData.receiverName.trim();
+      driverUpdates.eirUploadedAt = new Date().toLocaleTimeString();
+      // Clear any old POD from this driver (optional - keeps it clean)
+      // driverUpdates.podPhotoUrl = null;
+    } else {
+      // ✅ Store as POD
+      driverUpdates.podPhotoUrl = photoUrl;
+      driverUpdates.podReceiverName = podData.receiverName.trim();
+      driverUpdates.podUploadedAt = new Date().toLocaleTimeString();
+      // Clear any old EIR from this driver (optional - keeps it clean)
+      // driverUpdates.eirPhotoUrl = null;
+    }
+    
+    await updateDoc(driverRef, driverUpdates);
+    
+    // ✅ FIX: Force refresh the load from Firestore
+    const freshSnap = await getDoc(loadRef);
+    if (freshSnap.exists()) {
+      const freshLoad = { id: freshSnap.id, ...freshSnap.data() };
+      setSelectedLoad(freshLoad);
+      console.log('✅ Load refreshed with POD URL:', freshLoad.legs.find(l => l.id === podData.legId)?.podPhotoUrl);
+    }
+    
+    setFeedback(podData.isEIR ? '✅ EIR Uploaded' : '✅ POD Uploaded');
+    setShowPODModal(false); 
+    setPodData({ photo: null, receiverName: '', legId: null, isEIR: false });
+    
+  } catch (error) { 
+    logError('handlePODSubmit', error);
+    setFeedback('❌ Upload failed'); 
+  }
+  finally { setUpdating(false); }
+};
 
   const handleSignatureSubmit = async (sigDataUrl) => {
     if (!selectedLeg || !selectedLoad) return;
@@ -906,16 +1043,6 @@ const DriverApp = () => {
     } catch (error) { logError('sendMessage', error); }
   };
 
-  // Filtered companies
-  const filteredCompanies = useMemo(() => {
-    if (!companySearch) return companies;
-    const search = companySearch.toLowerCase();
-    return companies.filter(c => 
-      (c.name || '').toLowerCase().includes(search) ||
-      (c.address || '').toLowerCase().includes(search)
-    );
-  }, [companies, companySearch]);
-
   // Check if button is clicked
   const isButtonClicked = (legId, status) => {
     if (!selectedLoad) return false;
@@ -923,6 +1050,62 @@ const DriverApp = () => {
     return !!clickedButtons[key];
   };
 
+
+
+  // ========== UPDATE TIMES ==========
+  const handleUpdateTimes = async (legId, arrival, departure) => {
+    if (!selectedLoad || !driverProfile) {
+      setFeedback('⚠️ No load selected');
+      return;
+    }
+    if (!arrival && !departure) {
+      setFeedback('⚠️ Please enter at least one time');
+      return;
+    }
+
+    setUpdating(true);
+    try {
+      const loadRef = doc(db, 'companies', driverProfile.companyId, 'loads', selectedLoad.id);
+      const loadSnap = await getDoc(loadRef);
+      if (!loadSnap.exists()) {
+        setFeedback('❌ Load not found');
+        return;
+      }
+
+      const loadData = loadSnap.data();
+      const legs = loadData.legs || [];
+
+      const updatedLegs = legs.map(leg => {
+        if (leg.id !== legId) return leg;
+        return {
+          ...leg,
+          arrivalTime: arrival || leg.arrivalTime || '',
+          departureTime: departure || leg.departureTime || '',
+          lastTripUpdate: new Date().toISOString()
+        };
+      });
+
+      await updateDoc(loadRef, {
+        legs: updatedLegs,
+        updatedAt: new Date().toISOString()
+      });
+
+      // Update local state
+      setSelectedLoad(prev => ({
+        ...prev,
+        legs: updatedLegs
+      }));
+
+      setFeedback('✅ Times updated successfully');
+    } catch (error) {
+      console.error('Update times error:', error);
+      setFeedback('❌ Failed to update times');
+    } finally {
+      setUpdating(false);
+    }
+  };
+  
+  
   // ========== LOADING ==========
   if (loading) {
     return (
@@ -935,117 +1118,118 @@ const DriverApp = () => {
     );
   }
 
-  // ========== LOGIN SCREEN ==========
-  if (!driverProfile) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-slate-900 dark:to-slate-800 flex items-center justify-center p-4">
-        <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl p-8 max-w-md w-full">
-          <div className={`flex items-center justify-center gap-2 mb-4 text-xs font-bold ${isOnline ? 'text-green-600' : 'text-red-600'}`}>
-            {isOnline ? <><Wifi className="w-4 h-4" /> Online</> : <><WifiOff className="w-4 h-4" /> Offline</>}
+// ========== LOGIN SCREEN ==========
+if (!driverProfile) {
+  return (
+    <div className="min-h-screen bg-blue-50 flex items-center justify-center p-4">
+  <div className="bg-white rounded-3xl shadow-2xl p-8 max-w-md w-full">
+        <div className={`flex items-center justify-center gap-2 mb-4 text-xs font-bold ${isOnline ? 'text-green-600' : 'text-red-600'}`}>
+          {isOnline ? <><Wifi className="w-4 h-4" /> Online</> : <><WifiOff className="w-4 h-4" /> Offline</>}
+        </div>
+        
+        <div className="text-center mb-8">
+          <div className="w-20 h-20 bg-blue-100 dark:bg-blue-900 rounded-2xl flex items-center justify-center mx-auto mb-4">
+            <Truck className="w-10 h-10 text-blue-600 dark:text-blue-400" />
+          </div>
+          <h1 className="text-2xl font-black text-slate-800 dark:text-white">Driver Login</h1>
+          <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">Sign in with your driver credentials</p>
+        </div>
+        
+        {authError && (
+          <div className="p-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-xl text-sm font-bold mb-4 text-center flex items-center justify-center gap-2">
+            <AlertCircle size={16} />
+            {authError}
+          </div>
+        )}
+        
+        <form onSubmit={handleLogin} className="space-y-4">
+          <div>
+            <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1">Email</label>
+            <div className="relative">
+              <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <input 
+                type="email" 
+                value={email} 
+                onChange={(e) => setEmail(e.target.value)} 
+                placeholder="driver@company.com" 
+                className="w-full pl-10 pr-4 py-3 border border-slate-300 dark:border-slate-600 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 dark:bg-slate-900 dark:text-white" 
+                autoFocus
+                required
+              />
+            </div>
           </div>
           
-          {!selectedCompany ? (
-            <>
-              <div className="text-center mb-8">
-                <div className="w-20 h-20 bg-blue-100 dark:bg-blue-900 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                  <Truck className="w-10 h-10 text-blue-600 dark:text-blue-400" />
-                </div>
-                <h1 className="text-2xl font-black text-slate-800 dark:text-white">Driver Portal</h1>
-                <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">Enter your company name</p>
-              </div>
-              
-              {loginError && (
-                <div className="p-3 bg-red-50 text-red-600 rounded-xl text-sm font-bold mb-4 text-center">{loginError}</div>
-              )}
-              
-              <div className="relative mb-4">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <input 
-                  type="text" 
-                  value={companySearch} 
-                  onChange={(e) => setCompanySearch(e.target.value)} 
-                  placeholder="e.g. Acme Logistics" 
-                  className="w-full pl-10 pr-4 py-3 border rounded-xl text-sm focus:ring-2 focus:ring-blue-500 dark:bg-slate-900 dark:text-white" 
-                  autoFocus
-                />
-              </div>
-              
-              <div className="space-y-2 max-h-64 overflow-y-auto">
-                {filteredCompanies.length === 0 ? (
-                  <p className="text-center text-sm text-slate-400 py-8">No companies found</p>
-                ) : (
-                  filteredCompanies.map(company => (
-                    <button key={company.id} onClick={() => handleCompanySelect(company)} 
-                      className="w-full text-left p-4 bg-slate-50 dark:bg-slate-900/50 hover:bg-blue-50 rounded-xl">
-                      <div className="flex items-center gap-3">
-                        <Building className="w-5 h-5 text-blue-600" />
-                        <span className="font-bold">{company.name}</span>
-                      </div>
-                    </button>
-                  ))
-                )}
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="text-center mb-6">
-                <button onClick={() => setSelectedCompany(null)} className="text-sm text-blue-600 mb-4 block">← Change Company</button>
-                <h2 className="text-xl font-black">{selectedCompany.name}</h2>
-                <p className="text-slate-500 text-sm">Select your name</p>
-              </div>
-              
-              <div className="space-y-2 max-h-64 overflow-y-auto">
-                {availableDrivers.length === 0 ? (
-                  <div className="text-center py-8"><Loader2 className="w-8 h-8 text-blue-600 animate-spin mx-auto mb-3" /><p className="text-sm text-slate-400">Loading drivers...</p></div>
-                ) : (
-                  availableDrivers.map(driver => (
-                    <button key={driver.id} onClick={() => handleDriverSelect(driver)} 
-                      className="w-full text-left p-4 bg-slate-50 dark:bg-slate-900/50 hover:bg-blue-50 rounded-xl flex items-center gap-3">
-                      <div className="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-black text-lg">
-                        {driver.name?.charAt(0)?.toUpperCase() || '?'}
-                      </div>
-                      <div>
-                        <div className="font-black">{driver.name}</div>
-                        <div className="text-xs text-slate-400">{driver.truckNo ? `🚛 ${driver.truckNo}` : 'No truck'}</div>
-                      </div>
-                    </button>
-                  ))
-                )}
-              </div>
-            </>
-          )}
-        </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1">Password</label>
+            <div className="relative">
+              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <input 
+                type="password" 
+                value={password} 
+                onChange={(e) => setPassword(e.target.value)} 
+                placeholder="••••••••" 
+                className="w-full pl-10 pr-4 py-3 border border-slate-300 dark:border-slate-600 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 dark:bg-slate-900 dark:text-white" 
+                required
+              />
+            </div>
+          </div>
+          
+          <button 
+            type="submit" 
+            disabled={authLoading || !email || !password}
+            className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-colors"
+          >
+            {authLoading ? (
+              <><Loader2 size={18} className="animate-spin" /> Signing in...</>
+            ) : (
+              <><LogOut size={18} className="rotate-180" /> Sign In</>
+            )}
+          </button>
+        </form>
+        
+        <p className="text-center text-xs text-slate-400 mt-6">
+          Contact your dispatcher if you need an account
+        </p>
       </div>
-    );
-  }
+    </div>
+  );
+}
 
   // ========== MAIN DASHBOARD ==========
   return (
-    <div className={`min-h-screen ${darkMode ? 'dark bg-slate-900' : 'bg-slate-50'}`}>
+    <div className="min-h-screen bg-white">
       
       {/* POD Viewer */}
-      {showPODViewer && selectedPODLoad && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80" onClick={() => setShowPODViewer(false)}>
-          <div className="bg-white dark:bg-slate-800 rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-hidden" onClick={e => e.stopPropagation()}>
-            <div className="p-4 border-b flex justify-between items-center">
-              <h3 className="font-bold">POD - {selectedPODLoad.containerNo}</h3>
-              <button onClick={() => setShowPODViewer(false)}><X size={20} /></button>
-            </div>
-            <div className="p-4 bg-slate-100 dark:bg-slate-900 flex items-center justify-center">
-              <img src={selectedPODLoad.podPhotoUrl} alt="POD" className="max-w-full max-h-[70vh] rounded-lg" />
-            </div>
-            <div className="p-4 border-t flex justify-end gap-2">
-              <button onClick={() => window.open(selectedPODLoad.podPhotoUrl, '_blank')} className="px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-bold">Download</button>
-              <button onClick={() => setShowPODViewer(false)} className="px-4 py-2 bg-slate-200 dark:bg-slate-700 dark:text-white rounded-xl text-sm font-bold">Close</button>
-            </div>
+{showPODViewer && selectedPODLoad && (
+  <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80" onClick={() => setShowPODViewer(false)}>
+    <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-hidden" onClick={e => e.stopPropagation()}>
+      <div className="p-4 border-b flex justify-between items-center">
+        <h3 className="font-bold text-slate-800">
+          {selectedPODLoad.isEIR ? '📄 EIR' : '📋 POD'} - {selectedPODLoad.containerNo}
+        </h3>
+        <button onClick={() => setShowPODViewer(false)} className="p-1 hover:bg-slate-100 rounded-lg"><X size={20} /></button>
+      </div>
+      <div className="p-4 bg-slate-100 flex items-center justify-center">
+        {selectedPODLoad.podPhotoUrl ? (
+          <img src={selectedPODLoad.podPhotoUrl} alt={selectedPODLoad.isEIR ? 'EIR' : 'POD'} className="max-w-full max-h-[70vh] rounded-lg shadow-lg" />
+        ) : (
+          <div className="text-center text-slate-400 p-8">
+            <FileUp size={48} className="mx-auto mb-4 text-slate-300" />
+            <p>No {selectedPODLoad.isEIR ? 'EIR' : 'POD'} uploaded yet</p>
           </div>
-        </div>
-      )}
+        )}
+      </div>
+      <div className="p-3 border-t bg-slate-50 flex justify-between text-xs text-slate-500">
+        <span>Leg: {selectedPODLoad.legType || 'N/A'}</span>
+        <span>Receiver: {selectedPODLoad.receiverName || 'N/A'}</span>
+      </div>
+    </div>
+  </div>
+)}
 
       {feedback && (
-        <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-xl text-sm font-bold shadow-lg animate-in fade-in slide-in-from-top-4 ${
+        <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-xl text-sm font-bold shadow-lg ${
           feedback.includes('✅') ? 'bg-green-600 text-white' : 
-          feedback.includes('⚠️') ? 'bg-amber-600 text-white' : 
           feedback.includes('❌') ? 'bg-red-600 text-white' :
           'bg-slate-800 text-white'
         }`}>
@@ -1078,9 +1262,7 @@ const DriverApp = () => {
             <button onClick={() => setShowPayModal(true)} className="p-2 text-emerald-600 hover:text-emerald-800 rounded-xl bg-emerald-50 dark:bg-emerald-900/30">
               <DollarSign size={20} />
             </button>
-            <button onClick={toggleDarkMode} className="p-2 text-slate-400 hover:text-blue-600 rounded-xl">
-              {darkMode ? <Sun size={20} /> : <Moon size={20} />}
-            </button>
+            {/* Dark mode button removed - always light mode */}
             <button onClick={isTracking ? stopGPSTracking : startGPSTracking} className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-bold ${isTracking ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>
               <div className={`w-2 h-2 rounded-full ${isTracking ? 'bg-emerald-500 animate-pulse' : 'bg-gray-400'}`}></div>
               GPS {isTracking ? 'ON' : 'OFF'}
@@ -1097,6 +1279,7 @@ const DriverApp = () => {
             <div className="flex items-center gap-2"><User size={16} /><span className="font-bold">{driverProfile?.name || 'Driver'}</span></div>
             {companyInfo && <div className="text-xs opacity-80">{companyInfo.name}</div>}
             <div className="text-xs opacity-80">🚛 {driverProfile?.truckNo}</div>
+            {driverProfile?.email && <div className="text-xs opacity-70">📧 {driverProfile.email}</div>}
             {currentLocation && (
               <div className="text-[10px] opacity-70 mt-1">
                 📍 {currentLocation.lat.toFixed(4)}, {currentLocation.lng.toFixed(4)}
@@ -1111,24 +1294,16 @@ const DriverApp = () => {
       </div>
       
       {/* Stats with Pay */}
-      <div className="grid grid-cols-4 gap-3 p-4">
-        <div className="bg-white dark:bg-slate-800 rounded-xl p-3 text-center shadow-sm">
-          <div className="text-2xl font-black text-blue-600">{activeLoads.length}</div>
-          <div className="text-[10px] font-bold text-slate-400 uppercase">Active</div>
-        </div>
-        <div className="bg-white dark:bg-slate-800 rounded-xl p-3 text-center shadow-sm">
-          <div className="text-2xl font-black text-green-600">{completedLoads.length}</div>
-          <div className="text-[10px] font-bold text-slate-400 uppercase">Completed</div>
-        </div>
-        <div className="bg-white dark:bg-slate-800 rounded-xl p-3 text-center shadow-sm">
-          <div className="text-2xl font-black text-emerald-600">${totalEarnings.toFixed(2)}</div>
-          <div className="text-[10px] font-bold text-slate-400 uppercase">Total Earned</div>
-        </div>
-        <div className="bg-white dark:bg-slate-800 rounded-xl p-3 text-center shadow-sm">
-          <div className="text-2xl font-black text-amber-600">${pendingPayments.toFixed(2)}</div>
-          <div className="text-[10px] font-bold text-slate-400 uppercase">Pending</div>
-        </div>
-      </div>
+      <div className="grid grid-cols-2 gap-3 p-4">
+  <div className="bg-white dark:bg-slate-800 rounded-xl p-3 text-center shadow-sm">
+    <div className="text-2xl font-black text-blue-600">{activeLoads.length}</div>
+    <div className="text-[10px] font-bold text-slate-400 uppercase">Active</div>
+  </div>
+  <div className="bg-white dark:bg-slate-800 rounded-xl p-3 text-center shadow-sm">
+    <div className="text-2xl font-black text-green-600">{completedLoads.length}</div>
+    <div className="text-[10px] font-bold text-slate-400 uppercase">Completed</div>
+  </div>
+</div>
       
       {/* Main Content */}
       <main className="p-4 pb-24">
@@ -1164,34 +1339,69 @@ const DriverApp = () => {
               
               <div className="p-4 space-y-4">
                 {/* Pay Section */}
-                {selectedLoad && (() => {
-                  const totalPay = calculateDriverPay(selectedLoad);
-                  return (
-                    <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-xl p-3 border border-emerald-200 dark:border-emerald-800">
-                      <div className="flex justify-between items-center">
-                        <div className="flex items-center gap-2">
-                          <DollarSign size={16} className="text-emerald-600" />
-                          <span className="text-xs font-bold text-emerald-700 dark:text-emerald-300">Your Pay</span>
-                        </div>
-                        <span className="text-lg font-black text-emerald-600 dark:text-emerald-400">${totalPay.toFixed(2)}</span>
+                {selectedLoad && (
+                  <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-xl p-3 border border-emerald-200 dark:border-emerald-800">
+                    <div className="flex justify-between items-center">
+                      <div className="flex items-center gap-2">
+                        <DollarSign size={16} className="text-emerald-600" />
+                        <span className="text-xs font-bold text-emerald-700 dark:text-emerald-300">Your Pay</span>
                       </div>
-                      <div className="mt-1 flex flex-wrap gap-2">
-                        {getDriverLegs(selectedLoad).map((leg, idx) => {
-                          const pay = leg.driverPay ? parseFloat(leg.driverPay) : 50;
-                          const status = leg.tripStatus || leg.status || 'Pending';
-                          const isComplete = status === 'Completed' || status === 'Delivered';
-                          return (
-                            <span key={leg.id} className={`text-[10px] px-2 py-0.5 rounded-full ${isComplete ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
-                              Leg {idx + 1}: ${pay.toFixed(2)} {isComplete ? '✅' : '⏳'}
-                            </span>
-                          );
-                        })}
-                      </div>
+                      <span className="text-lg font-black text-emerald-600 dark:text-emerald-400">${calculateDriverPay(selectedLoad).toFixed(2)}</span>
                     </div>
-                  );
-                })()}
+                  </div>
+                )}
 
-                {/* Customer and Appointment Info */}
+                {/* DISPATCH DETAILS - Full Assignment Text */}
+{selectedLoad && (
+  <div className="bg-white rounded-xl p-4 border border-slate-200 shadow-sm">
+    <div className="flex items-center gap-2 mb-2">
+      <FileText className="w-4 h-4 text-blue-600" />
+      <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Dispatch Assignment</h3>
+      <button 
+        onClick={() => {
+          const leg = getDriverLegs(selectedLoad)[0];
+          if (leg) {
+            const currencySymbol = selectedLoad?.currency === 'USD' ? 'US$' : 'C$';
+            let text = `🚛 DISPATCH ASSIGNMENT 🚛\n---------------------------\nWork Order: ${selectedLoad?.workOrderNo || 'N/A'}\nContainer: ${selectedLoad?.containerNo || 'TBD'}\nLine: ${selectedLoad?.shippingLine || 'N/A'}\nSize/Weight: ${selectedLoad?.size || 'N/A'} / ${selectedLoad?.weight || 'N/A'}\nPO #: ${selectedLoad?.poNumber || 'N/A'}\nPickup #: ${selectedLoad?.pickupNo || 'N/A'}\nRef #: ${selectedLoad?.customerRefNo || 'N/A'}\nAppointment: ${selectedLoad?.appointmentDate || 'TBD'} at ${selectedLoad?.appointmentTime || 'TBD'}\nCurrency: ${currencySymbol}\n\nROUTING:\n📍 From: ${leg?.from || 'N/A'}\n🏁 To: ${leg?.to || 'N/A'}\n\nDRIVER INFO:\n👤 Driver: ${leg?.driverName || 'TBD'}\n🚛 Truck: ${leg?.truckNo || 'TBD'}\n---------------------------`;
+            copyToClipboard(text);
+            setFeedback("📋 Dispatch copied to clipboard!");
+          }
+        }}
+        className="text-xs text-blue-600 hover:text-blue-800 font-bold ml-auto flex items-center gap-1"
+      >
+        <Copy className="w-3 h-3" /> Copy
+      </button>
+    </div>
+    <div className="bg-white rounded-lg p-3 font-mono text-[10px] leading-relaxed whitespace-pre-wrap border border-slate-200 max-h-60 overflow-y-auto">
+      {(() => {
+        const leg = getDriverLegs(selectedLoad)[0];
+        const currencySymbol = selectedLoad?.currency === 'USD' ? 'US$' : 'C$';
+        return `<span style="color: #1a1a2e;">🚛 DISPATCH ASSIGNMENT 🚛
+---------------------------
+Work Order: ${selectedLoad?.workOrderNo || 'N/A'}
+Container: ${selectedLoad?.containerNo || 'TBD'}
+Line: ${selectedLoad?.shippingLine || 'N/A'}
+Size/Weight: ${selectedLoad?.size || 'N/A'} / ${selectedLoad?.weight || 'N/A'}
+PO #: ${selectedLoad?.poNumber || 'N/A'}
+Pickup #: ${selectedLoad?.pickupNo || 'N/A'}
+Ref #: ${selectedLoad?.customerRefNo || 'N/A'}
+Appointment: ${selectedLoad?.appointmentDate || 'TBD'} at ${selectedLoad?.appointmentTime || 'TBD'}
+Currency: ${currencySymbol}
+
+ROUTING:
+📍 From: ${leg?.from || 'N/A'}
+🏁 To: ${leg?.to || 'N/A'}
+
+DRIVER INFO:
+👤 Driver: ${leg?.driverName || 'TBD'}
+🚛 Truck: ${leg?.truckNo || 'TBD'}
+---------------------------</span>`;
+      })()}
+    </div>
+  </div>
+)}
+
+                {/* Customer Info */}
                 <div className="bg-slate-50 dark:bg-slate-900/50 rounded-xl p-3 space-y-2">
                   <div className="flex justify-between"><span className="text-xs text-slate-500">Customer:</span><span className="text-sm font-bold">{selectedLoad.customerName}</span></div>
                   <div className="flex justify-between"><span className="text-xs text-slate-500">Appointment:</span><span className="text-sm font-bold text-blue-600">{selectedLoad.appointmentDate} at {selectedLoad.appointmentTime}</span></div>
@@ -1211,8 +1421,8 @@ const DriverApp = () => {
                           key={leg.id} 
                           className={`border rounded-xl p-3 transition-all cursor-pointer ${
                             isCompleted 
-                              ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800' 
-                              : 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800 ring-2 ring-blue-400'
+                              ? 'bg-green-50 dark:bg-green-900/20 border-green-200' 
+                              : 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 ring-2 ring-blue-400'
                           } ${selectedLeg?.id === leg.id ? 'ring-4 ring-blue-500' : ''}`}
                           onClick={() => {
                             setSelectedLeg(leg);
@@ -1227,11 +1437,26 @@ const DriverApp = () => {
                               <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${getStatusColor(legStatus)}`}>
                                 {legStatus}
                               </span>
-                              {selectedLeg?.id === leg.id && (
-                                <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-blue-500 text-white">
-                                  SELECTED
-                                </span>
-                              )}
+                              {/* View POD/EIR Button for Completed Legs */}
+{(legStatus === 'Completed' || legStatus === 'POD Uploaded' || legStatus === 'Delivered') && leg.podPhotoUrl && (
+  <button 
+    onClick={(e) => { 
+      e.stopPropagation(); 
+      setSelectedPODLoad({ 
+        ...selectedLoad, 
+        podPhotoUrl: leg.podPhotoUrl, 
+        containerNo: selectedLoad.containerNo,
+        isEIR: leg.legType === 'termination',
+        legType: getLegTypeLabel(leg.legType),
+        receiverName: leg.receiverName || 'N/A'
+      });
+      setShowPODViewer(true); 
+    }}
+    className="text-[10px] text-blue-600 hover:text-blue-800 font-bold flex items-center gap-1 ml-2"
+  >
+    <Eye size={14} /> View {leg.legType === 'termination' ? 'EIR' : 'POD'}
+  </button>
+)}
                             </div>
                           </div>
                           <div className="flex items-center gap-2 text-sm">
@@ -1243,248 +1468,187 @@ const DriverApp = () => {
                             <span>👤 {leg.driverName || 'N/A'}</span><span>🚛 {leg.truckNo || 'N/A'}</span>
                           </div>
                           
-                          {/* STATUS UPDATE BUTTONS */}
-                          {!isCompleted && !isAllLegsComplete && (
-                            <div className="mt-3 pt-3 border-t dark:border-slate-700">
-                              <div className="text-[10px] font-bold text-slate-400 uppercase mb-2">
-                                Update Status {leg.legType === 'termination' ? '(Termination Leg)' : '(Delivery Leg)'}:
-                              </div>
-                              <div className="flex flex-wrap gap-2">
-                                
-                                {/* DELIVERY/PICKUP LEG OPTIONS */}
-                                {leg.legType !== 'termination' && (
-                                  <>
-                                    <button 
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setSelectedLeg(leg);
-                                        handleUpdateDriverStatus('Started', leg.id);
-                                      }} 
-                                      disabled={updating || isButtonClicked(leg.id, 'Started')} 
-                                      className={`flex-1 py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 shadow-md ${
-                                        isButtonClicked(leg.id, 'Started') 
-                                          ? 'bg-blue-300 cursor-not-allowed' 
-                                          : 'bg-blue-600 hover:bg-blue-700'
-                                      } text-white disabled:opacity-50`}
-                                    >
-                                      {isButtonClicked(leg.id, 'Started') ? <CheckCircle size={18} /> : <Play size={18} />}
-                                      {isButtonClicked(leg.id, 'Started') ? 'Started ✓' : '🚛 Start Trip'}
-                                    </button>
-                                    
-                                    <button 
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setSelectedLeg(leg);
-                                        handleUpdateDriverStatus('Arrived Pickup', leg.id);
-                                      }} 
-                                      disabled={updating || isButtonClicked(leg.id, 'Arrived Pickup')} 
-                                      className={`flex-1 py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 shadow-md ${
-                                        isButtonClicked(leg.id, 'Arrived Pickup') 
-                                          ? 'bg-cyan-300 cursor-not-allowed' 
-                                          : 'bg-cyan-500 hover:bg-cyan-600'
-                                      } text-white disabled:opacity-50`}
-                                    >
-                                      {isButtonClicked(leg.id, 'Arrived Pickup') ? <CheckCircle size={18} /> : <MapPin size={18} />}
-                                      {isButtonClicked(leg.id, 'Arrived Pickup') ? 'Arrived ✓' : '📍 Reached Pickup'}
-                                    </button>
-                                    
-                                    <button 
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setSelectedLeg(leg);
-                                        handleUpdateDriverStatus('Loaded', leg.id);
-                                      }} 
-                                      disabled={updating || isButtonClicked(leg.id, 'Loaded')} 
-                                      className={`flex-1 py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 shadow-md ${
-                                        isButtonClicked(leg.id, 'Loaded') 
-                                          ? 'bg-teal-300 cursor-not-allowed' 
-                                          : 'bg-teal-500 hover:bg-teal-600'
-                                      } text-white disabled:opacity-50`}
-                                    >
-                                      {isButtonClicked(leg.id, 'Loaded') ? <CheckCircle size={18} /> : <Package size={18} />}
-                                      {isButtonClicked(leg.id, 'Loaded') ? 'Loaded ✓' : '📦 Loaded'}
-                                    </button>
-                                    
-                                    <button 
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setSelectedLeg(leg);
-                                        handleUpdateDriverStatus('In Transit', leg.id);
-                                      }} 
-                                      disabled={updating || isButtonClicked(leg.id, 'In Transit')} 
-                                      className={`flex-1 py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 shadow-md ${
-                                        isButtonClicked(leg.id, 'In Transit') 
-                                          ? 'bg-indigo-300 cursor-not-allowed' 
-                                          : 'bg-indigo-500 hover:bg-indigo-600'
-                                      } text-white disabled:opacity-50`}
-                                    >
-                                      {isButtonClicked(leg.id, 'In Transit') ? <CheckCircle size={18} /> : <Navigation size={18} />}
-                                      {isButtonClicked(leg.id, 'In Transit') ? 'In Transit ✓' : '🚛 In Transit'}
-                                    </button>
-                                    
-                                    <button 
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setSelectedLeg(leg);
-                                        handleUpdateDriverStatus('Arrived Delivery', leg.id);
-                                      }} 
-                                      disabled={updating || isButtonClicked(leg.id, 'Arrived Delivery')} 
-                                      className={`flex-1 py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 shadow-md ${
-                                        isButtonClicked(leg.id, 'Arrived Delivery') 
-                                          ? 'bg-orange-300 cursor-not-allowed' 
-                                          : 'bg-orange-500 hover:bg-orange-600'
-                                      } text-white disabled:opacity-50`}
-                                    >
-                                      {isButtonClicked(leg.id, 'Arrived Delivery') ? <CheckCircle size={18} /> : <MapPinCheck size={18} />}
-                                      {isButtonClicked(leg.id, 'Arrived Delivery') ? 'Arrived ✓' : '📍 Arrived at Delivery'}
-                                    </button>
-                                    
-                                    <button 
-                                      onClick={(e) => { 
-                                        e.stopPropagation();
-                                        if (isButtonClicked(leg.id, 'POD')) {
-                                          setFeedback('⏳ POD already uploaded');
-                                          return;
-                                        }
-                                        setSelectedLeg(leg); 
-                                        setPodData({ photo: null, receiverName: '', legId: leg.id }); 
-                                        setShowPODModal(true); 
-                                      }} 
-                                      disabled={updating || isButtonClicked(leg.id, 'POD')} 
-                                      className={`flex-1 py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 shadow-md ${
-                                        isButtonClicked(leg.id, 'POD') 
-                                          ? 'bg-green-300 cursor-not-allowed' 
-                                          : 'bg-green-600 hover:bg-green-700'
-                                      } text-white disabled:opacity-50`}
-                                    >
-                                      {isButtonClicked(leg.id, 'POD') ? <CheckCircle size={18} /> : <Camera size={18} />}
-                                      {isButtonClicked(leg.id, 'POD') ? 'POD Done ✓' : '✅ Delivery Done (Upload POD)'}
-                                    </button>
-                                  </>
-                                )}
-                                
-                                {/* TERMINATION LEG OPTIONS */}
-                                {leg.legType === 'termination' && (
-                                  <>
-                                    <button 
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setSelectedLeg(leg);
-                                        handleUpdateDriverStatus('Started', leg.id);
-                                      }} 
-                                      disabled={updating || isButtonClicked(leg.id, 'Started')} 
-                                      className={`flex-1 py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 shadow-md ${
-                                        isButtonClicked(leg.id, 'Started') 
-                                          ? 'bg-purple-300 cursor-not-allowed' 
-                                          : 'bg-purple-600 hover:bg-purple-700'
-                                      } text-white disabled:opacity-50`}
-                                    >
-                                      {isButtonClicked(leg.id, 'Started') ? <CheckCircle size={18} /> : <Flag size={18} />}
-                                      {isButtonClicked(leg.id, 'Started') ? 'Started ✓' : '🏁 Start Termination'}
-                                    </button>
-                                    
-                                    <button 
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setSelectedLeg(leg);
-                                        handleUpdateDriverStatus('Heading to Yard', leg.id);
-                                      }} 
-                                      disabled={updating || isButtonClicked(leg.id, 'Heading to Yard')} 
-                                      className={`w-full py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 shadow-md ${
-                                        isButtonClicked(leg.id, 'Heading to Yard') 
-                                          ? 'bg-purple-300 cursor-not-allowed' 
-                                          : 'bg-purple-600 hover:bg-purple-700'
-                                      } text-white disabled:opacity-50`}
-                                    >
-                                      {isButtonClicked(leg.id, 'Heading to Yard') ? <CheckCircle size={18} /> : <Home size={18} />}
-                                      {isButtonClicked(leg.id, 'Heading to Yard') ? 'Heading ✓' : '🏗️ Heading to Yard (Termination)'}
-                                    </button>
-                                    
-                                    <button 
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setSelectedLeg(leg);
-                                        handleUpdateDriverStatus('Arrived Yard', leg.id);
-                                      }} 
-                                      disabled={updating || isButtonClicked(leg.id, 'Arrived Yard')} 
-                                      className={`w-full py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 shadow-md ${
-                                        isButtonClicked(leg.id, 'Arrived Yard') 
-                                          ? 'bg-violet-300 cursor-not-allowed' 
-                                          : 'bg-violet-500 hover:bg-violet-600'
-                                      } text-white disabled:opacity-50`}
-                                    >
-                                      {isButtonClicked(leg.id, 'Arrived Yard') ? <CheckCircle size={18} /> : <Flag size={18} />}
-                                      {isButtonClicked(leg.id, 'Arrived Yard') ? 'At Yard ✓' : '📍 Arrived at Yard'}
-                                    </button>
-                                    
-                                    <button 
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setSelectedLeg(leg);
-                                        handleUpdateDriverStatus('Completed', leg.id);
-                                      }} 
-                                      disabled={updating || isButtonClicked(leg.id, 'Completed')} 
-                                      className={`w-full py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 shadow-md ${
-                                        isButtonClicked(leg.id, 'Completed') 
-                                          ? 'bg-emerald-300 cursor-not-allowed' 
-                                          : 'bg-emerald-600 hover:bg-emerald-700'
-                                      } text-white disabled:opacity-50`}
-                                    >
-                                      {isButtonClicked(leg.id, 'Completed') ? <CheckCircle size={18} /> : <CheckCircle size={18} />}
-                                      {isButtonClicked(leg.id, 'Completed') ? 'Complete ✓' : '✅ Container Terminated / Job Complete'}
-                                    </button>
-                                  </>
-                                )}
-                              </div>
-                              
-                              {/* Current Status */}
-                              <div className="mt-3 p-2 bg-slate-100 dark:bg-slate-800 rounded-lg">
-                                <div className="text-[10px] text-slate-500 text-center">
-                                  Current: <strong>{driverProfile?.tripStatus || 'Not Started'}</strong>
-                                </div>
-                              </div>
-                            </div>
-                          )}
+                          {/* STATUS UPDATE BUTTONS - Based on Leg Type */}
+{!isCompleted && !isAllLegsComplete && (
+  <div className="mt-3 pt-3 border-t dark:border-slate-700">
+    <div className="text-[10px] font-bold text-slate-400 uppercase mb-2">
+      {leg.legType === 'termination' ? '🏁 Termination Progress:' :
+       leg.legType === 'drop' ? '📦 Drop Progress:' :
+       '🚚 Delivery Progress:'}
+    </div>
+    <div className="flex flex-wrap gap-2">
+      
+      {/* DELIVERY LEG STATUSES */}
+      {leg.legType === 'delivery' && (
+        <>
+          <button onClick={(e) => { e.stopPropagation(); setSelectedLeg(leg); handleUpdateDriverStatus('Started', leg.id); }} disabled={updating || isButtonClicked(leg.id, 'Started')} className={`flex-1 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-md ${isButtonClicked(leg.id, 'Started') ? 'bg-blue-300 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'} text-white disabled:opacity-50`}>
+            {isButtonClicked(leg.id, 'Started') ? <CheckCircle size={16} /> : <Play size={16} />}
+            {isButtonClicked(leg.id, 'Started') ? 'Started ✓' : '🚛 Start Trip'}
+          </button>
+          
+          <button onClick={(e) => { e.stopPropagation(); setSelectedLeg(leg); handleUpdateDriverStatus('Arrived Pickup', leg.id); }} disabled={updating || isButtonClicked(leg.id, 'Arrived Pickup')} className={`flex-1 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-md ${isButtonClicked(leg.id, 'Arrived Pickup') ? 'bg-cyan-300 cursor-not-allowed' : 'bg-cyan-500 hover:bg-cyan-600'} text-white disabled:opacity-50`}>
+            {isButtonClicked(leg.id, 'Arrived Pickup') ? <CheckCircle size={16} /> : <MapPin size={16} />}
+            {isButtonClicked(leg.id, 'Arrived Pickup') ? 'Arrived ✓' : '📍 Reached Pickup'}
+          </button>
+          
+          <button onClick={(e) => { e.stopPropagation(); setSelectedLeg(leg); handleUpdateDriverStatus('Loaded', leg.id); }} disabled={updating || isButtonClicked(leg.id, 'Loaded')} className={`flex-1 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-md ${isButtonClicked(leg.id, 'Loaded') ? 'bg-teal-300 cursor-not-allowed' : 'bg-teal-500 hover:bg-teal-600'} text-white disabled:opacity-50`}>
+            {isButtonClicked(leg.id, 'Loaded') ? <CheckCircle size={16} /> : <Package size={16} />}
+            {isButtonClicked(leg.id, 'Loaded') ? 'Loaded ✓' : '📦 Loaded'}
+          </button>
+          
+          <button onClick={(e) => { e.stopPropagation(); setSelectedLeg(leg); handleUpdateDriverStatus('In Transit', leg.id); }} disabled={updating || isButtonClicked(leg.id, 'In Transit')} className={`flex-1 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-md ${isButtonClicked(leg.id, 'In Transit') ? 'bg-indigo-300 cursor-not-allowed' : 'bg-indigo-500 hover:bg-indigo-600'} text-white disabled:opacity-50`}>
+            {isButtonClicked(leg.id, 'In Transit') ? <CheckCircle size={16} /> : <Navigation size={16} />}
+            {isButtonClicked(leg.id, 'In Transit') ? 'In Transit ✓' : '🚛 In Transit'}
+          </button>
+          
+          <button onClick={(e) => { e.stopPropagation(); setSelectedLeg(leg); handleUpdateDriverStatus('Arrived Delivery', leg.id); }} disabled={updating || isButtonClicked(leg.id, 'Arrived Delivery')} className={`flex-1 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-md ${isButtonClicked(leg.id, 'Arrived Delivery') ? 'bg-orange-300 cursor-not-allowed' : 'bg-orange-500 hover:bg-orange-600'} text-white disabled:opacity-50`}>
+            {isButtonClicked(leg.id, 'Arrived Delivery') ? <CheckCircle size={16} /> : <MapPinCheck size={16} />}
+            {isButtonClicked(leg.id, 'Arrived Delivery') ? 'Arrived ✓' : '📍 Arrived Delivery'}
+          </button>
+          
+          <button onClick={(e) => { e.stopPropagation(); setSelectedLeg(leg); setPodData({ photo: null, receiverName: '', legId: leg.id, isEIR: false }); setShowPODModal(true); }} disabled={updating || isButtonClicked(leg.id, 'POD')} className={`flex-1 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-md ${isButtonClicked(leg.id, 'POD') ? 'bg-green-300 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'} text-white disabled:opacity-50`}>
+            {isButtonClicked(leg.id, 'POD') ? <CheckCircle size={16} /> : <Camera size={16} />}
+            {isButtonClicked(leg.id, 'POD') ? 'POD Done ✓' : '✅ Delivery Done (Upload POD)'}
+          </button>
+        </>
+      )}
+      
+      {/* DROP LEG STATUSES */}
+      {leg.legType === 'drop' && (
+        <>
+          <button onClick={(e) => { e.stopPropagation(); setSelectedLeg(leg); handleUpdateDriverStatus('Started', leg.id); }} disabled={updating || isButtonClicked(leg.id, 'Started')} className={`flex-1 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-md ${isButtonClicked(leg.id, 'Started') ? 'bg-blue-300 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'} text-white disabled:opacity-50`}>
+            {isButtonClicked(leg.id, 'Started') ? <CheckCircle size={16} /> : <Play size={16} />}
+            {isButtonClicked(leg.id, 'Started') ? 'Started ✓' : '🚛 Start Trip'}
+          </button>
+          
+          <button onClick={(e) => { e.stopPropagation(); setSelectedLeg(leg); handleUpdateDriverStatus('Arrived Pickup', leg.id); }} disabled={updating || isButtonClicked(leg.id, 'Arrived Pickup')} className={`flex-1 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-md ${isButtonClicked(leg.id, 'Arrived Pickup') ? 'bg-cyan-300 cursor-not-allowed' : 'bg-cyan-500 hover:bg-cyan-600'} text-white disabled:opacity-50`}>
+            {isButtonClicked(leg.id, 'Arrived Pickup') ? <CheckCircle size={16} /> : <MapPin size={16} />}
+            {isButtonClicked(leg.id, 'Arrived Pickup') ? 'Arrived ✓' : '📍 Reached Pickup'}
+          </button>
+          
+          <button onClick={(e) => { e.stopPropagation(); setSelectedLeg(leg); handleUpdateDriverStatus('Loaded', leg.id); }} disabled={updating || isButtonClicked(leg.id, 'Loaded')} className={`flex-1 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-md ${isButtonClicked(leg.id, 'Loaded') ? 'bg-teal-300 cursor-not-allowed' : 'bg-teal-500 hover:bg-teal-600'} text-white disabled:opacity-50`}>
+            {isButtonClicked(leg.id, 'Loaded') ? <CheckCircle size={16} /> : <Package size={16} />}
+            {isButtonClicked(leg.id, 'Loaded') ? 'Loaded ✓' : '📦 Loaded'}
+          </button>
+          
+          <button onClick={(e) => { e.stopPropagation(); setSelectedLeg(leg); handleUpdateDriverStatus('In Transit', leg.id); }} disabled={updating || isButtonClicked(leg.id, 'In Transit')} className={`flex-1 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-md ${isButtonClicked(leg.id, 'In Transit') ? 'bg-indigo-300 cursor-not-allowed' : 'bg-indigo-500 hover:bg-indigo-600'} text-white disabled:opacity-50`}>
+            {isButtonClicked(leg.id, 'In Transit') ? <CheckCircle size={16} /> : <Navigation size={16} />}
+            {isButtonClicked(leg.id, 'In Transit') ? 'In Transit ✓' : '🚛 In Transit'}
+          </button>
+          
+          <button onClick={(e) => { e.stopPropagation(); setSelectedLeg(leg); handleUpdateDriverStatus('Arrived Drop', leg.id); }} disabled={updating || isButtonClicked(leg.id, 'Arrived Drop')} className={`flex-1 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-md ${isButtonClicked(leg.id, 'Arrived Drop') ? 'bg-orange-300 cursor-not-allowed' : 'bg-orange-500 hover:bg-orange-600'} text-white disabled:opacity-50`}>
+            {isButtonClicked(leg.id, 'Arrived Drop') ? <CheckCircle size={16} /> : <MapPinCheck size={16} />}
+            {isButtonClicked(leg.id, 'Arrived Drop') ? 'Arrived ✓' : '📍 Arrived at Drop'}
+          </button>
+          
+          <button onClick={(e) => { e.stopPropagation(); setSelectedLeg(leg); setPodData({ photo: null, receiverName: '', legId: leg.id, isEIR: false }); setShowPODModal(true); }} disabled={updating || isButtonClicked(leg.id, 'POD')} className={`flex-1 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-md ${isButtonClicked(leg.id, 'POD') ? 'bg-green-300 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'} text-white disabled:opacity-50`}>
+            {isButtonClicked(leg.id, 'POD') ? <CheckCircle size={16} /> : <Camera size={16} />}
+            {isButtonClicked(leg.id, 'POD') ? 'POD Done ✓' : '✅ Drop Done (Upload POD)'}
+          </button>
+        </>
+      )}
+      
+      {/* TERMINATION LEG STATUSES */}
+      {leg.legType === 'termination' && (
+        <>
+          <button onClick={(e) => { e.stopPropagation(); setSelectedLeg(leg); handleUpdateDriverStatus('Heading to Terminate', leg.id); }} disabled={updating || isButtonClicked(leg.id, 'Heading to Terminate')} className={`flex-1 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-md ${isButtonClicked(leg.id, 'Heading to Terminate') ? 'bg-purple-300 cursor-not-allowed' : 'bg-purple-600 hover:bg-purple-700'} text-white disabled:opacity-50`}>
+            {isButtonClicked(leg.id, 'Heading to Terminate') ? <CheckCircle size={16} /> : <Flag size={16} />}
+            {isButtonClicked(leg.id, 'Heading to Terminate') ? 'Started ✓' : '🏁 Start Heading to Terminate'}
+          </button>
+          
+          <button onClick={(e) => { e.stopPropagation(); setSelectedLeg(leg); handleUpdateDriverStatus('Terminated', leg.id); }} disabled={updating || isButtonClicked(leg.id, 'Terminated')} className={`flex-1 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-md ${isButtonClicked(leg.id, 'Terminated') ? 'bg-teal-300 cursor-not-allowed' : 'bg-teal-600 hover:bg-teal-700'} text-white disabled:opacity-50`}>
+            {isButtonClicked(leg.id, 'Terminated') ? <CheckCircle size={16} /> : <CheckCircle size={16} />}
+            {isButtonClicked(leg.id, 'Terminated') ? 'Terminated ✓' : '✅ Container Terminated'}
+          </button>
+          
+          <button onClick={(e) => { e.stopPropagation(); setSelectedLeg(leg); setPodData({ photo: null, receiverName: '', legId: leg.id, isEIR: true }); setShowPODModal(true); }} disabled={updating || isButtonClicked(leg.id, 'EIR')} className={`flex-1 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-md ${isButtonClicked(leg.id, 'EIR') ? 'bg-emerald-300 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-700'} text-white disabled:opacity-50`}>
+            {isButtonClicked(leg.id, 'EIR') ? <CheckCircle size={16} /> : <FileUp size={16} />}
+            {isButtonClicked(leg.id, 'EIR') ? 'EIR Done ✓' : '📄 Upload EIR'}
+          </button>
+        </>
+      )}
+      
+    </div>
+  </div>
+)}
                           
-                          {/* When both legs are complete */}
                           {isAllLegsComplete && (
-                            <div className="mt-3 pt-3 border-t dark:border-slate-700">
-                              <div className="p-3 bg-emerald-100 dark:bg-emerald-900/30 rounded-lg text-center">
-                                <div className="text-emerald-700 dark:text-emerald-300 font-bold text-sm">
-                                  ✅ ALL LEGS COMPLETE! Dispatch closed for today.
-                                </div>
+  <div className="mt-3 pt-3 border-t border-slate-200">
+    <div className="p-3 bg-emerald-100 rounded-lg text-center">
+      <div className="text-emerald-700 font-bold text-sm">✅ ALL LEGS COMPLETE!</div>
+      {/* View POD/EIR Button for Completed Legs */}
+{(legStatus === 'Completed' || legStatus === 'POD Uploaded' || legStatus === 'Delivered') && leg.podPhotoUrl && (
+  <button 
+    onClick={(e) => { 
+      e.stopPropagation(); 
+      // Use the leg's podPhotoUrl directly, not from selectedLoad
+      setSelectedPODLoad({ 
+        podPhotoUrl: leg.podPhotoUrl,  // ✅ Use leg directly
+        containerNo: selectedLoad.containerNo,
+        workOrderNo: selectedLoad.workOrderNo,
+        isEIR: leg.legType === 'termination',
+        legType: getLegTypeLabel(leg.legType),
+        receiverName: leg.receiverName || 'N/A'
+      });
+      setShowPODViewer(true); 
+    }}
+    className="text-[10px] text-blue-600 hover:text-blue-800 font-bold flex items-center gap-1 ml-2"
+  >
+    <Eye size={14} /> View {leg.legType === 'termination' ? 'EIR' : 'POD'}
+  </button>
+)}
+    </div>
+  </div>
+)}
+                          {/* ---- TIME INPUTS (new) ---- */}
+                          <div className="mt-3 pt-3 border-t dark:border-slate-700">
+                            <div className="grid grid-cols-2 gap-3">
+                              <div>
+                                <label className="block text-xs font-bold text-slate-500 mb-1">Arrival Time</label>
+                                <input
+                                  type="time"
+                                  value={leg.arrivalTime || ''}
+                                  onChange={(e) => {
+                                    const newVal = e.target.value;
+                                    setSelectedLoad(prev => ({
+                                      ...prev,
+                                      legs: prev.legs.map(l => l.id === leg.id ? { ...l, arrivalTime: newVal } : l)
+                                    }));
+                                  }}
+                                  className="w-full px-3 py-2 border rounded-xl text-sm dark:bg-slate-900 dark:text-white"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-xs font-bold text-slate-500 mb-1">Departure Time</label>
+                                <input
+                                  type="time"
+                                  value={leg.departureTime || ''}
+                                  onChange={(e) => {
+                                    const newVal = e.target.value;
+                                    setSelectedLoad(prev => ({
+                                      ...prev,
+                                      legs: prev.legs.map(l => l.id === leg.id ? { ...l, departureTime: newVal } : l)
+                                    }));
+                                  }}
+                                  className="w-full px-3 py-2 border rounded-xl text-sm dark:bg-slate-900 dark:text-white"
+                                />
                               </div>
                             </div>
-                          )}
-                          
-                          {/* POD Photo Display */}
-                          {leg.podPhotoUrl && (
-                            <div className="mt-2 pt-2 border-t dark:border-slate-700 flex gap-2">
-                              <button onClick={(e) => { e.stopPropagation(); setSelectedPODLoad({ ...selectedLoad, podPhotoUrl: leg.podPhotoUrl }); setShowPODViewer(true); }} 
-                                className="px-3 py-1 bg-green-600 text-white rounded-lg text-[10px] font-bold">View POD</button>
-                              {leg.receiverName && <span className="text-[10px] text-green-700">✅ {leg.receiverName}</span>}
-                            </div>
-                          )}
-                          
-                          {/* Signature Display */}
-                          {leg.signature && (
-                            <div className="mt-2 pt-2 border-t dark:border-slate-700">
-                              <div className="text-[10px] font-bold text-slate-400 uppercase mb-1">Signed POD</div>
-                              <img src={leg.signature} alt="Signature" className="w-full max-h-24 object-contain rounded-lg border" />
-                            </div>
-                          )}
+                            <button
+                              onClick={() => handleUpdateTimes(leg.id, leg.arrivalTime, leg.departureTime)}
+                              disabled={updating}
+                              className="mt-2 w-full py-2.5 bg-blue-600 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 hover:bg-blue-700 disabled:opacity-50"
+                            >
+                              {updating ? <Loader2 className="animate-spin" size={16} /> : <Clock size={16} />}
+                              Update Times
+                            </button>
+                          </div>
+                          {/* ---- END TIME INPUTS ---- */}
                         </div>
                       );
                     })}
                   </div>
                 </div>
-                
-                {selectedLoad.notes && (
-                  <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl p-3 border border-amber-100">
-                    <div className="text-[10px] font-black text-amber-700 uppercase mb-1">📝 Notes</div>
-                    <p className="text-xs text-amber-800 dark:text-amber-300 whitespace-pre-wrap">{selectedLoad.notes}</p>
-                  </div>
-                )}
               </div>
             </div>
           </div>
@@ -1493,26 +1657,6 @@ const DriverApp = () => {
           <>
             <div className="mb-6">
               <h2 className="text-sm font-black text-slate-400 uppercase tracking-wider mb-3">Active Dispatches ({activeLoads.length})</h2>
-              
-              {/* PAY SUMMARY */}
-              {activeLoads.length > 0 && (
-                <div className="bg-gradient-to-r from-emerald-50 to-blue-50 dark:from-emerald-900/20 dark:to-blue-900/20 rounded-xl p-4 mb-4 border border-emerald-200 dark:border-emerald-800">
-                  <div className="flex justify-between items-center">
-                    <div>
-                      <div className="text-xs font-bold text-slate-500 uppercase">Total Earnings</div>
-                      <div className="text-2xl font-black text-emerald-600">${totalEarnings.toFixed(2)}</div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-xs font-bold text-slate-500 uppercase">Pending</div>
-                      <div className="text-xl font-black text-amber-600">${pendingPayments.toFixed(2)}</div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-xs font-bold text-slate-500 uppercase">Completed</div>
-                      <div className="text-xl font-black text-green-600">${(totalEarnings - pendingPayments).toFixed(2)}</div>
-                    </div>
-                  </div>
-                </div>
-              )}
               
               {activeLoads.length === 0 ? (
                 <div className="bg-white dark:bg-slate-800 rounded-2xl border p-8 text-center">
@@ -1528,22 +1672,15 @@ const DriverApp = () => {
                       const s = l.tripStatus || l.status || 'Pending'; 
                       return s === 'Completed' || s === 'Delivered'; 
                     }).length;
-                    const allComplete = legs.length > 0 && legs.every(l => {
-                      const s = l.tripStatus || l.status || 'Pending';
-                      return s === 'Completed' || s === 'Delivered';
-                    });
                     
                     return (
-                      <div key={load.id} onClick={() => setSelectedLoad(load)} className={`bg-white dark:bg-slate-800 rounded-2xl border p-4 shadow-sm active:scale-[0.98] cursor-pointer ${allComplete ? 'border-green-300 bg-green-50/30' : ''}`}>
+                      <div key={load.id} onClick={() => setSelectedLoad(load)} className="bg-white dark:bg-slate-800 rounded-2xl border p-4 shadow-sm active:scale-[0.98] cursor-pointer">
                         <div className="flex justify-between items-start mb-3">
                           <div>
                             <div className="font-black text-lg">{load.containerNo}</div>
                             <div className="text-xs text-slate-400">{load.workOrderNo}</div>
                           </div>
-                          <span className={`text-[10px] font-black px-2 py-1 rounded-full ${
-                            allComplete ? 'bg-green-100 text-green-700' :
-                            legs.length === completed ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'
-                          }`}>
+                          <span className="text-[10px] font-black px-2 py-1 rounded-full bg-blue-100 text-blue-700">
                             {completed}/{legs.length} Legs
                           </span>
                         </div>
@@ -1556,9 +1693,6 @@ const DriverApp = () => {
                                 <span className={`w-2 h-2 rounded-full ${done ? 'bg-green-500' : 'bg-yellow-500'}`}></span>
                                 <span className={done ? 'text-green-600' : 'text-slate-600'}>
                                   Leg {idx + 1}: {formatLocation(leg.from)} → {formatLocation(leg.to)}
-                                </span>
-                                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${getLegTypeColor(leg.legType)}`}>
-                                  {getLegTypeLabel(leg.legType)}
                                 </span>
                               </div>
                             );
@@ -1574,81 +1708,66 @@ const DriverApp = () => {
                 </div>
               )}
             </div>
-            
-            {completedLoads.length > 0 && (
-              <div>
-                <h2 className="text-sm font-black text-slate-400 uppercase tracking-wider mb-3">Completed ({completedLoads.length})</h2>
-                <div className="space-y-2">
-                  {completedLoads.map(load => (
-                    <div key={load.id} onClick={() => setSelectedLoad(load)} className="bg-white dark:bg-slate-800 rounded-xl border p-3 opacity-75 cursor-pointer hover:opacity-100">
-                      <div className="flex justify-between">
-                        <div>
-                          <div className="font-bold text-sm">{load.containerNo}</div>
-                          <div className="text-[10px] text-green-600">✅ All {getDriverLegs(load).length} legs done</div>
-                        </div>
-                        <CheckCircle size={20} className="text-green-500" />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
           </>
         )}
       </main>
       
-      {/* POD Modal */}
-      {showPODModal && selectedLeg && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60" onClick={() => setShowPODModal(false)}>
-          <div className="bg-white dark:bg-slate-800 rounded-2xl max-w-md w-full p-6" onClick={e => e.stopPropagation()}>
-            <h3 className="font-black text-lg mb-2">📋 Proof of Delivery</h3>
-            <p className="text-sm text-slate-500 mb-4">{getLegTypeLabel(selectedLeg.legType)}: {formatLocation(selectedLeg.from)} → {formatLocation(selectedLeg.to)}</p>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-500 mb-1">Receiver Name *</label>
-                <input type="text" value={podData.receiverName} onChange={e => setPodData(p => ({ ...p, receiverName: e.target.value }))} 
-                  className="w-full px-4 py-2.5 border rounded-xl text-sm dark:bg-slate-900 dark:text-white" required />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-500 mb-1">POD Photo</label>
-                {podData.photo ? (
-                  <div className="relative">
-                    <img src={podData.photo} alt="POD" className="w-full h-40 object-cover rounded-xl" />
-                    <button onClick={() => setPodData(p => ({ ...p, photo: null }))} className="absolute top-2 right-2 p-1 bg-red-500 text-white rounded-full"><X size={16} /></button>
-                  </div>
-                ) : (
-                  <label className="cursor-pointer flex flex-col items-center gap-2 p-6 border-2 border-dashed rounded-xl hover:border-green-400">
-                    <Camera size={32} className="text-slate-400" />
-                    <span className="text-xs font-bold text-slate-500">Tap to take photo</span>
-                    <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handlePODPhoto} />
-                  </label>
-                )}
-              </div>
-              <div className="flex gap-3">
-                <button onClick={() => { setShowPODModal(false); setPodData({ photo: null, receiverName: '', legId: null }); }} 
-                  className="flex-1 py-3 bg-slate-100 dark:bg-slate-700 rounded-xl font-bold text-sm">Cancel</button>
-                <button onClick={handlePODSubmit} disabled={updating} 
-                  className="flex-1 py-3 bg-green-600 text-white rounded-xl font-bold text-sm hover:bg-green-700 disabled:opacity-50">
-                  {updating ? 'Uploading...' : 'Submit POD'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
       
-      {/* Signature Pad Modal */}
-      {showSignaturePad && selectedLeg && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60" onClick={() => setShowSignaturePad(false)}>
-          <div className="bg-white dark:bg-slate-800 rounded-2xl max-w-md w-full p-6" onClick={e => e.stopPropagation()}>
-            <h3 className="font-black text-lg mb-4">✍️ Sign POD</h3>
-            <p className="text-sm text-slate-500 mb-4">{getLegTypeLabel(selectedLeg.legType)}: {formatLocation(selectedLeg.from)} → {formatLocation(selectedLeg.to)}</p>
-            <SignaturePad onSave={handleSignatureSubmit} onCancel={() => setShowSignaturePad(false)} />
-          </div>
+      {/* POD / EIR Modal */}
+{showPODModal && selectedLeg && (
+  <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60" onClick={() => setShowPODModal(false)}>
+    <div className="bg-white dark:bg-slate-800 rounded-2xl max-w-md w-full p-6" onClick={e => e.stopPropagation()}>
+      <h3 className="font-black text-lg mb-2">
+        {podData.isEIR ? '📄 Equipment Interchange Report (EIR)' : '📋 Proof of Delivery'}
+      </h3>
+      <p className="text-sm text-slate-500 mb-4">
+        {getLegTypeLabel(selectedLeg.legType)}: {formatLocation(selectedLeg.from)} → {formatLocation(selectedLeg.to)}
+      </p>
+      <div className="space-y-4">
+        <div>
+          <label className="block text-xs font-bold text-slate-500 mb-1">
+            {podData.isEIR ? 'EIR Number *' : 'Receiver Name *'}
+          </label>
+          <input 
+            type="text" 
+            value={podData.receiverName} 
+            onChange={e => setPodData(p => ({ ...p, receiverName: e.target.value }))} 
+            className="w-full px-4 py-2.5 border rounded-xl text-sm dark:bg-slate-900 dark:text-white" 
+            required 
+            placeholder={podData.isEIR ? 'Enter EIR number' : 'Enter receiver name'}
+          />
         </div>
-      )}
-
-      {/* PAY MODAL */}
+        <div>
+          <label className="block text-xs font-bold text-slate-500 mb-1">
+            {podData.isEIR ? 'EIR Photo' : 'POD Photo'}
+          </label>
+          {podData.photo ? (
+            <div className="relative">
+              <img src={podData.photo} alt={podData.isEIR ? 'EIR' : 'POD'} className="w-full h-40 object-cover rounded-xl" />
+              <button onClick={() => setPodData(p => ({ ...p, photo: null }))} className="absolute top-2 right-2 p-1 bg-red-500 text-white rounded-full"><X size={16} /></button>
+            </div>
+          ) : (
+            <label className="cursor-pointer flex flex-col items-center gap-2 p-6 border-2 border-dashed rounded-xl hover:border-green-400">
+              <Camera size={32} className="text-slate-400" />
+              <span className="text-xs font-bold text-slate-500">Tap to take photo</span>
+              <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handlePODPhoto} />
+            </label>
+          )}
+        </div>
+        <div className="flex gap-3">
+          <button onClick={() => { setShowPODModal(false); setPodData({ photo: null, receiverName: '', legId: null, isEIR: false }); }} 
+            className="flex-1 py-3 bg-slate-100 dark:bg-slate-700 rounded-xl font-bold text-sm">Cancel</button>
+          <button onClick={handlePODSubmit} disabled={updating} 
+            className="flex-1 py-3 bg-green-600 text-white rounded-xl font-bold text-sm hover:bg-green-700 disabled:opacity-50">
+            {updating ? 'Uploading...' : podData.isEIR ? 'Submit EIR' : 'Submit POD'}
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+)}
+      
+      {/* Pay Modal */}
       {showPayModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60" onClick={() => setShowPayModal(false)}>
           <div className="bg-white dark:bg-slate-800 rounded-2xl max-w-md w-full p-6 max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
@@ -1656,49 +1775,21 @@ const DriverApp = () => {
               <h3 className="font-black text-lg">💰 Pay Details</h3>
               <button onClick={() => setShowPayModal(false)} className="p-1 hover:bg-slate-200 rounded-lg"><X size={20} /></button>
             </div>
-            <div className="space-y-3">
-              {assignedLoads.map(load => {
-                const legs = getDriverLegs(load);
-                const total = legs.reduce((sum, leg) => sum + (parseFloat(leg.driverPay) || 50), 0);
-                const allComplete = legs.every(l => {
-                  const s = l.tripStatus || l.status || 'Pending';
-                  return s === 'Completed' || s === 'Delivered';
-                });
-                return (
-                  <div key={load.id} className="bg-slate-50 dark:bg-slate-900/50 rounded-xl p-3">
-                    <div className="flex justify-between items-center">
-                      <div>
-                        <div className="font-bold text-sm">{load.containerNo}</div>
-                        <div className="text-[10px] text-slate-400">{load.workOrderNo}</div>
-                      </div>
-                      <div className="text-right">
-                        <div className={`font-black ${allComplete ? 'text-emerald-600' : 'text-amber-600'}`}>
-                          ${total.toFixed(2)}
-                        </div>
-                        <div className="text-[10px] text-slate-400">{allComplete ? '✅ Paid' : '⏳ Pending'}</div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-              {assignedLoads.every(l => getDriverLegs(l).reduce((s, leg) => s + (parseFloat(leg.driverPay) || 50), 0) === 0) && (
-                <div className="text-center text-slate-400 py-8">
-                  <p>No pay details available</p>
-                  <p className="text-xs mt-1">Pay is set by dispatch</p>
-                </div>
-              )}
-              <div className="pt-3 border-t dark:border-slate-700">
-                <div className="flex justify-between items-center font-bold">
-                  <span>Total Earnings</span>
-                  <span className="text-emerald-600">${totalEarnings.toFixed(2)}</span>
-                </div>
+            <div className="pt-3 border-t dark:border-slate-700">
+              <div className="flex justify-between items-center font-bold">
+                <span>Total Earnings</span>
+                <span className="text-emerald-600">${totalEarnings.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between items-center font-bold mt-2">
+                <span>Pending</span>
+                <span className="text-amber-600">${pendingPayments.toFixed(2)}</span>
               </div>
             </div>
           </div>
         </div>
       )}
       
-      {/* Chat Modal - SINGLE INSTANCE */}
+      {/* Chat Modal */}
       <ChatModal isOpen={showChat} onClose={() => setShowChat(false)} partnerName="Dispatch" messages={messages} onSend={sendMessage} />
       
       {/* Emergency Button */}
@@ -1707,7 +1798,7 @@ const DriverApp = () => {
         <Phone size={24} />
       </button>
       
-      {/* Chat Button */}
+            {/* Chat Button */}
       <button onClick={() => setShowChat(true)} 
         className="fixed bottom-6 right-6 w-14 h-14 bg-blue-600 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-blue-700 active:scale-95 z-40 relative">
         <MessageSquare size={24} />
@@ -1717,6 +1808,30 @@ const DriverApp = () => {
           </span>
         )}
       </button>
+      
+      {/* Session Timeout Warning Modal */}
+      {showTimeoutWarning && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/60">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 text-center shadow-2xl">
+            <div className="w-16 h-16 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <AlertTriangle className="w-8 h-8 text-yellow-600" />
+            </div>
+            <h3 className="font-black text-lg text-slate-800 mb-2">Session Expiring Soon</h3>
+            <p className="text-sm text-slate-500 mb-6">
+              You will be automatically logged out in 5 minutes due to inactivity.
+            </p>
+            <button 
+              onClick={() => {
+                resetDriverInactivityTimer();
+                setShowTimeoutWarning(false);
+              }}
+              className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700 transition-colors"
+            >
+              I'm Still Here
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
