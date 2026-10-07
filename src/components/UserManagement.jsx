@@ -23,6 +23,15 @@ const logError = (context, error, metadata = {}) => {
   }
 };
 
+// ========== ROLE DISPLAY NAMES ==========
+const ROLE_DISPLAY_NAMES = {
+  owner: 'Company Administrator',
+  admin: 'Operations Manager',
+  dispatcher: 'Dispatcher',
+  accounting: 'Accounting',
+  customer_service: 'Customer Service'
+};
+
 // ========== MAIN COMPONENT ==========
 const UserManagement = ({ isOpen, onClose, companyId, currentUserUid, userRole }) => {
   const [teamMembers, setTeamMembers] = useState([]);
@@ -118,7 +127,8 @@ const UserManagement = ({ isOpen, onClose, companyId, currentUserUid, userRole }
       return;
     }
     
-    if (!['dispatcher', 'accounting', 'admin'].includes(inviteRole)) {
+    // ✅ Allow the new 'customer_service' role
+    if (!['dispatcher', 'accounting', 'admin', 'customer_service'].includes(inviteRole)) {
       showMessage("Invalid role selected.", "error");
       return;
     }
@@ -138,7 +148,7 @@ const UserManagement = ({ isOpen, onClose, companyId, currentUserUid, userRole }
       });
       
       if (result.data.success) {
-        showMessage(`✅ ${inviteEmail} added as ${inviteRole}`, "success");
+        showMessage(`✅ ${inviteEmail} added as ${ROLE_DISPLAY_NAMES[inviteRole] || inviteRole}`, "success");
         setInviteEmail("");
         setTempPassword("");
         setShowPassword(false);
@@ -278,9 +288,10 @@ const UserManagement = ({ isOpen, onClose, companyId, currentUserUid, userRole }
                       value={inviteRole} 
                       onChange={e => setInviteRole(e.target.value)}
                     >
-                      <option value="dispatcher">Dispatcher - Operations only</option>
-                      <option value="accounting">Accounting - Billing & Financial</option>
-                      <option value="admin">Admin - Full access</option>
+                      <option value="dispatcher">{ROLE_DISPLAY_NAMES.dispatcher} - Operations only</option>
+                      <option value="accounting">{ROLE_DISPLAY_NAMES.accounting} - Billing & Financial</option>
+                      <option value="admin">{ROLE_DISPLAY_NAMES.admin} - Full access</option>
+                      <option value="customer_service">{ROLE_DISPLAY_NAMES.customer_service} - Customer support</option>
                     </select>
                   </div>
                   <button 
@@ -331,6 +342,7 @@ const UserManagement = ({ isOpen, onClose, companyId, currentUserUid, userRole }
                           member.role === 'owner' ? 'bg-yellow-500' : 
                           member.role === 'admin' ? 'bg-purple-500' : 
                           member.role === 'accounting' ? 'bg-green-500' : 
+                          member.role === 'customer_service' ? 'bg-indigo-500' :
                           'bg-blue-500'
                         }`}>
                           {member.email?.charAt(0).toUpperCase() || 'U'}
@@ -344,9 +356,10 @@ const UserManagement = ({ isOpen, onClose, companyId, currentUserUid, userRole }
                               member.role === 'owner' ? 'bg-yellow-100 text-yellow-700' : 
                               member.role === 'admin' ? 'bg-purple-100 text-purple-700' : 
                               member.role === 'accounting' ? 'bg-green-100 text-green-700' : 
+                              member.role === 'customer_service' ? 'bg-indigo-100 text-indigo-700' : 
                               'bg-blue-100 text-blue-700'
                             }`}>
-                              {member.role}
+                              {ROLE_DISPLAY_NAMES[member.role] || member.role}
                             </span>
                             {member.uid === currentUserUid && (
                               <span className="text-[10px] font-bold bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">

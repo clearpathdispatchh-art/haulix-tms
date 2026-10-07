@@ -1,38 +1,192 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function getUserCompanyId() {
+      return request.auth.token.companyId;
+    }
+
+    function isSuperAdmin() {
+      return request.auth != null &&
+             (request.auth.token.platformAdmin == true ||
+              request.auth.uid == "UFbOqd1GElPJnrTZiJrhZEwB5uz1");
+    }
+
     function isCompanyMember(companyId) {
-      return request.auth != null && 
-        request.auth.uid in get(/databases/$(database)/documents/companies/$(companyId)).data.memberUids;
+      return isAuthenticated() && (
+        request.auth.token.companyId == companyId ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.companyId == companyId)
+      );
     }
-    
-    function getUserRole(companyId) {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+
+    function isOwnerOrAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.role == 'owner' || request.auth.token.role == 'admin' ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+          (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'owner' ||
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'))
+      );
     }
-    
+
+    function isDispatcher() {
+      return isAuthenticated() && (
+        request.auth.token.role == 'dispatcher' ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'dispatcher')
+      );
+    }
+
+    function isAccounting() {
+      return isAuthenticated() && (
+        request.auth.token.role == 'accounting' ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'accounting')
+      );
+    }
+
+    function canWriteOperational() {
+      return isOwnerOrAdmin() || isDispatcher();
+    }
+
+    function canWriteFinancial() {
+      return isOwnerOrAdmin() || isAccounting();
+    }
+
+    // Super admin full access
+    match /{document=**} {
+      allow read, write: if isSuperAdmin();
+    }
+
+    // Users collection
     match /users/{userId} {
-      allow read, create, update: if request.auth != null && request.auth.uid == userId;
-      allow delete: if false;
+      allow read: if isAuthenticated() && request.auth.uid == userId;
+      allow update: if isAuthenticated() && request.auth.uid == userId
+                    && request.resource.data.role == resource.data.role
+                    && request.resource.data.companyId == resource.data.companyId
+                    && request.resource.data.platformRole == resource.data.platformRole;
+      allow create: if isOwnerOrAdmin()
+                    && request.resource.data.companyId == getUserCompanyId()
+                    && request.resource.data.role in ['dispatcher', 'accounting', 'admin', 'customer_service', 'driver'];
+      allow update, delete: if isOwnerOrAdmin()
+                            && resource.data.companyId == getUserCompanyId()
+                            && request.resource.data.companyId == getUserCompanyId();
     }
-    
+
+    // Companies collection
     match /companies/{companyId} {
-      allow create: if request.auth != null;
       allow read: if isCompanyMember(companyId);
-      allow update: if isCompanyMember(companyId) && 
-        getUserRole(companyId) in ['owner', 'admin'];
-      allow delete: if false;
-      
-      match /{document=**} {
-        allow read: if isCompanyMember(companyId);
-        allow create, update: if isCompanyMember(companyId);
-        allow delete: if isCompanyMember(companyId) && 
-          getUserRole(companyId) in ['owner', 'admin'];
-      }
+      allow update: if isCompanyMember(companyId) && isOwnerOrAdmin()
+                    && request.resource.data.paymentStatus == resource.data.paymentStatus
+                    && request.resource.data.subscriptionActive == resource.data.subscriptionActive
+                    && request.resource.data.trialEndsAt == resource.data.trialEndsAt;
+      allow create, delete: if false;
     }
-    
-    match /setup/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+
+    // Subcollections
+    match /companies/{companyId}/loads/{loadId} {
+      allow read: if isCompanyMember(companyId);
+      allow create: if isCompanyMember(companyId)
+                    && canWriteOperational()
+                    && request.resource.data.companyId == companyId;
+      allow update: if isCompanyMember(companyId)
+                    && request.resource.data.companyId == companyId
+                    && (
+                      (canWriteOperational() && !(resource.data.status in ['Invoiced', 'Paid', 'Completed']))
+                      ||
+                      (canWriteFinancial() && resource.data.status in ['Invoiced', 'Paid', 'Completed'])
+                    );
+      allow delete: if isCompanyMember(companyId) && isOwnerOrAdmin();
+    }
+
+    match /companies/{companyId}/exports/{exportId} {
+      allow read: if isCompanyMember(companyId);
+      allow create: if isCompanyMember(companyId)
+                    && canWriteOperational()
+                    && request.resource.data.companyId == companyId;
+      allow update: if isCompanyMember(companyId)
+                    && request.resource.data.companyId == companyId
+                    && (
+                      (canWriteOperational() && !(resource.data.status in ['Invoiced', 'Paid', 'Completed']))
+                      ||
+                      (canWriteFinancial() && resource.data.status in ['Invoiced', 'Paid', 'Completed'])
+                    );
+      allow delete: if isCompanyMember(companyId) && isOwnerOrAdmin();
+    }
+
+    match /companies/{companyId}/customers/{customerId} {
+      allow read, create, update: if isCompanyMember(companyId);
+      allow delete: if isCompanyMember(companyId) && isOwnerOrAdmin();
+    }
+
+    match /companies/{companyId}/locations/{locationId} {
+      allow read, create, update: if isCompanyMember(companyId);
+      allow delete: if isCompanyMember(companyId) && isOwnerOrAdmin();
+    }
+
+    match /companies/{companyId}/drivers/{driverId} {
+      allow read: if isCompanyMember(companyId);
+      allow create: if isCompanyMember(companyId) && canWriteOperational();
+      allow update: if isCompanyMember(companyId)
+                    && (
+                      canWriteOperational()
+                      ||
+                      (isAuthenticated() && request.auth.token.role == 'driver'
+                        && request.auth.token.driverId == driverId
+                        && request.resource.data.diff(resource.data).affectedKeys()
+                             .hasOnly(['lat','lng','lastUpdated','isTracking',
+                                       'tripStatus','lastTripUpdate','receiverName',
+                                       'podPhotoUrl','podReceiverName','podUploadedAt',
+                                       'eirPhotoUrl','eirReceiverName','eirUploadedAt']))
+                    );
+      allow delete: if isCompanyMember(companyId) && isOwnerOrAdmin();
+    }
+
+    match /companies/{companyId}/messages/{messageId} {
+      allow read: if isCompanyMember(companyId);
+      allow create: if isCompanyMember(companyId) && canWriteOperational()
+                    || (isAuthenticated() && request.auth.token.role == 'driver'
+                        && request.auth.token.driverId != null
+                        && request.resource.data.sender == 'driver'
+                        && request.resource.data.driverId == request.auth.token.driverId);
+      allow update: if isCompanyMember(companyId) && canWriteOperational();
+      allow delete: if isCompanyMember(companyId) && isOwnerOrAdmin();
+    }
+
+    match /companies/{companyId}/chassis/{chassisId} {
+      allow read, create, update: if isCompanyMember(companyId) && canWriteOperational();
+      allow delete: if isCompanyMember(companyId) && isOwnerOrAdmin();
+    }
+
+    match /companies/{companyId}/trucks/{truckId} {
+      allow read, create, update: if isCompanyMember(companyId) && canWriteOperational();
+      allow delete: if isCompanyMember(companyId) && isOwnerOrAdmin();
+    }
+
+    match /companies/{companyId}/terminals/{terminalId} {
+      allow read, create, update: if isCompanyMember(companyId) && canWriteOperational();
+      allow delete: if isCompanyMember(companyId) && isOwnerOrAdmin();
+    }
+
+    match /companies/{companyId}/basePrices/{basePriceId} {
+      allow read, create, update: if isCompanyMember(companyId) && canWriteOperational();
+      allow delete: if isCompanyMember(companyId) && isOwnerOrAdmin();
+    }
+
+    // Generic fallback
+    match /companies/{companyId}/{subcollection}/{documentId} {
+      allow read: if isCompanyMember(companyId);
+      allow create, update: if isCompanyMember(companyId) && canWriteOperational();
+      allow delete: if isCompanyMember(companyId) && isOwnerOrAdmin();
+    }
+
+    // Deny everything else
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

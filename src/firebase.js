@@ -1,7 +1,7 @@
-// src/firebase.js - VITE COMPATIBLE
+// src/firebase.js - VITE COMPATIBLE (FIXED)
 
 import { initializeApp, getApp, getApps } from 'firebase/app';
-import { getFirestore, initializeFirestore, connectFirestoreEmulator } from 'firebase/firestore'; // ✅ ADD initializeFirestore
+import { getFirestore, connectFirestoreEmulator } from 'firebase/firestore';
 import { 
   getAuth, 
   connectAuthEmulator, 
@@ -52,13 +52,8 @@ const getFirebaseServices = () => {
     return { db: null, auth: null, storage: null, app: null };
   }
 
-  // ✅ NEW: Initialize Firestore with cache settings (replaces enableIndexedDbPersistence)
-  const db = initializeFirestore(firebaseApp, {
-    cache: {
-      kind: 'persistent',  // This replaces enableIndexedDbPersistence()
-      tabManager: { kind: 'auto' }  // Handles multiple tabs automatically
-    }
-  });
+  // ✅ FIXED: Use getFirestore instead of initializeFirestore
+  const db = getFirestore(firebaseApp);
 
   const auth = getAuth(firebaseApp);
   
@@ -81,14 +76,21 @@ const getFirebaseServices = () => {
     }
   }
 
-  window[GLOBAL_KEY] = Object.freeze({
+  const services = {
     firebaseApp,
     db,
     auth,
     storage
-  });
+  };
 
-  return window[GLOBAL_KEY];
+  window[GLOBAL_KEY] = services;
+
+  // ✅ For debugging only – remove in production
+  window.db = db;
+  window.auth = auth;
+  window.storage = storage;
+
+  return services;
 };
 
 // ========== EXPORTS ==========

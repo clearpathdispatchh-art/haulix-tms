@@ -2,7 +2,7 @@ import React, { useState, useMemo, useRef, useEffect, useCallback } from "react"
 
 import {
   Plus, Search, Trash2, Package, User, Scale, Maximize, Navigation, Hash,
-  FileText, Filter, Download, Edit3, X, MapPin, Building, ChevronDown,
+  FileText, Filter, Download, Edit3, X, MapPin, Building, ChevronDown, ChevronUp,
   CheckCircle2, Mail, ArrowRight, Route, Truck, Copy, Check, UserPlus,
   FileDown, DollarSign, Calculator, Receipt, Printer, FileCheck, Anchor,
   Clock, Calendar, ArrowUpRight, Pencil, Eye, RotateCcw, FileUp, Paperclip,
@@ -62,11 +62,15 @@ import DriverActivityBoard from './components/DriverActivityBoard';
 import ChassisModule from './components/ChassisModule';
 import UserManagement from './components/UserManagement';
 import AdminDashboard from './components/AdminDashboard';
+import SuperAdminGuard from './components/SuperAdminGuard';  // ← This line
 import DriverPayroll from './components/DriverPayroll.jsx';
 import ContainerBoard from './components/ContainerBoard';
 import DailyDispatchBoard from './components/DailyDispatchBoard';
 import TomorrowDispatchBoard from './components/TomorrowDispatchBoard';
 import TrucksModule from './components/TrucksModule';
+import InvoicesModule from './components/InvoicesModule';
+import ExportBatchesModule from './components/ExportBatchesModule';   // ✅ NEW
+import EmailSettingsModal from './components/EmailSettingsModal';  // ✅ ADD THIS LINE
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
 // ✅ ADD THIS IMPORT - COST CALCULATION UTILITIES
@@ -182,6 +186,30 @@ const PRE_PULL_TEMPLATES = [
 const formatCurrency = (amount, currency = 'CAD') => {
   const curr = SUPPORTED_CURRENCIES[currency] || SUPPORTED_CURRENCIES.CAD;
   return `${curr.symbol}${safeFloat(amount).toFixed(2)}`;
+};
+
+// ========== ROLE DISPLAY NAMES ==========
+const ROLE_DISPLAY_NAMES = {
+  owner: 'Company Administrator',
+  admin: 'Operations Manager',
+  dispatcher: 'Dispatcher',
+  accounting: 'Accounting',
+  customer_service: 'Customer Service'
+};
+
+// ========== TAB CONFIGURATION (per role) ==========
+const TAB_CONFIG = {
+  summary: { label: 'Dashboard', roles: ['owner', 'admin', 'dispatcher', 'accounting', 'customer_service'] },
+  loads: { label: 'Loads', roles: ['owner', 'admin', 'dispatcher', 'accounting', 'customer_service'] },
+  addressBook: { label: 'Customers', roles: ['owner', 'admin', 'dispatcher', 'customer_service'] },
+  billing: { label: 'Billing', roles: ['owner', 'admin', 'accounting'] },
+  invoices: { label: 'Invoices', roles: ['owner', 'admin', 'accounting'] },
+  exportBatches: { label: 'Export Batches', roles: ['owner', 'admin', 'accounting'] },   // ✅ NEW
+  history: { label: 'History', roles: ['owner', 'admin', 'accounting'] },
+  assignment: { label: 'Assignment', roles: ['owner', 'admin', 'dispatcher', 'customer_service'] },
+  revenue: { label: 'Analytics', roles: ['owner', 'admin'] },
+  payroll: { label: 'Payroll', roles: ['owner'] },
+  driverActivity: { label: 'Fleet', roles: ['owner', 'admin', 'dispatcher', 'customer_service'] }
 };
 
 // ========== HELPER FUNCTIONS ==========
@@ -1743,7 +1771,7 @@ const LoadForm = ({
   savedCustomers,
   savedDestinations,
   savedDrivers,
-  savedBasePrices, // <-- ADD THIS
+  savedBasePrices,
   apiKey,
   companyId,
   userId,
@@ -1756,13 +1784,14 @@ const LoadForm = ({
   companyLocations = [],
   companyTerminals = [],
 }) => {
-    // ===== DEBUG: LOG BASE PRICES =====
+  // ===== DEBUG: LOG BASE PRICES =====
   useEffect(() => {
     console.log("🔍 LoadForm received base prices:", savedBasePrices);
     if (savedBasePrices && savedBasePrices.length > 0) {
       console.log("📋 Base price locations:", savedBasePrices.map(bp => bp.location));
     }
   }, [savedBasePrices]);
+
   // ===== STATE VARIABLES =====
   const [formData, setFormData] = useState(createEmptyLoadForm());
   const [generatingNotes, setGeneratingNotes] = useState(false);
@@ -1771,6 +1800,7 @@ const LoadForm = ({
   const [selectedTemplate, setSelectedTemplate] = useState('');
   const [showTemplateDropdown, setShowTemplateDropdown] = useState(false);
   const [activeStep, setActiveStep] = useState('details');
+  const [expandedLegId, setExpandedLegId] = useState(null);
 
   const initializedLoadRef = useRef(null);
   const [formVersion, setFormVersion] = useState(0);
@@ -1784,53 +1814,44 @@ const LoadForm = ({
   const isAdmin = userRole === 'owner' || userRole === 'admin';
   const isDispatcher = userRole === 'dispatcher';
   const isAccounting = userRole === 'accounting';
-  const isFinancialLocked = (userRole === 'dispatcher' && ['Invoiced', 'Paid', 'Completed'].includes(formData.status)) ||
-                           (userRole !== 'accounting' && userRole !== 'admin' && userRole !== 'owner' && ['Paid', 'Completed'].includes(formData.status));
+  const isCustomerService = userRole === 'customer_service';
+
+  const isFinancialLocked = 
+    (userRole === 'dispatcher' && ['Invoiced', 'Paid', 'Completed'].includes(formData.status)) ||
+    (userRole === 'customer_service' && ['Invoiced', 'Paid', 'Completed'].includes(formData.status)) ||
+    (userRole !== 'accounting' && userRole !== 'admin' && userRole !== 'owner' && userRole !== 'customer_service' && ['Paid', 'Completed'].includes(formData.status));
+  
   const currencySymbol = formData.currency === 'USD' ? 'US$' : 'C$';
 
   // ===== AUTO-FILL PRICE FROM BASE PRICES =====
   const autoFillPriceFromLocation = useCallback((itemName) => {
-  if (!savedBasePrices || savedBasePrices.length === 0) {
-    console.log("No base prices available");
+    if (!savedBasePrices || savedBasePrices.length === 0) return null;
+    
+    const normalizedName = itemName.toLowerCase().trim();
+    let match = savedBasePrices.find(bp => bp.location.toLowerCase().trim() === normalizedName);
+    
+    if (!match) {
+      match = savedBasePrices.find(bp => 
+        normalizedName.includes(bp.location.toLowerCase().trim()) ||
+        bp.location.toLowerCase().trim().includes(normalizedName)
+      );
+    }
+    
+    if (!match) {
+      const firstWord = normalizedName.split(' ')[0];
+      match = savedBasePrices.find(bp => 
+        bp.location.toLowerCase().trim().startsWith(firstWord)
+      );
+    }
+    
+    if (match) {
+      return {
+        price: match.price || 0,
+        currency: match.currency || 'CAD'
+      };
+    }
     return null;
-  }
-  
-  const normalizedName = itemName.toLowerCase().trim();
-  console.log("Searching for:", normalizedName);
-  console.log("Available base prices:", savedBasePrices.map(bp => bp.location));
-  
-  // Try exact match first
-  let match = savedBasePrices.find(bp => 
-    bp.location.toLowerCase().trim() === normalizedName
-  );
-  
-  // If no exact match, try partial match (contains)
-  if (!match) {
-    match = savedBasePrices.find(bp => 
-      normalizedName.includes(bp.location.toLowerCase().trim()) ||
-      bp.location.toLowerCase().trim().includes(normalizedName)
-    );
-  }
-  
-  // If still no match, try to match the first word
-  if (!match) {
-    const firstWord = normalizedName.split(' ')[0];
-    match = savedBasePrices.find(bp => 
-      bp.location.toLowerCase().trim().startsWith(firstWord)
-    );
-  }
-  
-  if (match) {
-    console.log("✅ Found match:", match.location, "Price:", match.price);
-    return {
-      price: match.price || 0,
-      currency: match.currency || 'CAD'
-    };
-  }
-  
-  console.log("❌ No match found for:", normalizedName);
-  return null;
-}, [savedBasePrices]);
+  }, [savedBasePrices]);
 
   // ===== CLICK OUTSIDE HANDLER FOR TEMPLATE DROPDOWN =====
   useEffect(() => {
@@ -1864,6 +1885,24 @@ const LoadForm = ({
       legs: (prev.legs || []).filter(l => l.id !== legId) 
     }));
   }, []);
+
+    const moveLegUp = useCallback((index) => {
+    if (index === 0) return;
+    setFormData(prev => {
+      const newLegs = [...(prev.legs || [])];
+      [newLegs[index - 1], newLegs[index]] = [newLegs[index], newLegs[index - 1]];
+      return { ...prev, legs: newLegs };
+    });
+  }, []);
+
+  const moveLegDown = useCallback((index) => {
+    setFormData(prev => {
+      const newLegs = [...(prev.legs || [])];
+      if (index === newLegs.length - 1) return prev;
+      [newLegs[index], newLegs[index + 1]] = [newLegs[index + 1], newLegs[index]];
+      return { ...prev, legs: newLegs };
+    });
+  }, []);
  
   const addRevenueItem = useCallback(() => {
     setFormData(prev => ({ ...prev, revenueItems: [...(prev.revenueItems || []), { id: Date.now().toString(), item: '', qty: 1, rate: '', amount: '' }] }));
@@ -1880,18 +1919,6 @@ const LoadForm = ({
   const removeExpenseItem = useCallback((id) => {
     setFormData(prev => ({ ...prev, expenseItems: (prev.expenseItems || []).filter(i => i.id !== id) }));
   }, []);
-
-  const formatTimeForInput = (value) => {
-    if (!value) return '';
-    if (typeof value === 'string' && value.match(/^\d{2}:\d{2}$/)) return value;
-    try {
-      const date = new Date(value);
-      if (!isNaN(date.getTime()) && date.getFullYear() > 2000) {
-        return date.toTimeString().slice(0, 5);
-      }
-    } catch (e) {}
-    return '';
-  };
 
   // ===== EFFECTS =====
   useEffect(() => {
@@ -1975,58 +2002,55 @@ const LoadForm = ({
   };
  
   const handleLineItemChange = (type, id, field, value) => {
-  if (field === 'qty' || field === 'rate' || field === 'amount') {
-    const numValue = parseFloat(value);
-    if (!isNaN(numValue) && numValue < 0) {
-      setFeedback?.("Negative values are not allowed");
-      return;
-    }
-  }
-  
-  // ✅ If the item description changes, try to auto-fill the rate from base prices
-  if (field === 'item' && type === 'revenue') {
-    const autoFill = autoFillPriceFromLocation(value);
-    if (autoFill && autoFill.price > 0) {
-      // Auto-fill the rate with the base price
-      setFormData(prev => {
-        const listName = type === 'revenue' ? 'revenueItems' : 'expenseItems';
-        const newItems = (prev[listName] || []).map(item => {
-          if (item.id !== id) return item;
-          const qty = safeFloat(item.qty || 1);
-          const currencySymbol = autoFill.currency === 'USD' ? 'US$' : 'C$';
-          return {
-            ...item,
-            [field]: value,
-            rate: autoFill.price,
-            amount: (qty * autoFill.price).toFixed(2)
-          };
-        });
-        return { ...prev, [listName]: newItems };
-      });
-      const currencySymbol = autoFill.currency === 'USD' ? 'US$' : 'C$';
-      setFeedback?.(`💰 Auto-filled rate: ${currencySymbol}${autoFill.price.toFixed(2)}`);
-      return;
-    }
-  }
-  
-  setFormData(prev => {
-    const listName = type === 'revenue' ? 'revenueItems' : 'expenseItems';
-    const newItems = (prev[listName] || []).map(item => {
-      if (item.id !== id) return item;
-      const updated = { ...item, [field]: value };
-      if (field === 'qty' || field === 'rate') {
-        const q = safeFloat(updated.qty);
-        const r = safeFloat(updated.rate);
-        if (q < 0 || r < 0) return updated;
-        if (updated.qty !== '' && updated.rate !== '') {
-          updated.amount = (q * r).toFixed(2);
-        }
+    if (field === 'qty' || field === 'rate' || field === 'amount') {
+      const numValue = parseFloat(value);
+      if (!isNaN(numValue) && numValue < 0) {
+        setFeedback?.("Negative values are not allowed");
+        return;
       }
-      return updated;
+    }
+    
+    if (field === 'item' && type === 'revenue') {
+      const autoFill = autoFillPriceFromLocation(value);
+      if (autoFill && autoFill.price > 0) {
+        setFormData(prev => {
+          const listName = type === 'revenue' ? 'revenueItems' : 'expenseItems';
+          const newItems = (prev[listName] || []).map(item => {
+            if (item.id !== id) return item;
+            const qty = safeFloat(item.qty || 1);
+            return {
+              ...item,
+              [field]: value,
+              rate: autoFill.price,
+              amount: (qty * autoFill.price).toFixed(2)
+            };
+          });
+          return { ...prev, [listName]: newItems };
+        });
+        const currencySymbol = autoFill.currency === 'USD' ? 'US$' : 'C$';
+        setFeedback?.(`💰 Auto-filled rate: ${currencySymbol}${autoFill.price.toFixed(2)}`);
+        return;
+      }
+    }
+    
+    setFormData(prev => {
+      const listName = type === 'revenue' ? 'revenueItems' : 'expenseItems';
+      const newItems = (prev[listName] || []).map(item => {
+        if (item.id !== id) return item;
+        const updated = { ...item, [field]: value };
+        if (field === 'qty' || field === 'rate') {
+          const q = safeFloat(updated.qty);
+          const r = safeFloat(updated.rate);
+          if (q < 0 || r < 0) return updated;
+          if (updated.qty !== '' && updated.rate !== '') {
+            updated.amount = (q * r).toFixed(2);
+          }
+        }
+        return updated;
+      });
+      return { ...prev, [listName]: newItems };
     });
-    return { ...prev, [listName]: newItems };
-  });
-};
+  };
 
   const updateLeg = (id, field, value) => {
     if (field === 'driverName') {
@@ -2110,28 +2134,6 @@ const LoadForm = ({
       rate: rate ? parseFloat(rate) : null,
       currency: customer.rateCurrency || 'CAD'
     };
-  };
-
-  const calculateDaysInYard = () => {
-    const yardLeg = formData.legs?.find(l =>
-      l.to?.toLowerCase().includes('yard') ||
-      l.to?.toLowerCase().includes('depot')
-    );
-    if (!yardLeg || !yardLeg.arrivalTime) return 0;
-    const startDate = new Date(yardLeg.arrivalTime);
-    const endDate = new Date(formData.appointmentDate || new Date());
-    const diffTime = Math.abs(endDate - startDate);
-    return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-  };
-
-  const calculateChassisDays = () => {
-    const startLeg = formData.legs?.[0];
-    const endLeg = formData.legs?.[formData.legs.length - 1];
-    if (!startLeg?.arrivalTime || !endLeg?.departureTime) return 0;
-    const startDate = new Date(startLeg.arrivalTime);
-    const endDate = new Date(endLeg.departureTime);
-    const diffTime = Math.abs(endDate - startDate);
-    return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
   };
 
   const addExtraChargeItem = (itemName, amount) => {
@@ -2491,7 +2493,7 @@ const LoadForm = ({
                 onChange={handleChange}
                 className="px-4 py-2 bg-white border border-slate-200 rounded-xl font-black text-xs uppercase text-blue-600 outline-none focus:ring-2 focus:ring-blue-100"
               >
-                {(isAdmin || isDispatcher) && <option value="Open">Open (Operations)</option>}
+                {(isAdmin || isDispatcher || isCustomerService) && <option value="Open">Open (Operations)</option>}
                 <option value="Ready for Billing">Ready for Billing</option>
                 {(isAdmin || isAccounting) && (
                   <>
@@ -2535,6 +2537,8 @@ const LoadForm = ({
         <form
           onSubmit={(e) => {
             e.preventDefault();
+            
+            // ===== EXISTING VALIDATIONS =====
             if (!formData.shipmentType) {
               setFeedback?.("❌ Please select Import or Export before saving");
               return;
@@ -2567,6 +2571,53 @@ const LoadForm = ({
                 }
               }
             }
+
+            // ===== ✅ NEW: DATA INTEGRITY GUARD (Lifecycle vs Trip Legs) =====
+            const legs = formData.legs || [];
+            
+            // 1. Verify "Dropped at Customer"
+            if (formData.isDroppedAtCustomer) {
+              const hasCompletedDelivery = legs.some(l => 
+                (l.legType === 'delivery' || l.legType === 'pickup') && 
+                (l.status === 'Completed' || l.status === 'Delivered')
+              );
+              if (!hasCompletedDelivery) {
+                setFeedback?.("❌ Mismatch: You marked 'Dropped at Customer', but there is no completed Delivery Trip Leg. Please update the Trip Legs first.");
+                return;
+              }
+            }
+
+            // 2. Verify "Ready for Pickup"
+            if (formData.isReadyForPickup) {
+              const hasCompletedDelivery = legs.some(l => 
+                (l.legType === 'delivery' || l.legType === 'pickup') && 
+                (l.status === 'Completed' || l.status === 'Delivered')
+              );
+              if (!hasCompletedDelivery) {
+                setFeedback?.("❌ Mismatch: You marked 'Ready for Pickup', but the Delivery Trip Leg is not completed. Please mark the Delivery leg as Completed first.");
+                return;
+              }
+            }
+
+            // 3. Verify "Container Terminated"
+            if (formData.isTerminated || formData.isBillingComplete) {
+              const hasCompletedTermination = legs.some(l => 
+                l.legType === 'termination' && 
+                (l.status === 'Completed' || l.status === 'Delivered')
+              );
+              if (!hasCompletedTermination) {
+                setFeedback?.("❌ Mismatch: You marked 'Container Terminated', but there is no completed Termination Trip Leg. Please update the Trip Legs first.");
+                return;
+              }
+            }
+
+            // 4. Verify "In Yard" (If no legs, it shouldn't be marked In Yard unless it's a prepull)
+            if (formData.isInYard && legs.length === 0) {
+                setFeedback?.("❌ Mismatch: You marked 'In Yard', but there are no Trip Legs. Please add a leg first.");
+                return;
+            }
+
+            // If all checks pass, submit the form
             onSubmit(formData);
           }}
           className="p-8 overflow-y-auto space-y-12"
@@ -2688,9 +2739,7 @@ const LoadForm = ({
                     </select>
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[10px] font-black text-slate-400 uppercase" htmlFor="weightInput">
-                      Weight
-                    </label>
+                    <label className="text-[10px] font-black text-slate-400 uppercase" htmlFor="weightInput">Weight</label>
                     <div className="flex gap-2">
                       <div className="relative flex-1">
                         <input 
@@ -2820,31 +2869,30 @@ const LoadForm = ({
                       Delivery *
                     </label>
                     <input
-  id="delivery"
-  name="delivery"
-  value={formData.delivery || ''}
-  onChange={handleChange}
-  className="w-full px-5 py-3 bg-slate-50 border rounded-2xl font-bold"
-  placeholder="Customer delivery location"
-  list="deliveryLocations"
-  required
-  autoComplete="off"
-/>
-<datalist id="deliveryLocations">
-  {savedDestinations && savedDestinations.length > 0 ? (
-    savedDestinations.map((d, i) => (
-      <option key={d.id || i} value={d.name + ' - ' + d.address}></option>
-    ))
-  ) : null}
-  {/* ✅ ADD BASE PRICES */}
-  {savedBasePrices && savedBasePrices.map((bp, i) => (
-    <option key={bp.id || 'bp-' + i} value={bp.location}></option>
-  ))}
-  {(!savedDestinations || savedDestinations.length === 0) && 
-   (!savedBasePrices || savedBasePrices.length === 0) && (
-    <option value="">No locations saved yet</option>
-  )}
-</datalist>
+                      id="delivery"
+                      name="delivery"
+                      value={formData.delivery || ''}
+                      onChange={handleChange}
+                      className="w-full px-5 py-3 bg-slate-50 border rounded-2xl font-bold"
+                      placeholder="Customer delivery location"
+                      list="deliveryLocations"
+                      required
+                      autoComplete="off"
+                    />
+                    <datalist id="deliveryLocations">
+                      {savedDestinations && savedDestinations.length > 0 ? (
+                        savedDestinations.map((d, i) => (
+                          <option key={d.id || i} value={d.name + ' - ' + d.address}></option>
+                        ))
+                      ) : null}
+                      {savedBasePrices && savedBasePrices.map((bp, i) => (
+                        <option key={bp.id || 'bp-' + i} value={bp.location}></option>
+                      ))}
+                      {(!savedDestinations || savedDestinations.length === 0) && 
+                       (!savedBasePrices || savedBasePrices.length === 0) && (
+                        <option value="">No locations saved yet</option>
+                      )}
+                    </datalist>
                     <p className="text-[9px] font-medium text-slate-400 mt-1">Where the container is being delivered</p>
                   </div>
                 </div>
@@ -3787,67 +3835,67 @@ const LoadForm = ({
                     </div>
                     <div className="space-y-3">
                       {(formData.revenueItems || []).map((item) => (
-  <div key={item.id} className="flex flex-col md:flex-row gap-3 items-start md:items-center">
-    <div className="flex-1 w-full">
-      <input
-        disabled={isFinancialLocked}
-        value={item.item}
-        onChange={e => handleLineItemChange('revenue', item.id, 'item', e.target.value)}
-        placeholder="Item Description"
-        className="w-full px-4 py-2.5 bg-white border border-green-200 rounded-xl font-bold text-sm outline-none disabled:opacity-50 disabled:bg-slate-100"
-        list="basePriceLocations"
-      />
-      <datalist id="basePriceLocations">
-        {savedBasePrices && savedBasePrices.map((bp) => (
-          <option key={bp.id} value={bp.location}>
-            {bp.location} {bp.price ? `(${bp.currency === 'USD' ? 'US$' : 'C$'}${bp.price})` : '(Price not set)'}
-          </option>
-        ))}
-      </datalist>
-    </div>
-    <div className="w-full md:w-24 shrink-0">
-      <input
-        disabled={isFinancialLocked}
-        type="number"
-        step="0.01"
-        value={item.qty}
-        onChange={e => handleLineItemChange('revenue', item.id, 'qty', e.target.value)}
-        placeholder="Qty"
-        className="w-full px-4 py-2.5 bg-white border border-green-200 rounded-xl font-bold text-sm outline-none disabled:opacity-50 disabled:bg-slate-100 text-center"
-      />
-    </div>
-    <div className="w-full md:w-32 shrink-0">
-      <input
-        disabled={isFinancialLocked}
-        type="number"
-        step="0.01"
-        value={item.rate}
-        onChange={e => handleLineItemChange('revenue', item.id, 'rate', e.target.value)}
-        placeholder={`Rate (${currencySymbol})`}
-        className="w-full px-4 py-2.5 bg-white border border-green-200 rounded-xl font-bold text-sm outline-none disabled:opacity-50 disabled:bg-slate-100 text-right"
-      />
-    </div>
-    <div className="w-full md:w-32 shrink-0">
-      <input
-        disabled={isFinancialLocked}
-        type="number"
-        step="0.01"
-        value={item.amount}
-        onChange={e => handleLineItemChange('revenue', item.id, 'amount', e.target.value)}
-        placeholder={`Amount (${currencySymbol})`}
-        className="w-full px-4 py-2.5 bg-white border border-green-300 rounded-xl font-black text-green-700 text-sm outline-none disabled:opacity-50 disabled:bg-slate-100 text-right"
-      />
-    </div>
-    <button
-      type="button"
-      disabled={isFinancialLocked}
-      onClick={() => removeRevenueItem(item.id)}
-      className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-xl disabled:opacity-50"
-    >
-      <Trash2 className="w-4 h-4" />
-    </button>
-  </div>
-))}
+                        <div key={item.id} className="flex flex-col md:flex-row gap-3 items-start md:items-center">
+                          <div className="flex-1 w-full">
+                            <input
+                              disabled={isFinancialLocked}
+                              value={item.item}
+                              onChange={e => handleLineItemChange('revenue', item.id, 'item', e.target.value)}
+                              placeholder="Item Description"
+                              className="w-full px-4 py-2.5 bg-white border border-green-200 rounded-xl font-bold text-sm outline-none disabled:opacity-50 disabled:bg-slate-100"
+                              list="basePriceLocations"
+                            />
+                            <datalist id="basePriceLocations">
+                              {savedBasePrices && savedBasePrices.map((bp) => (
+                                <option key={bp.id} value={bp.location}>
+                                  {bp.location} {bp.price ? `(${bp.currency === 'USD' ? 'US$' : 'C$'}${bp.price})` : '(Price not set)'}
+                                </option>
+                              ))}
+                            </datalist>
+                          </div>
+                          <div className="w-full md:w-24 shrink-0">
+                            <input
+                              disabled={isFinancialLocked}
+                              type="number"
+                              step="0.01"
+                              value={item.qty}
+                              onChange={e => handleLineItemChange('revenue', item.id, 'qty', e.target.value)}
+                              placeholder="Qty"
+                              className="w-full px-4 py-2.5 bg-white border border-green-200 rounded-xl font-bold text-sm outline-none disabled:opacity-50 disabled:bg-slate-100 text-center"
+                            />
+                          </div>
+                          <div className="w-full md:w-32 shrink-0">
+                            <input
+                              disabled={isFinancialLocked}
+                              type="number"
+                              step="0.01"
+                              value={item.rate}
+                              onChange={e => handleLineItemChange('revenue', item.id, 'rate', e.target.value)}
+                              placeholder={`Rate (${currencySymbol})`}
+                              className="w-full px-4 py-2.5 bg-white border border-green-200 rounded-xl font-bold text-sm outline-none disabled:opacity-50 disabled:bg-slate-100 text-right"
+                            />
+                          </div>
+                          <div className="w-full md:w-32 shrink-0">
+                            <input
+                              disabled={isFinancialLocked}
+                              type="number"
+                              step="0.01"
+                              value={item.amount}
+                              onChange={e => handleLineItemChange('revenue', item.id, 'amount', e.target.value)}
+                              placeholder={`Amount (${currencySymbol})`}
+                              className="w-full px-4 py-2.5 bg-white border border-green-300 rounded-xl font-black text-green-700 text-sm outline-none disabled:opacity-50 disabled:bg-slate-100 text-right"
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            disabled={isFinancialLocked}
+                            onClick={() => removeRevenueItem(item.id)}
+                            className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-xl disabled:opacity-50"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))}
                       {(formData.revenueItems?.length === 0) && (
                         <div className="text-xs text-slate-400 italic font-bold py-2">No revenue items added.</div>
                       )}
@@ -3928,7 +3976,7 @@ const LoadForm = ({
                 </div>
               </div>
 
-              {/* Trip Legs */}
+                            {/* Trip Legs */}
               <div className="space-y-6">
                 <div className="flex justify-between items-center flex-wrap gap-2">
                   <h3 className="font-black text-xs uppercase tracking-widest text-slate-700">Trip Legs & Dispatching</h3>
@@ -4000,364 +4048,207 @@ const LoadForm = ({
                 )}
 
                 <div className="space-y-4">
-                  {(formData.legs || []).map((leg) => (
-                    <div key={leg.id} className="bg-slate-50 p-6 rounded-[24px] border border-slate-100 relative group/leg transition-all hover:bg-slate-100/50">
-                      <div className="flex justify-between items-center mb-4 pb-2 border-b border-slate-200">
-                        <div className="flex items-center gap-3">
-                          <span className="text-xs font-black text-slate-400 uppercase">Leg {formData.legs.indexOf(leg) + 1}</span>
-                          {leg.legType && (
-                            <span className={`text-[10px] font-black px-2 py-0.5 rounded ${
-                              leg.legType === 'termination' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'
+                  {(formData.legs || []).map((leg, index) => {
+                    const isExpanded = expandedLegId === leg.id;
+                    return (
+                      <div key={leg.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden transition-all duration-200">
+                        
+                        {/* LEG HEADER - Always Visible */}
+                        <div 
+                          className="flex flex-wrap items-center justify-between gap-4 p-4 bg-white hover:bg-slate-50 transition-colors cursor-pointer" 
+                          onClick={() => setExpandedLegId(isExpanded ? null : leg.id)}
+                        >
+                          <div className="flex items-center gap-4">
+                            {/* Reorder Arrows */}
+                            <div className="flex flex-col gap-0.5">
+                              <button type="button" onClick={(e) => { e.stopPropagation(); moveLegUp(index); }} disabled={index === 0} className="p-0.5 text-slate-400 hover:text-slate-700 disabled:opacity-30">
+                                <ChevronUp className="w-3.5 h-3.5" />
+                              </button>
+                              <button type="button" onClick={(e) => { e.stopPropagation(); moveLegDown(index); }} disabled={index === formData.legs.length - 1} className="p-0.5 text-slate-400 hover:text-slate-700 disabled:opacity-30">
+                                <ChevronDown className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+
+                            {/* Action Icons */}
+                            <div className="flex items-center gap-2">
+                              <button type="button" className={`p-2 rounded-full transition-colors ${isExpanded ? 'bg-emerald-100 text-emerald-700' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'}`}>
+                                <Edit3 className="w-4 h-4" />
+                              </button>
+                              <button type="button" onClick={(e) => { e.stopPropagation(); copyDispatch(formData, leg, setFeedback); }} className="p-2 bg-blue-50 text-blue-600 rounded-full hover:bg-blue-100 transition-colors">
+                                <Copy className="w-4 h-4" />
+                              </button>
+                            </div>
+
+                            {/* Date & Time */}
+                            <div className="flex flex-col">
+                              <span className="text-sm font-bold text-slate-700">
+                                {leg.legDate ? new Date(leg.legDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Select Date'}
+                              </span>
+                              <span className="text-xs font-medium text-slate-500">
+                                {leg.arrivalTime || '00:00'} - {leg.departureTime || '00:00'}
+                              </span>
+                            </div>
+
+                            {/* Status Badge */}
+                            <span className={`px-2.5 py-1 text-[10px] font-black uppercase tracking-wider rounded-full ${
+                              leg.status === 'Dispatched' ? 'bg-blue-100 text-blue-700' :
+                              leg.status === 'Completed' ? 'bg-green-100 text-green-700' :
+                              leg.status === 'Planned' ? 'bg-yellow-100 text-yellow-700' :
+                              'bg-slate-100 text-slate-600'
                             }`}>
-                              {leg.legType === 'termination' ? '🏁 Termination' : '📦 Delivery'}
+                              {leg.status || 'Planned'}
                             </span>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <div className="flex items-center gap-1">
-                            <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                            <input
-                              type="date"
-                              value={leg.legDate || ''}
-                              onChange={(e) => updateLeg(leg.id, 'legDate', e.target.value)}
-                              className="px-2 py-1 bg-white border border-slate-200 rounded-lg text-xs font-bold outline-none focus:ring-2 focus:ring-blue-200 w-[130px]"
-                              title="Date of this leg movement"
-                            />
+
+                            {/* Driver */}
+                            <div className="flex items-center gap-2 text-sm">
+                              <Truck className="w-4 h-4 text-slate-400" />
+                              <span className="text-slate-600">Driver:</span>
+                              <span className="font-bold text-slate-800">{leg.driverName || 'Unassigned'}</span>
+                            </div>
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (window.confirm('Remove this trip leg?')) {
-                                removeLeg(leg.id);
-                              }
-                            }}
-                            className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
-                          >
+
+                          {/* Delete Button */}
+                          <button type="button" onClick={(e) => { e.stopPropagation(); if(window.confirm('Remove this leg?')) removeLeg(leg.id); }} className="p-2 bg-red-50 text-red-500 rounded-full hover:bg-red-100 transition-colors">
                             <Trash2 className="w-4 h-4" />
                           </button>
                         </div>
-                      </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end mb-4">
-                        <div className="md:col-span-3 space-y-1 relative">
-                          <label className="text-[9px] font-black text-slate-400">PICKUP</label>
-                          <div className="relative">
-                            <input
-  type="text"
-  value={leg.from}
-  onChange={e => handleAddressChange(leg.id, 'from', e.target.value)}
-  placeholder="Search location..."
-  className="w-full px-3 py-2 border rounded-xl text-xs font-bold outline-none bg-white"
-  list={'loclist-' + leg.id}
-  autoComplete="off"
-/>
-<datalist id={'loclist-' + leg.id}>
-  {/* Existing destinations */}
-  {savedDestinations.map((d, i) => (
-    <option key={d.id || i} value={d.name + ' - ' + d.address}></option>
-  ))}
-  {/* ✅ ADD BASE PRICES */}
-  {savedBasePrices && savedBasePrices.map((bp, i) => (
-    <option key={bp.id || 'bp-' + i} value={bp.location}></option>
-  ))}
-</datalist>
-                          </div>
-                        </div>
-                        <div className="md:col-span-3 space-y-1 relative">
-                          <label className="text-[9px] font-black text-slate-400">DESTINATION</label>
-                          <div className="relative">
-                            <input
-  type="text"
-  value={leg.to}
-  onChange={e => handleAddressChange(leg.id, 'to', e.target.value)}
-  placeholder="Search location..."
-  className="w-full px-3 py-2 border rounded-xl text-xs font-bold outline-none bg-white"
-  list={'loclist-to-' + leg.id}
-  autoComplete="off"
-/>
-<datalist id={'loclist-to-' + leg.id}>
-  {savedDestinations.map((d, i) => (
-    <option key={d.id || i} value={d.name + ' - ' + d.address}></option>
-  ))}
-  {/* ✅ ADD BASE PRICES */}
-  {savedBasePrices && savedBasePrices.map((bp, i) => (
-    <option key={bp.id || 'bp-' + i} value={bp.location}></option>
-  ))}
-</datalist>
-                          </div>
-                        </div>
-                        <div className="md:col-span-2 space-y-1 relative">
-                          <label className="text-[9px] font-black text-slate-400">DRIVER</label>
-                          <div className="relative">
-                            <select
-                              value={leg.driverName}
-                              onChange={e => {
-                                updateLeg(leg.id, 'driverName', e.target.value);
-                              }}
-                              className="w-full px-3 py-2 border rounded-xl text-xs font-bold outline-none appearance-none bg-white"
-                            >
-                              <option value="" disabled>Select Driver...</option>
-                              {savedDrivers.map((d, i) => (
-                                <option key={d.id || i} value={d.name}>
-                                  {d.name} (Truck: {d.truckNo}) • ${d.payRate || 0}/{d.payType === 'hourly' ? 'hr' : d.payType === 'mileage' ? 'mi' : 'leg'}
-                                </option>
-                              ))}
-                            </select>
-                            <ChevronDown className="absolute right-3 top-2.5 w-4 h-4 text-slate-400 pointer-events-none" />
-                          </div>
-                        </div>
-                        <div className="md:col-span-2 space-y-1">
-                          <label className="text-[9px] font-black text-slate-400">LEG TYPE</label>
-                          <select
-                            value={leg.legType || 'delivery'}
-                            onChange={e => updateLeg(leg.id, 'legType', e.target.value)}
-                            className="w-full px-3 py-2 border rounded-xl text-[10px] font-bold uppercase outline-none bg-white"
-                          >
-                            <option value="delivery">📦 Delivery</option>
-                            <option value="termination">🏁 Termination</option>
-                          </select>
-                        </div>
-                        <div className="md:col-span-1 space-y-1">
-                          <label className="text-[9px] font-black text-slate-400">STATUS</label>
-                          <select
-                            value={leg.status}
-                            onChange={e => updateLeg(leg.id, 'status', e.target.value)}
-                            className={'w-full px-3 py-2 border rounded-xl text-[10px] font-black uppercase outline-none transition-colors ' + (
-                              leg.status === 'Planned' ? 'bg-yellow-50 border-yellow-200 text-yellow-700' :
-                              leg.status === 'Dispatched' ? 'bg-blue-50 border-blue-200 text-blue-700' :
-                              leg.status === 'Completed' ? 'bg-green-50 border-green-200 text-green-700' :
-                              'bg-white border-slate-200 text-slate-700'
-                            )}
-                          >
-                            <option value="Planned">Planned</option>
-                            <option value="Dispatched">Dispatched</option>
-                            <option value="Completed">Completed</option>
-                          </select>
-                        </div>
-                      </div>
-
-                      {/* Arrival/Departure */}
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-slate-200 pt-4 mt-2">
-                        <div className="space-y-1">
-                          <label className="text-[9px] font-black text-slate-400">ARRIVAL TIME</label>
-                          <input
-                            type="time"
-                            value={leg.arrivalTime || ''}
-                            onChange={e => updateLeg(leg.id, 'arrivalTime', e.target.value)}
-                            className="w-full px-3 py-2 border rounded-xl text-xs font-bold outline-none bg-white"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-[9px] font-black text-slate-400">DEPARTURE TIME</label>
-                          <input
-                            type="time"
-                            value={leg.departureTime || ''}
-                            onChange={e => updateLeg(leg.id, 'departureTime', e.target.value)}
-                            className="w-full px-3 py-2 border rounded-xl text-xs font-bold outline-none bg-white"
-                          />
-                        </div>
-                      </div>
-
-                      {/* Driver Pay, Fuel Cost, Detention Pay */}
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 border-t border-slate-200 pt-4 mt-2">
-                        <div className="space-y-1">
-                          <label className="text-[9px] font-black text-slate-400">DRIVER PAY ({currencySymbol})</label>
-                          <div className="flex items-center gap-2">
-                            <input
-                              disabled={isFinancialLocked}
-                              type="number"
-                              step="0.01"
-                              value={leg.driverPay || ''}
-                              onChange={e => updateLeg(leg.id, 'driverPay', e.target.value)}
-                              className={'w-full px-3 py-2 border rounded-xl text-xs font-bold outline-none transition-all ' + (isFinancialLocked ? 'opacity-50 cursor-not-allowed bg-slate-100' : '')}
-                            />
-                            {leg.payType && (
-                              <span className="text-[10px] font-bold text-slate-400 whitespace-nowrap">
-                                {leg.payType === 'hourly' ? '/hr' : leg.payType === 'mileage' ? '/mi' : '/leg'}
-                              </span>
-                            )}
-                          </div>
-                          {leg.payType && leg.driverPay && (
-                            <div className="text-[8px] font-bold text-slate-400 mt-0.5">
-                              Rate: {currencySymbol}{leg.driverPay} {leg.payType === 'hourly' ? 'per hour' : leg.payType === 'mileage' ? 'per mile' : 'per leg'}
+                        {/* SUMMARY ROW - Always Visible */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 px-4 pb-4 border-t border-slate-100">
+                          <div className="pt-3">
+                            <span className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">Pick</span>
+                            <div className="text-sm font-bold text-slate-800 mt-1 truncate">
+                              {leg.from ? (
+                                <>
+                                  <span className="text-slate-500 font-medium">{leg.from.split(' - ')[0]}: </span>
+                                  {leg.from.split(' - ')[1] || leg.from}
+                                </>
+                              ) : (
+                                <span className="text-slate-400 italic">Not set</span>
+                              )}
                             </div>
-                          )}
+                          </div>
+                          <div className="pt-3">
+                            <span className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">Drop</span>
+                            <div className="text-sm font-bold text-slate-800 mt-1 truncate">
+                              {leg.to ? (
+                                <>
+                                  <span className="text-slate-500 font-medium">{leg.to.split(' - ')[0]}: </span>
+                                  {leg.to.split(' - ')[1] || leg.to}
+                                </>
+                              ) : (
+                                <span className="text-slate-400 italic">Not set</span>
+                              )}
+                            </div>
+                          </div>
                         </div>
-                        <div className="space-y-1">
-                          <label className="text-[9px] font-black text-slate-400">FUEL COST ({currencySymbol})</label>
-                          <input
-                            disabled={isFinancialLocked}
-                            type="number"
-                            step="0.01"
-                            value={leg.fuelCost || ''}
-                            onChange={e => updateLeg(leg.id, 'fuelCost', e.target.value)}
-                            className={'w-full px-3 py-2 border rounded-xl text-xs font-bold outline-none transition-all ' + (isFinancialLocked ? 'opacity-50 cursor-not-allowed bg-slate-100' : '')}
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-[9px] font-black text-slate-400">DETENTION PAY ({currencySymbol})</label>
-                          <input
-                            disabled={isFinancialLocked}
-                            type="number"
-                            step="0.01"
-                            value={leg.detentionPay || ''}
-                            onChange={e => updateLeg(leg.id, 'detentionPay', e.target.value)}
-                            className={'w-full px-3 py-2 border rounded-xl text-xs font-bold outline-none transition-all ' + (isFinancialLocked ? 'opacity-50 cursor-not-allowed bg-slate-100' : '')}
-                          />
-                        </div>
-                      </div>
 
-                      {/* Distance & Hours */}
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-slate-200 pt-4 mt-2">
-                        <div className="space-y-1">
-                          <label className="text-[9px] font-black text-slate-400 flex items-center gap-2">
-                            TOTAL DISTANCE (km)
-                            {leg.distanceLoading && (
-                              <span className="text-blue-500 text-[8px] flex items-center gap-1">
-                                <Loader2 className="w-2.5 h-2.5 animate-spin" />
-                                Calculating...
-                              </span>
-                            )}
-                            {leg.autoCalculated && !leg.distanceLoading && (
-                              <span className="text-green-500 text-[8px] font-bold">✓ AUTO</span>
-                            )}
-                          </label>
-                          <div className="relative">
-                            <input
-                              type="number"
-                              step="0.1"
-                              value={leg.totalDistance || ''}
-                              onChange={e => {
-                                const distance = parseFloat(e.target.value);
-                                updateLeg(leg.id, 'totalDistance', distance);
-                                updateLeg(leg.id, 'autoCalculated', false);
-                                const calculated = calculateLegCost(
-                                  { ...leg, totalDistance: distance },
-                                  distance,
-                                  leg.totalHours
-                                );
-                                if (calculated) {
-                                  updateLeg(leg.id, 'driverPay', calculated.driverWage);
-                                  updateLeg(leg.id, 'fuelCost', calculated.fuelCost);
-                                  updateLeg(leg.id, 'calculatedCost', calculated.total);
-                                }
-                              }}
-                              className={`w-full px-3 py-2 border rounded-xl text-xs font-bold outline-none bg-white ${
-                                leg.autoCalculated ? 'border-green-300 bg-green-50' : ''
-                              }`}
-                              placeholder={leg.distanceLoading ? "Calculating..." : "Auto or manual"}
-                            />
-                            {leg.calculationSource && !leg.distanceLoading && (
-                              <div className="absolute right-2 top-1/2 -translate-y-1/2">
-                                <span className="text-[7px] px-1.5 py-0.5 rounded-full font-bold bg-blue-100 text-blue-700">
-                                  {leg.calculationSource.includes('GraphHopper') ? '🚛' : '📋'}
-                                </span>
+                        {/* EXPANDED DETAILS - Only visible when editing */}
+                        {isExpanded && (
+                          <div className="p-6 bg-slate-50 border-t border-slate-200 space-y-6 animate-in slide-in-from-top-2 duration-200">
+                            
+                            {/* Row 1: Date, Time, Status */}
+                            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                              <div>
+                                <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Date</label>
+                                <input type="date" value={leg.legDate || ''} onChange={e => updateLeg(leg.id, 'legDate', e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm font-bold outline-none bg-white focus:ring-2 focus:ring-blue-200" />
                               </div>
-                            )}
-                          </div>
-                          {leg.roadBreakdown && (
-                            <div className="flex gap-3 text-[8px] text-slate-400 mt-0.5">
-                              {leg.roadBreakdown.highway > 0 && (
-                                <span>🛣️ Highway: {leg.roadBreakdown.highway} km</span>
-                              )}
-                              {leg.roadBreakdown.mainRoad > 0 && (
-                                <span>🏛️ Main: {leg.roadBreakdown.mainRoad} km</span>
-                              )}
-                              {leg.roadBreakdown.localRoad > 0 && (
-                                <span>🏘️ Local: {leg.roadBreakdown.localRoad} km</span>
-                              )}
+                              <div>
+                                <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Time (In)</label>
+                                <input type="time" value={leg.arrivalTime || ''} onChange={e => updateLeg(leg.id, 'arrivalTime', e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm font-bold outline-none bg-white focus:ring-2 focus:ring-blue-200" />
+                              </div>
+                              <div>
+                                <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Time (Out)</label>
+                                <input type="time" value={leg.departureTime || ''} onChange={e => updateLeg(leg.id, 'departureTime', e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm font-bold outline-none bg-white focus:ring-2 focus:ring-blue-200" />
+                              </div>
+                              <div>
+                                <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Status</label>
+                                <select value={leg.status} onChange={e => updateLeg(leg.id, 'status', e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm font-bold outline-none bg-white focus:ring-2 focus:ring-blue-200">
+                                  <option value="Planned">Planned</option>
+                                  <option value="Dispatched">Dispatched</option>
+                                  <option value="Completed">Completed</option>
+                                </select>
+                              </div>
                             </div>
-                          )}
-                          {leg.fuelEstimate > 0 && leg.driverType === 'Company Driver' && (
-                            <div className="text-[8px] text-blue-600 font-medium">
-                              ⛽ Est. Fuel: {leg.fuelEstimate} L
-                              ({currencySymbol}{(leg.fuelEstimate * (leg.fuelPrice || 1.5)).toFixed(2)})
-                            </div>
-                          )}
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-[9px] font-black text-slate-400">TOTAL HOURS</label>
-                          <input
-                            type="number"
-                            step="0.5"
-                            value={leg.totalHours || ''}
-                            onChange={e => {
-                              const hours = parseFloat(e.target.value);
-                              updateLeg(leg.id, 'totalHours', hours);
-                              const calculated = calculateLegCost(
-                                { ...leg, totalHours: hours },
-                                leg.totalDistance || 0,
-                                hours
-                              );
-                              if (calculated && leg.driverType && leg.driverType !== 'Not Set') {
-                                updateLeg(leg.id, 'driverPay', calculated.driverWage);
-                                updateLeg(leg.id, 'fuelCost', calculated.fuelCost);
-                                updateLeg(leg.id, 'calculatedCost', calculated.total);
-                              }
-                            }}
-                            className="w-full px-3 py-2 border rounded-xl text-xs font-bold outline-none bg-white"
-                            placeholder="Est. hours"
-                          />
-                        </div>
-                      </div>
 
-                      {/* Notes */}
-<div className="grid grid-cols-1 gap-2 border-t border-slate-200 pt-3 mt-2">
-  <div className="space-y-1">
-    <label className="text-[9px] font-black text-slate-400 flex items-center gap-1">
-      <FileText className="w-3 h-3" /> NOTES
-    </label>
-    <input
-      type="text"
-      value={leg.notes || ''}
-      onChange={e => updateLeg(leg.id, 'notes', e.target.value)}
-      placeholder="Add leg-specific notes (gate codes, special instructions, etc.)"
-      className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-medium outline-none bg-white focus:ring-2 focus:ring-blue-200 transition-all"
-    />
-  </div>
-  
-  {/* ✅ ADD THIS: Copy Dispatch Button inside each leg */}
-  <div className="flex items-center gap-3 pt-1">
-    <button
-      type="button"
-      onClick={(e) => {
-        e.stopPropagation();
-        // Build a temporary load object with this leg's data
-        const tempLoad = {
-          ...formData,
-          containerNo: formData.containerNo,
-          workOrderNo: formData.workOrderNo,
-          shippingLine: formData.shippingLine,
-          size: formData.size,
-          weight: formData.weight,
-          poNumber: formData.poNumber,
-          pickupNo: formData.pickupNo,
-          customerRefNo: formData.customerRefNo,
-          appointmentDate: formData.appointmentDate,
-          appointmentTime: formData.appointmentTime,
-          emptyPickupBookingNo: formData.emptyPickupBookingNo,
-          erdDate: formData.erdDate,
-          cutoffDate: formData.cutoffDate,
-          currency: formData.currency
-        };
-        copyDispatch(tempLoad, leg, setFeedback);
-      }}
-      className="flex items-center gap-1.5 px-4 py-2 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-xl text-xs font-bold transition-all"
-    >
-      <Copy className="w-4 h-4" />
-      Copy Dispatch for Leg {formData.legs.indexOf(leg) + 1}
-    </button>
-    
-    {/* Show last copy time if available */}
-    {leg._lastCopiedAt && (
-      <span className="text-[9px] text-slate-400 font-medium">
-        Copied: {new Date(leg._lastCopiedAt).toLocaleTimeString()}
-      </span>
-    )}
-  </div>
-</div>
-                    </div>
-                  ))}
+                            {/* Row 2: Driver, Leg Type */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div>
+                                <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Driver</label>
+                                <select value={leg.driverName} onChange={e => updateLeg(leg.id, 'driverName', e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm font-bold outline-none bg-white focus:ring-2 focus:ring-blue-200">
+                                  <option value="">Select Driver...</option>
+                                  {savedDrivers.map(d => <option key={d.id} value={d.name}>{d.name} (Truck: {d.truckNo})</option>)}
+                                </select>
+                              </div>
+                              <div>
+                                <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Leg Type</label>
+                                <select value={leg.legType || 'delivery'} onChange={e => updateLeg(leg.id, 'legType', e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm font-bold outline-none bg-white focus:ring-2 focus:ring-blue-200">
+                                  <option value="delivery">📦 Delivery</option>
+                                  <option value="termination">🏁 Termination</option>
+                                </select>
+                              </div>
+                            </div>
+
+                            {/* Row 3: Pickup, Destination */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div>
+                                <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Pickup Location</label>
+                                <input type="text" value={leg.from} onChange={e => handleAddressChange(leg.id, 'from', e.target.value)} placeholder="Search location..." className="w-full px-3 py-2 border rounded-xl text-sm font-bold outline-none bg-white focus:ring-2 focus:ring-blue-200" list={'loclist-' + leg.id} />
+                                <datalist id={'loclist-' + leg.id}>{savedDestinations.map((d, i) => <option key={i} value={d.name + ' - ' + d.address}></option>)}</datalist>
+                              </div>
+                              <div>
+                                <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Destination Location</label>
+                                <input type="text" value={leg.to} onChange={e => handleAddressChange(leg.id, 'to', e.target.value)} placeholder="Search location..." className="w-full px-3 py-2 border rounded-xl text-sm font-bold outline-none bg-white focus:ring-2 focus:ring-blue-200" list={'loclist-to-' + leg.id} />
+                                <datalist id={'loclist-to-' + leg.id}>{savedDestinations.map((d, i) => <option key={i} value={d.name + ' - ' + d.address}></option>)}</datalist>
+                              </div>
+                            </div>
+
+                            {/* Row 4: Financials */}
+                            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                              <div>
+                                <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Driver Pay</label>
+                                <div className="relative">
+                                  <input type="number" value={leg.driverPay || ''} onChange={e => updateLeg(leg.id, 'driverPay', e.target.value)} className="w-full pl-3 pr-8 py-2 border rounded-xl text-sm font-bold outline-none bg-white focus:ring-2 focus:ring-blue-200" />
+                                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-400">{leg.payType === 'hourly' ? '/hr' : '/leg'}</span>
+                                </div>
+                              </div>
+                              <div>
+                                <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Fuel Cost</label>
+                                <input type="number" value={leg.fuelCost || ''} onChange={e => updateLeg(leg.id, 'fuelCost', e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm font-bold outline-none bg-white focus:ring-2 focus:ring-blue-200" />
+                              </div>
+                              <div>
+                                <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Detention</label>
+                                <input type="number" value={leg.detentionPay || ''} onChange={e => updateLeg(leg.id, 'detentionPay', e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm font-bold outline-none bg-white focus:ring-2 focus:ring-blue-200" />
+                              </div>
+                              <div>
+                                <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Distance (km)</label>
+                                <input type="number" value={leg.totalDistance || ''} onChange={e => updateLeg(leg.id, 'totalDistance', e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm font-bold outline-none bg-white focus:ring-2 focus:ring-blue-200" />
+                              </div>
+                              <div>
+                                <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Hours</label>
+                                <input type="number" value={leg.totalHours || ''} onChange={e => updateLeg(leg.id, 'totalHours', e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm font-bold outline-none bg-white focus:ring-2 focus:ring-blue-200" />
+                              </div>
+                            </div>
+
+                            {/* Row 5: Notes & Actions */}
+                            <div>
+                              <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Notes</label>
+                              <textarea value={leg.notes || ''} onChange={e => updateLeg(leg.id, 'notes', e.target.value)} rows="2" className="w-full px-3 py-2 border rounded-xl text-sm outline-none bg-white focus:ring-2 focus:ring-blue-200" placeholder="Add leg-specific notes..."></textarea>
+                            </div>
+                            <div className="flex justify-between items-center pt-2 border-t border-slate-200">
+                              <button type="button" onClick={() => copyDispatch(formData, leg, setFeedback)} className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-700 rounded-xl text-xs font-bold hover:bg-blue-100 transition-colors">
+                                <Copy className="w-4 h-4" /> Copy Dispatch
+                              </button>
+                              <div className="text-xs text-slate-400 font-medium">
+                                Leg {index + 1} of {formData.legs.length}
+                              </div>
+                            </div>
+
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -5092,6 +4983,7 @@ const LoadTable = React.memo(({ loads, onEdit, onDelete, onStatusChange, onViewD
 const BillingTable = ({ 
   loads, 
   onStatusChange, 
+  onGenerateInvoice,      // ✅ ADD
   onDraftEmail, 
   onEdit, 
   onPrint, 
@@ -5103,117 +4995,113 @@ const BillingTable = ({
   companyEmail 
 }) => {
   const BillingRow = ({ load }) => {
-    const [showInvoiceInput, setShowInvoiceInput] = useState(false);
-    const [invoiceFromEmail, setInvoiceFromEmail] = useState(companyEmail || "");
     const currencySymbol = load?.currency === 'USD' ? 'US$' : 'C$';
-    const isApproved = load?.billingApproved === true;
+    
+    // Determine current workflow state
+    const isWaiting = load.status === 'Ready for Billing' || load.status === 'Waiting for Approval';
+    const isApproved = load.status === 'Approved';
+    const isInvoiced = load.status === 'Invoiced';
+    const isPaid = load.status === 'Paid' || load.status === 'Completed';
 
     return (
       <tr 
         key={load.id} 
-        className="hover:bg-slate-50/50 transition-colors group cursor-pointer"
+        className={`hover:bg-slate-50/50 transition-colors group cursor-pointer ${isWaiting ? 'bg-amber-50/30' : ''}`}
         onClick={() => onEdit && onEdit(load)}
       >
         <td className="px-6 py-4">
-  <div className="font-bold text-slate-900 text-sm">
-    {load.containerNo || 'N/A'}
-    {load.invoiceNumber && (
-      <span className="ml-2 text-[10px] font-black text-green-600 bg-green-50 px-2 py-0.5 rounded border border-green-200">
-        📄 {load.invoiceNumber}
-      </span>
-    )}
-    <span className="text-xs text-slate-400 ml-2 font-normal">
-      ({load.workOrderNo || 'No WO'})
-    </span>
-  </div>
-  <div className="text-[10px] font-black text-slate-400 mt-1 uppercase">{load.customerName || 'N/A'}</div>
-</td>
-        <td className="px-6 py-4 text-center" onClick={(e) => e.stopPropagation()}>
-          <div className="flex justify-center gap-2">
-            {load.loadConfirmation && <button onClick={() => onViewDoc && onViewDoc({...load.loadConfirmation, title: "Confirmation"})} className="p-1.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100"><Paperclip className="w-3.5 h-3.5" /></button>}
-            {load.signedPodDoc && <button onClick={() => onViewDoc && onViewDoc({...load.signedPodDoc, title: "POD"})} className="p-1.5 bg-green-50 text-green-600 rounded-lg hover:bg-green-100"><ClipboardCheck className="w-3.5 h-3.5" /></button>}
+          <div className="font-bold text-slate-900 text-sm flex items-center gap-2">
+            {load.containerNo || 'N/A'}
+            {load.invoiceNumber && (
+              <span className="text-[10px] font-black text-green-600 bg-green-50 px-2 py-0.5 rounded border border-green-200">
+                📄 {load.invoiceNumber}
+              </span>
+            )}
+          </div>
+          <div className="text-[10px] font-black text-slate-400 mt-1 uppercase">
+            {load.customerName || 'N/A'} • WO: {load.workOrderNo || 'No WO'}
           </div>
         </td>
-        <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
-          <select 
-            value={load.status || 'Ready for Billing'} 
-            onChange={(e) => onStatusChange && onStatusChange(load.id, e.target.value)} 
-            className="px-3 py-1.5 rounded-xl border border-green-200 bg-green-50 text-green-600 text-[10px] font-black uppercase transition-all"
-          >
-            <option value="Ready for Billing">Ready for Billing</option>
-            <option value="Invoiced">Invoiced</option>
-            <option value="Paid">Mark Paid</option>
-            <option value="Open">Revert to Open</option>
-          </select>
+
+        <td className="px-6 py-4 text-center" onClick={(e) => e.stopPropagation()}>
+          <div className="flex justify-center gap-2">
+            {load.loadConfirmation && <button onClick={() => onViewDoc && onViewDoc({...load.loadConfirmation, title: "Confirmation"})} className="p-1.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100" title="Load Confirmation"><Paperclip className="w-3.5 h-3.5" /></button>}
+            {load.signedPodDoc && <button onClick={() => onViewDoc && onViewDoc({...load.signedPodDoc, title: "POD"})} className="p-1.5 bg-green-50 text-green-600 rounded-lg hover:bg-green-100" title="Signed POD"><ClipboardCheck className="w-3.5 h-3.5" /></button>}
+          </div>
         </td>
+
+        <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
+          <div className="flex flex-col gap-2">
+            {isWaiting && (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-black border border-amber-200 shadow-sm w-fit">
+                <Clock className="w-3.5 h-3.5" /> WAITING FOR APPROVAL
+              </span>
+            )}
+            {isApproved && (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-blue-100 text-blue-700 text-[10px] font-black border border-blue-200 shadow-sm w-fit">
+                <CheckCircle className="w-3.5 h-3.5" /> APPROVED
+              </span>
+            )}
+            {isInvoiced && (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-purple-100 text-purple-700 text-[10px] font-black border border-purple-200 shadow-sm w-fit">
+                <FileText className="w-3.5 h-3.5" /> INVOICED
+              </span>
+            )}
+            {isPaid && (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-green-100 text-green-700 text-[10px] font-black border border-green-200 shadow-sm w-fit">
+                <DollarSign className="w-3.5 h-3.5" /> PAID
+              </span>
+            )}
+          </div>
+        </td>
+
         <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
           <div className="font-black text-slate-900 text-sm">Rev: {currencySymbol}{calculateTotal(load)}</div>
           <div className="font-bold text-red-500 text-[10px] mt-0.5 uppercase">Cost: {currencySymbol}{calculateCost(load)}</div>
           <div className="font-black text-green-600 text-[11px] mt-0.5 uppercase">Profit: {currencySymbol}{calculateProfit(load)}</div>
         </td>
-        <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
-          {isApproved ? (
-            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-green-100 text-green-700 text-[10px] font-black border border-green-200 shadow-sm">
-              <CheckCircle className="w-3.5 h-3.5 text-green-600" />
-              Approved
-            </span>
-          ) : (
-            <button
-              onClick={() => onApprove && onApprove(load.id)}
-              className="px-4 py-1.5 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase hover:bg-blue-700 transition-all shadow-sm"
-            >
-              Approve
-            </button>
-          )}
-        </td>
+
         <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
-          <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-all">
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onEdit && onEdit(load);
-              }}
-              className="p-2 text-slate-400 hover:text-blue-600 rounded-lg transition-colors"
-              title="Edit Load"
-            >
-              <Edit3 className="w-4 h-4" />
-            </button>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onPrint && onPrint(load);
-              }}
-              className="p-2 text-slate-400 hover:text-green-600 rounded-lg transition-colors"
-              title="Print Invoice"
-            >
-              <Printer className="w-4 h-4" />
-            </button>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                if (!isApproved) {
-                  setFeedback?.('❌ Billing must be approved before sending invoice.');
-                  return;
-                }
-                setShowInvoiceInput(!showInvoiceInput);
-              }}
-              className={`p-2 rounded-lg transition-colors ${
-                isApproved 
-                  ? 'bg-blue-600 text-white hover:bg-blue-700' 
-                  : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-              }`}
-              title={isApproved ? 'Send Invoice Email' : 'Approval required'}
-              disabled={!isApproved}
-            >
-              <Send className="w-4 h-4" />
-            </button>
-          </div>
-          {showInvoiceInput && (
-            <div className="mt-2 flex items-center gap-2 bg-white p-2 rounded-lg shadow-lg border border-slate-200">
-              <input type="email" value={invoiceFromEmail} onChange={(e) => setInvoiceFromEmail(e.target.value)} placeholder="Your accounting email" className="px-2 py-1 border rounded text-xs w-48" />
-              <button onClick={() => { onSendInvoice && onSendInvoice(load, invoiceFromEmail); setShowInvoiceInput(false); }} className="px-2 py-1 bg-green-600 text-white rounded text-xs font-bold">Send</button>
+          <div className="flex justify-end gap-2 items-center">
+            
+            {/* 1. WAITING → Approve Charges */}
+            {isWaiting && (
+              <button
+                onClick={() => onApprove && onApprove(load.id)}
+                className="px-4 py-2 bg-amber-500 text-white rounded-xl text-[10px] font-black uppercase hover:bg-amber-600 transition-all shadow-sm flex items-center gap-1"
+              >
+                <CheckCircle className="w-3.5 h-3.5" /> Approve Charges
+              </button>
+            )}
+
+            {/* 2. APPROVED → Generate Invoice */}
+{isApproved && (
+  <button
+    onClick={() => onGenerateInvoice && onGenerateInvoice(load.id)}
+    className="px-4 py-2 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase hover:bg-blue-700 transition-all shadow-sm flex items-center gap-1"
+  >
+    <FileText className="w-3.5 h-3.5" /> Generate Invoice
+  </button>
+)}
+
+            {/* 3. INVOICED → Send to Customer (redirects to Invoices tab) */}
+            {isInvoiced && (
+              <button
+                onClick={() => {
+                  setFeedback?.('📧 Go to the Invoices tab to email this invoice');
+                }}
+                className="px-4 py-2 bg-green-600 text-white rounded-xl text-[10px] font-black uppercase hover:bg-green-700 transition-all shadow-sm flex items-center gap-1"
+                title="Go to Invoices tab to send"
+              >
+                <Send className="w-3.5 h-3.5" /> Send via Invoices Tab
+              </button>
+            )}
+
+            <div className="flex gap-1 ml-2 border-l border-slate-200 pl-2">
+              <button onClick={() => onEdit && onEdit(load)} className="p-2 text-slate-400 hover:text-blue-600 rounded-lg transition-colors" title="Edit Load"><Edit3 className="w-4 h-4" /></button>
+              <button onClick={() => onPrint && onPrint(load)} className="p-2 text-slate-400 hover:text-green-600 rounded-lg transition-colors" title="Print Invoice"><Printer className="w-4 h-4" /></button>
             </div>
-          )}
+          </div>
         </td>
       </tr>
     );
@@ -5222,21 +5110,20 @@ const BillingTable = ({
   return (
     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden animate-in fade-in">
       <div className="overflow-x-auto">
-        <table className="w-full text-left border-collapse min-w-[800px]">
+        <table className="w-full text-left border-collapse min-w-[900px]">
           <thead>
-            <tr className="bg-green-50/50 border-b border-slate-200 text-xs font-bold text-slate-400 uppercase tracking-widest">
-              <th className="px-6 py-4">Container & Identity</th>
+            <tr className="bg-slate-50/80 border-b border-slate-200 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+              <th className="px-6 py-4">Container & Customer</th>
               <th className="px-6 py-4 text-center">Docs</th>
-              <th className="px-6 py-4">Status</th>
+              <th className="px-6 py-4">Workflow Status</th>
               <th className="px-6 py-4">Financials</th>
-              <th className="px-6 py-4">Approval</th>
               <th className="px-6 py-4 text-right">Action</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {(loads || []).map((load) => (<BillingRow key={load.id} load={load} />))}
             {(!loads || loads.length === 0) && (
-              <tr><td colSpan="6" className="px-6 py-8 text-center text-slate-400 font-bold italic">No loads ready for billing matching this view.</td></tr>
+              <tr><td colSpan="5" className="px-6 py-12 text-center text-slate-400 font-bold italic">No loads in billing queue.</td></tr>
             )}
           </tbody>
         </table>
@@ -5245,7 +5132,7 @@ const BillingTable = ({
   );
 };
 
-const HistoryTable = ({ loads, onStatusChange, onViewDoc, onDelete, onEdit }) => (
+const HistoryTable = ({ loads, onStatusChange, onViewDoc, onDelete, onEdit, onEditInvoice }) => (
   <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden animate-in fade-in">
     <div className="overflow-x-auto">
       <table className="w-full text-left border-collapse min-w-[800px]">
@@ -5289,13 +5176,23 @@ const HistoryTable = ({ loads, onStatusChange, onViewDoc, onDelete, onEdit }) =>
                   <div className="font-bold text-slate-400 text-[10px] mt-0.5 uppercase">Closed: {new Date().toLocaleDateString()}</div>
                 </td>
                 <td className="px-6 py-4 text-right flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-all">
-                  <button onClick={() => onEdit && onEdit(load)} className="p-2 text-slate-400 hover:text-blue-600 rounded-lg transition-colors">
-                    <Edit3 className="w-4 h-4" />
-                  </button>
-                  <button onClick={() => onDelete && onDelete(load.id)} className="p-2 text-slate-400 hover:text-red-600 rounded-lg transition-colors">
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </td>
+  {/* ✅ NEW — Edit Invoice button (only if load has an invoice) */}
+  {load.invoiceNumber && onEditInvoice && (
+    <button
+      onClick={() => onEditInvoice(load)}
+      className="p-2 text-purple-500 hover:text-purple-700 hover:bg-purple-50 rounded-lg transition-colors"
+      title="Edit & Resend Invoice"
+    >
+      <FileText className="w-4 h-4" />
+    </button>
+  )}
+  <button onClick={() => onEdit && onEdit(load)} className="p-2 text-slate-400 hover:text-blue-600 rounded-lg transition-colors" title="Edit Load">
+    <Edit3 className="w-4 h-4" />
+  </button>
+  <button onClick={() => onDelete && onDelete(load.id)} className="p-2 text-slate-400 hover:text-red-600 rounded-lg transition-colors" title="Delete">
+    <Trash2 className="w-4 h-4" />
+  </button>
+</td>
               </tr>
             );
           })}
@@ -6982,47 +6879,34 @@ const ActionRequired = ({ loads, onEdit, onStatusChange }) => {
 
 // ========== WORKSPACE MANAGER ==========
 const WorkspaceManager = ({ setCompanyId, setUserRole, setAppState, onRegistrationComplete }) => {
-  const [mode, setMode] = useState('login');
+  const [mode, setMode] = useState('login'); // Always login
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [companyName, setCompanyName] = useState("");
-  const [locations, setLocations] = useState([{ id: crypto.randomUUID(), name: 'Headquarters', address: '', city: '', province: '', postalCode: '' }]);
-  const [dataSharingMode, setDataSharingMode] = useState('separate');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [step, setStep] = useState(1);
-  
-  const addLocation = () => { setLocations([...locations, { id: crypto.randomUUID(), name: '', address: '', city: '', province: '', postalCode: '' }]); };
-  const removeLocation = (id) => { if (locations.length === 1) { setError("At least one location is required"); return; } setLocations(locations.filter(l => l.id !== id)); };
-  const updateLocation = (id, field, value) => { setLocations(locations.map(l => l.id === id ? { ...l, [field]: value } : l)); };
-  
+
   const handleLogin = async () => { 
-    if (!email.trim() || !password.trim()) { setError("Please enter valid credentials."); return; } 
-    setError(""); setLoading(true); 
-    try { await handleSignIn(email, password, setCompanyId, setUserRole, setAppState); } 
-    catch (err) { setError(err.message || "Login failed"); } 
-    finally { setLoading(false); } 
-  };
-  
-  const handleRegister = async () => { 
-    if (step === 1) { 
-      if (!companyName.trim() || !email.trim() || !password.trim()) { setError("Please fill all required fields."); return; } 
-      setError(""); setStep(2); return; 
+    if (!email.trim() || !password.trim()) { 
+      setError("Please enter valid credentials."); 
+      return; 
     } 
-    const invalidLocations = locations.filter(l => !l.name.trim()); 
-    if (invalidLocations.length > 0) { setError("Please provide names for all locations"); return; } 
-    setError(""); setLoading(true); 
-    try { const { companyId, uid } = await signUp(email, password, companyName, locations, dataSharingMode); onRegistrationComplete(companyId, uid); } 
-    catch (err) { setError(err.message || "Registration failed"); } 
-    finally { setLoading(false); } 
+    setError(""); 
+    setLoading(true); 
+    try { 
+      await handleSignIn(email, password, setCompanyId, setUserRole, setAppState); 
+    } 
+    catch (err) { 
+      setError(err.message || "Login failed"); 
+    } 
+    finally { 
+      setLoading(false); 
+    } 
   };
-  
-  const handleAuthSubmit = (e) => { e.preventDefault(); handleRegister(); };
-  
+
   return (
     <div className="min-h-screen bg-[#FAFAFA] flex items-center justify-center p-4 relative overflow-hidden">
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-purple-600/5 blur-[120px] rounded-full pointer-events-none"></div>
-      <div className="bg-white w-full max-w-2xl rounded-[24px] shadow-[0_20px_40px_-15px_rgba(0,0,0,0.05)] border border-slate-200/60 overflow-hidden relative z-10 transition-all duration-300">
+      <div className="bg-white w-full max-w-md rounded-[24px] shadow-[0_20px_40px_-15px_rgba(0,0,0,0.05)] border border-slate-200/60 overflow-hidden relative z-10 transition-all duration-300">
         <div className="pt-10 pb-6 text-center px-8">
           <div className="flex items-center justify-center mx-auto mb-6">
             <div className="w-14 h-14 bg-gradient-to-tr from-purple-600 to-indigo-500 rounded-[16px] shadow-[0_8px_16px_-6px_rgba(124,58,237,0.4)] flex items-center justify-center text-white ring-1 ring-white/20">
@@ -7030,76 +6914,50 @@ const WorkspaceManager = ({ setCompanyId, setUserRole, setAppState, onRegistrati
             </div>
           </div>
           <h2 className="text-3xl font-extrabold text-slate-900 tracking-tight mb-2">NEXDRAY</h2>
-          <p className="text-[10px] font-bold text-purple-600 uppercase tracking-[0.2em]">MULTI-LOCATION TMS FOR YOUR DRAYAGE NEEDS</p>
-          <p className="text-xs font-medium text-slate-500 mt-2">Streamline your drayage operations.</p>
+          <p className="text-[10px] font-bold text-purple-600 uppercase tracking-[0.2em]">MULTI-LOCATION TMS</p>
+          <p className="text-xs font-medium text-slate-500 mt-2">Sign in to your workspace</p>
         </div>
+        
+        {/* REMOVED REGISTER TAB - ONLY LOGIN NOW */}
         <div className="px-8 pb-10">
-          <div className="flex p-1 bg-slate-100/80 rounded-[12px] mb-6">
-            <button type="button" onClick={() => { setMode('login'); setError(''); setPassword(''); setStep(1); }} className={`flex-1 py-2 text-[11px] font-bold uppercase tracking-widest rounded-[10px] transition-all duration-200 ${mode === 'login' ? 'bg-white text-purple-700 shadow-[0_2px_8px_-2px_rgba(0,0,0,0.08)]' : 'text-slate-500 hover:text-slate-700'}`}>Log In</button>
-            <button type="button" onClick={() => { setMode('register'); setError(''); setPassword(''); setStep(1); }} className={`flex-1 py-2 text-[11px] font-bold uppercase tracking-widest rounded-[10px] transition-all duration-200 ${mode === 'register' ? 'bg-white text-purple-700 shadow-[0_2px_8px_-2px_rgba(0,0,0,0.08)]' : 'text-slate-500 hover:text-slate-700'}`}>Register</button>
-          </div>
-          {error && <div className="mb-6 p-3 bg-red-50 text-red-600 text-xs font-bold rounded-xl border border-red-100 text-center">{error}</div>}
-          {mode === 'login' ? (
-            <form onSubmit={(e) => { e.preventDefault(); handleLogin(); }} className="space-y-4">
-              <div><label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Work Email</label><input type="email" required value={email} onChange={e => setEmail(e.target.value)} className="w-full px-4 py-3 bg-white border border-slate-200 rounded-[12px] text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 outline-none transition-all" placeholder="you@company.com" /></div>
-              <div><label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Password</label><input type="password" required value={password} onChange={e => setPassword(e.target.value)} className="w-full px-4 py-3 bg-white border border-slate-200 rounded-[12px] text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 outline-none transition-all" placeholder="••••••••" minLength={6} /></div>
-              <button type="submit" disabled={loading} className="w-full mt-4 py-3.5 bg-purple-600 hover:bg-purple-700 text-white rounded-[12px] font-bold text-[13px] uppercase tracking-widest transition-all shadow-[0_4px_14px_-4px_rgba(124,58,237,0.4)] disabled:opacity-50">{loading ? 'Processing...' : 'Log In'}</button>
-            </form>
-          ) : (
-            <form onSubmit={handleAuthSubmit} className="space-y-4">
-              {step === 1 ? (
-                <>
-                  <div><label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Company Name</label><input type="text" required value={companyName} onChange={e => setCompanyName(e.target.value)} className="w-full px-4 py-3 bg-white border border-slate-200 rounded-[12px] text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 outline-none transition-all" placeholder="e.g. Acme Logistics" /></div>
-                  <div><label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Work Email</label><input type="email" required value={email} onChange={e => setEmail(e.target.value)} className="w-full px-4 py-3 bg-white border border-slate-200 rounded-[12px] text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 outline-none transition-all" placeholder="you@company.com" /></div>
-                  <div><label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Password</label><input type="password" required value={password} onChange={e => setPassword(e.target.value)} className="w-full px-4 py-3 bg-white border border-slate-200 rounded-[12px] text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 outline-none transition-all" placeholder="••••••••" minLength={6} /></div>
-                  <div className="bg-slate-50 p-4 rounded-xl">
-                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Data Sharing Mode</label>
-                    <div className="space-y-2">
-                      <label className="flex items-center gap-3 cursor-pointer p-2 rounded-lg hover:bg-white transition-colors">
-                        <input type="radio" name="dataSharing" value="separate" checked={dataSharingMode === 'separate'} onChange={() => setDataSharingMode('separate')} className="w-4 h-4 text-purple-600" />
-                        <div className="flex-1"><div className="font-bold text-sm text-slate-800">Separate per Location</div><div className="text-[10px] text-slate-500">Each location has its own data. Calgary sees only Calgary, Edmonton sees only Edmonton.</div></div>
-                      </label>
-                      <label className="flex items-center gap-3 cursor-pointer p-2 rounded-lg hover:bg-white transition-colors">
-                        <input type="radio" name="dataSharing" value="unified" checked={dataSharingMode === 'unified'} onChange={() => setDataSharingMode('unified')} className="w-4 h-4 text-purple-600" />
-                        <div className="flex-1"><div className="font-bold text-sm text-slate-800">Unified (All Locations)</div><div className="text-[10px] text-slate-500">All locations share the same data. Everyone sees everything.</div></div>
-                      </label>
-                    </div>
-                  </div>
-                  <button type="button" onClick={() => setStep(2)} className="w-full mt-4 py-3.5 bg-purple-600 hover:bg-purple-700 text-white rounded-[12px] font-bold text-[13px] uppercase tracking-widest transition-all shadow-[0_4px_14px_-4px_rgba(124,58,237,0.4)]">Continue to Locations →</button>
-                </>
-              ) : (
-                <>
-                  <div className="max-h-[400px] overflow-y-auto space-y-4 pr-2">
-                    <div className="flex justify-between items-center">
-                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Company Locations</label>
-                      <button type="button" onClick={addLocation} className="text-xs text-purple-600 font-bold hover:underline">+ Add Location</button>
-                    </div>
-                    {locations.map((loc, idx) => (
-                      <div key={loc.id} className="bg-slate-50 p-4 rounded-xl border border-slate-200">
-                        <div className="flex justify-between items-center mb-3">
-                          <span className="text-xs font-bold text-slate-600">Location {idx + 1}</span>
-                          <button type="button" onClick={() => removeLocation(loc.id)} className="text-red-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
-                        </div>
-                        <div className="space-y-2">
-                          <input type="text" placeholder="Location Name (e.g., Calgary Office)*" value={loc.name} onChange={e => updateLocation(loc.id, 'name', e.target.value)} className="w-full px-3 py-2 bg-white border rounded-lg text-sm" required />
-                          <input type="text" placeholder="Address" value={loc.address} onChange={e => updateLocation(loc.id, 'address', e.target.value)} className="w-full px-3 py-2 bg-white border rounded-lg text-sm" />
-                          <div className="grid grid-cols-2 gap-2">
-                            <input type="text" placeholder="City" value={loc.city} onChange={e => updateLocation(loc.id, 'city', e.target.value)} className="px-3 py-2 bg-white border rounded-lg text-sm" />
-                            <input type="text" placeholder="Province" value={loc.province} onChange={e => updateLocation(loc.id, 'province', e.target.value)} className="px-3 py-2 bg-white border rounded-lg text-sm" />
-                          </div>
-                          <input type="text" placeholder="Postal Code" value={loc.postalCode} onChange={e => updateLocation(loc.id, 'postalCode', e.target.value)} className="w-full px-3 py-2 bg-white border rounded-lg text-sm" />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="flex gap-3">
-                    <button type="button" onClick={() => setStep(1)} className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold text-sm hover:bg-slate-200 transition-colors">Back</button>
-                    <button type="submit" disabled={loading} className="flex-1 py-3 bg-purple-600 text-white rounded-xl font-bold text-sm hover:bg-purple-700 transition-colors">{loading ? 'Creating...' : 'Complete Registration'}</button>
-                  </div>
-                </>
-              )}
-            </form>
+          {error && (
+            <div className="mb-6 p-3 bg-red-50 text-red-600 text-xs font-bold rounded-xl border border-red-100 text-center">
+              {error}
+            </div>
           )}
+          
+          <form onSubmit={(e) => { e.preventDefault(); handleLogin(); }} className="space-y-4">
+            <div>
+              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Work Email</label>
+              <input 
+                type="email" 
+                required 
+                value={email} 
+                onChange={e => setEmail(e.target.value)} 
+                className="w-full px-4 py-3 bg-white border border-slate-200 rounded-[12px] text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 outline-none transition-all" 
+                placeholder="you@company.com" 
+              />
+            </div>
+            <div>
+              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Password</label>
+              <input 
+                type="password" 
+                required 
+                value={password} 
+                onChange={e => setPassword(e.target.value)} 
+                className="w-full px-4 py-3 bg-white border border-slate-200 rounded-[12px] text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 outline-none transition-all" 
+                placeholder="••••••••" 
+                minLength={6} 
+              />
+            </div>
+            <button 
+              type="submit" 
+              disabled={loading} 
+              className="w-full mt-4 py-3.5 bg-purple-600 hover:bg-purple-700 text-white rounded-[12px] font-bold text-[13px] uppercase tracking-widest transition-all shadow-[0_4px_14px_-4px_rgba(124,58,237,0.4)] disabled:opacity-50"
+            >
+              {loading ? 'Signing in...' : 'Sign In'}
+            </button>
+          </form>
         </div>
       </div>
     </div>
@@ -7147,7 +7005,7 @@ const RoleSetup = ({ companyId, ownerUid, onComplete }) => {
     if (!inviteEmail.trim() || !tempPassword.trim() || tempPassword.length < 6) { setMessage("Email and password (min. 6 characters) required."); return; }
     setLoading(true);
     const result = await createTeamUser(inviteEmail, tempPassword, inviteRole, companyId);
-    if (result.success) { setMessage(`✅ ${inviteEmail} added as ${inviteRole}`); setInviteEmail(""); setTempPassword(""); setInviteRole("dispatcher"); } else { setMessage(`❌ Failed: ${result.error}`); }
+    if (result.success) { setMessage(`✅ ${inviteEmail} added as ${ROLE_DISPLAY_NAMES[inviteRole] || inviteRole}`); setInviteEmail(""); setTempPassword(""); setInviteRole("dispatcher"); } else { setMessage(`❌ Failed: ${result.error}`); }
     setLoading(false);
   };
   
@@ -7161,7 +7019,12 @@ const RoleSetup = ({ companyId, ownerUid, onComplete }) => {
             <form onSubmit={handleAddUser} className="space-y-4">
               <div><label className="block text-xs font-bold uppercase text-slate-500">Email address</label><input type="email" required className="w-full px-4 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-purple-100" value={inviteEmail} onChange={e => setInviteEmail(e.target.value)} /></div>
               <div><label className="block text-xs font-bold uppercase text-slate-500">Temporary password</label><input type="text" required className="w-full px-4 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-purple-100" value={tempPassword} onChange={e => setTempPassword(e.target.value)} placeholder="min. 6 characters" /><p className="text-[10px] text-slate-400 mt-1">The user must change it after first login.</p></div>
-              <div><label className="block text-xs font-bold uppercase text-slate-500">Role</label><select className="w-full px-4 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-purple-100" value={inviteRole} onChange={e => setInviteRole(e.target.value)}><option value="dispatcher">Dispatcher – only operations, no financial edits after billing</option><option value="accounting">Accounting – can edit any load, handle billing</option><option value="admin">Admin – full access like owner</option></select></div>
+              <div><label className="block text-xs font-bold uppercase text-slate-500">Role</label><select className="w-full px-4 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-purple-100" value={inviteRole} onChange={e => setInviteRole(e.target.value)}>
+  <option value="dispatcher">{ROLE_DISPLAY_NAMES.dispatcher} – Operations only</option>
+  <option value="accounting">{ROLE_DISPLAY_NAMES.accounting} – Billing & Financial</option>
+  <option value="admin">{ROLE_DISPLAY_NAMES.admin} – Full access</option>
+  <option value="customer_service">{ROLE_DISPLAY_NAMES.customer_service} – Customer support</option>
+</select></div>
               <button type="submit" disabled={loading} className="w-full py-2 bg-purple-600 text-white rounded-lg font-bold hover:bg-purple-700 transition disabled:opacity-50">{loading ? "Creating..." : "Invite user"}</button>
               {message && <div className="text-sm text-center mt-2 font-bold">{message}</div>}
             </form>
@@ -7172,7 +7035,8 @@ const RoleSetup = ({ companyId, ownerUid, onComplete }) => {
             <ul className="space-y-2">
               {teamMembers.map(member => (
                 <li key={member.id} className="flex justify-between items-center border-b border-slate-200 pb-2">
-                  <div><div className="font-medium text-slate-800">{member.email}</div><div className="text-xs text-slate-500 capitalize">{member.role}</div></div>
+                  <div><div className="font-medium text-slate-800">{member.email}</div>
+<div className="text-xs text-slate-500 capitalize">{ROLE_DISPLAY_NAMES[member.role] || member.role}</div></div>
                 </li>
               ))}
             </ul>
@@ -7280,8 +7144,10 @@ const [newBasePrice, setNewBasePrice] = useState({
   const GEMINI_API_KEY = "";
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [isUserManagementOpen, setIsUserManagementOpen] = useState(false);
-  const [isImporting, setIsImporting] = useState(false);
-  const [authReady, setAuthReady] = useState(false);
+const [isImporting, setIsImporting] = useState(false);
+const [authReady, setAuthReady] = useState(false);
+const [showEmailSettings, setShowEmailSettings] = useState(false);
+const [pendingInvoiceLoadId, setPendingInvoiceLoadId] = useState(null);  // ✅ ADD
   const [loadsPage, setLoadsPage] = useState(0);
   const [pageSize] = useState(25);
   const lastDocSnapshotRef = useRef(null);
@@ -7315,9 +7181,10 @@ useEffect(() => {
                 paginatedLoads;
 
   const loadToEdit = editingId ? [...loadsToday, ...loadsOpen, ...paginatedLoads].find(l => l.id === editingId) : null;
-  const isAdmin = userRole === 'owner' || userRole === 'admin';
+    const isAdmin = userRole === 'owner' || userRole === 'admin';
   const isDispatcher = userRole === 'dispatcher';
   const isAccounting = userRole === 'accounting';
+  const isCustomerService = userRole === 'customer_service';
 
   // ========== REAL‑TIME LISTENERS ==========
   useEffect(() => {
@@ -7454,22 +7321,22 @@ useEffect(() => {
 }, [user, companyId, appState, authReady, activeTab, assignmentDate, dataSharingMode, userRole, currentLocation]);
 
   useEffect(() => {
-    if (!user || !companyId || appState !== 'dashboard' || !authReady) return;
-    const q = query(collection(db, 'companies', companyId, 'customers'));
-    const unsubscribe = onSnapshot(q, (snapshot) => { setSavedCustomers(snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }))); });
-    return () => unsubscribe();
-  }, [user, companyId, appState, authReady]);
+  if (!user || !companyId || appState !== 'dashboard' || !authReady) return;
+  const q = query(collection(db, 'companies', companyId, 'customers'), limit(500));
+  const unsubscribe = onSnapshot(q, (snapshot) => { setSavedCustomers(snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }))); });
+  return () => unsubscribe();
+}, [user, companyId, appState, authReady]);
 
   useEffect(() => {
-    if (!user || !companyId || appState !== 'dashboard' || !authReady) return;
-    const q = query(collection(db, 'companies', companyId, 'locations'));
-    const unsubscribe = onSnapshot(q, (snapshot) => { setSavedDestinations(snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }))); });
-    return () => unsubscribe();
-  }, [user, companyId, appState, authReady]);
+  if (!user || !companyId || appState !== 'dashboard' || !authReady) return;
+  const q = query(collection(db, 'companies', companyId, 'locations'), limit(500));
+  const unsubscribe = onSnapshot(q, (snapshot) => { setSavedDestinations(snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }))); });
+  return () => unsubscribe();
+}, [user, companyId, appState, authReady]);
 
 useEffect(() => {
   if (!user || !companyId || appState !== 'dashboard' || !authReady) return;
-  const q = query(collection(db, 'companies', companyId, 'drivers'));
+  const q = query(collection(db, 'companies', companyId, 'drivers'), limit(500)); // ✅ ADDED LIMIT
   const unsubscribe = onSnapshot(q, (snapshot) => {
     const drivers = snapshot.docs.map(doc => {
       const data = doc.data();
@@ -7509,7 +7376,7 @@ useEffect(() => {
 // ===== TERMINALS LISTENER =====
 useEffect(() => {
   if (!user || !companyId || appState !== 'dashboard' || !authReady) return;
-  const q = query(collection(db, 'companies', companyId, 'terminals'));
+  const q = query(collection(db, 'companies', companyId, 'terminals'), limit(500));
   const unsubscribe = onSnapshot(q, (snapshot) => {
     setSavedTerminals(snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id })));
   });
@@ -7519,7 +7386,7 @@ useEffect(() => {
 // ===== CHASSIS LISTENER =====
 useEffect(() => {
   if (!user || !companyId || appState !== 'dashboard' || !authReady) return;
-  const q = query(collection(db, 'companies', companyId, 'chassis'));
+  const q = query(collection(db, 'companies', companyId, 'chassis'), limit(500));
   const unsubscribe = onSnapshot(q, (snapshot) => {
     setSavedChassis(snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id })));
   });
@@ -7530,7 +7397,7 @@ useEffect(() => {
 // ===== TRUCKS LISTENER =====
 useEffect(() => {
   if (!user || !companyId || appState !== 'dashboard' || !authReady) return;
-  const q = query(collection(db, 'companies', companyId, 'trucks'));
+  const q = query(collection(db, 'companies', companyId, 'trucks'), limit(500));
   const unsubscribe = onSnapshot(q, (snapshot) => {
     setSavedTrucks(snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id })));
   });
@@ -7541,7 +7408,7 @@ useEffect(() => {
 // ✅ ADD THIS RIGHT AFTER THE TRUCKS LISTENER
 useEffect(() => {
   if (!user || !companyId || appState !== 'dashboard' || !authReady) return;
-  const q = query(collection(db, 'companies', companyId, 'basePrices'));
+  const q = query(collection(db, 'companies', companyId, 'basePrices'), limit(500));
   const unsubscribe = onSnapshot(q, (snapshot) => {
     setSavedBasePrices(snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id })));
   });
@@ -7554,9 +7421,9 @@ useEffect(() => {
   // Only run when on the billing tab
   if (!user || !companyId || appState !== 'dashboard' || !authReady || activeTab !== 'billing') return;
   
-  // Build query to get loads in billing statuses
+    // Build query to get loads in billing statuses
   let constraints = [
-    where('status', 'in', ['Ready for Billing', 'Invoiced']),
+    where('status', 'in', ['Ready for Billing', 'Waiting for Approval', 'Approved', 'Invoiced']),
     limit(100)
   ];
   
@@ -7604,7 +7471,7 @@ useEffect(() => {
   // ✅ Keep this - it already excludes completed/paid loads
   constraints.push(where('status', 'in', ['Open', 'Ready for Billing', 'Invoiced', 'Dispatched', 'In Transit', 'Delivered']));
 } else if (activeTab === 'billing') {
-  constraints.push(where('status', 'in', ['Ready for Billing', 'Invoiced']));
+  constraints.push(where('status', 'in', ['Ready for Billing', 'Waiting for Approval', 'Approved', 'Invoiced']));
 } else if (activeTab === 'history') {
   constraints.push(where('status', 'in', ['Paid', 'Completed']));
 }
@@ -7658,8 +7525,19 @@ useEffect(() => {
   // ========== HANDLERS ==========
   const handleAddCustomer = useCallback(async (e) => {
   e.preventDefault();
-  if (!newCust.name.trim() || !user || !companyId) return;
+  console.log('🟢 handleAddCustomer called');
+  console.log('newCust:', newCust);
+  console.log('user:', user?.uid);
+  console.log('companyId:', companyId);
+  
+  if (!newCust.name.trim() || !companyId) {
+    console.log('❌ Validation failed: missing name or companyId');
+    setCopyFeedback('❌ Missing required fields');
+    return;
+  }
+  
   try {
+    console.log('📤 Attempting addDoc...');
     await addDoc(collection(db, 'companies', companyId, 'customers'), {
       name: sanitizeInput(newCust.name),
       email: sanitizeInput(newCust.email),
@@ -7673,30 +7551,30 @@ useEffect(() => {
       defaultTax: sanitizeInput(newCust.defaultTax),
       accountingId: sanitizeInput(newCust.accountingId),
       division: sanitizeInput(newCust.division),
-      // ✅ EXTRA CHARGES RATES
       prepullRate: sanitizeInput(newCust.prepullRate) || '',
       stopOffRate: sanitizeInput(newCust.stopOffRate) || '',
       yardStorageRate: sanitizeInput(newCust.yardStorageRate) || '',
       chassisRate: sanitizeInput(newCust.chassisRate) || '',
-      // ✅ CURRENCY FOR RATES
       rateCurrency: newCust.rateCurrency || 'CAD',
       companyId: companyId
     });
+    console.log('✅ Customer added');
     if (isMountedRef.current) {
       setNewCust({
         name: '', email: '', phone: '', address: '',
         contactName: '', contactTitle: '', fax: '', city: '',
         postalCode: '', defaultTax: '', accountingId: '', division: '',
         prepullRate: '', stopOffRate: '', yardStorageRate: '', chassisRate: '',
-        rateCurrency: 'CAD'  // ✅ RESET CURRENCY
+        rateCurrency: 'CAD', taxStatus: 'GST'
       });
       setCopyFeedback("Customer Saved to Cloud");
+      console.log('✅ Feedback set');
     }
   } catch (error) {
-    console.error("Error adding customer:", error);
+    console.error('❌ addDoc error:', error);
     if (isMountedRef.current) setCopyFeedback("Failed to save customer");
   }
-}, [user, companyId, newCust, setCopyFeedback, isMountedRef]);
+}, [companyId, newCust, setCopyFeedback, isMountedRef]);
 
 // ✅ ADD THIS RIGHT AFTER handleAddCustomer
 const handleUpdateCustomer = useCallback(async (customerId, updatedData) => {
@@ -7865,102 +7743,89 @@ const handleUpdateDriver = useCallback(async (driverId, updatedData) => {
 }, [user, companyId, userEmail, setCopyFeedback, isMountedRef]);
 
   const handleAddLocation = useCallback(async (e) => {
-    e.preventDefault();
-    if (!newLoc.name.trim() || !user || !companyId) return;
-    try {
-      await addDoc(collection(db, 'companies', companyId, 'locations'), {
-        name: sanitizeInput(newLoc.name),
-        address: sanitizeInput(newLoc.address),
-        companyId: companyId
-      });
-      if (isMountedRef.current) {
-        setNewLoc({ name: '', address: '' });
-        setCopyFeedback("Location Saved to Cloud");
-      }
-    } catch (error) {
-      console.error("Error adding location:", error);
-      if (isMountedRef.current) setCopyFeedback("Failed to save location");
+  e.preventDefault();
+  console.log('🟢 handleAddLocation called');
+  console.log('newLoc:', newLoc);
+  console.log('companyId:', companyId);
+  
+  if (!newLoc.name.trim() || !companyId) {
+    console.log('❌ Validation failed: missing name or companyId');
+    setCopyFeedback('❌ Missing required fields');
+    return;
+  }
+  
+  try {
+    console.log('📤 Attempting addDoc...');
+    await addDoc(collection(db, 'companies', companyId, 'locations'), {
+      name: sanitizeInput(newLoc.name),
+      address: sanitizeInput(newLoc.address),
+      companyId: companyId
+    });
+    console.log('✅ Location added');
+    if (isMountedRef.current) {
+      setNewLoc({ name: '', address: '' });
+      setCopyFeedback("Location Saved to Cloud");
+      console.log('✅ Feedback set');
     }
-  }, [user, companyId, newLoc, setCopyFeedback, isMountedRef]);
+  } catch (error) {
+    console.error('❌ addDoc error:', error);
+    if (isMountedRef.current) setCopyFeedback("Failed to save location");
+  }
+}, [companyId, newLoc, setCopyFeedback, isMountedRef]);
 
 const handleAddDriver = useCallback(async (e) => {
   e.preventDefault();
-  if (!newDriver.name.trim() || !user || !companyId) return;
- 
-  if (newDriver.email && newDriver.email.trim()) {
-    if (!newDriver.password || newDriver.password.length < 6) {
-      setCopyFeedback("❌ Password must be at least 6 characters");
-      return;
-    }
+  console.log('🟢 handleAddDriver called');
+  console.log('newDriver:', newDriver);
+  console.log('companyId:', companyId);
+  
+  if (!newDriver.name.trim() || !companyId) {
+    console.log('❌ Validation failed: missing name or companyId');
+    setCopyFeedback('❌ Missing required fields');
+    return;
   }
- 
+  
+  if (newDriver.email && newDriver.email.trim() && (!newDriver.password || newDriver.password.length < 6)) {
+    console.log('❌ Password too short');
+    setCopyFeedback("❌ Password must be at least 6 characters");
+    return;
+  }
+  
+  setCopyFeedback("⏳ Creating driver...");
+  
   try {
-    let driverUid = null;
-   
-    // ✅ STEP 1: Create Firebase Auth account
-    if (newDriver.email && newDriver.email.trim()) {
-      try {
-        const userCredential = await createUserWithEmailAndPassword(
-          auth,
-          newDriver.email.trim(),
-          newDriver.password
-        );
-        driverUid = userCredential.user.uid;
-        console.log("✅ Driver auth created:", driverUid);
-       
-        // ✅ STEP 2: Add driver UID to company's memberUids
-        await updateDoc(doc(db, 'companies', companyId), {
-          memberUids: arrayUnion(driverUid)
-        });
-        console.log("✅ Driver added to company memberUids");
-       
-        // ✅ STEP 3: CREATE USER DOCUMENT (THIS WAS MISSING!)
-        await setDoc(doc(db, 'users', driverUid), {
-          email: newDriver.email.trim(),
-          companyId: companyId,
-          role: 'driver',
-          setupComplete: true,
-          createdAt: new Date().toISOString()
-        });
-        console.log("✅ Driver user document created at /users/" + driverUid);
-       
-      } catch (authError) {
-        if (authError.code === 'auth/email-already-in-use') {
-          setCopyFeedback("❌ Email already in use");
-          return;
-        }
-        throw authError;
-      }
-    }
-   
-    // ✅ STEP 4: Save driver to Firestore
-    await addDoc(collection(db, 'companies', companyId, 'drivers'), {
-      name: sanitizeInput(newDriver.name),
-      truckNo: sanitizeInput(newDriver.truckNo),
-      type: newDriver.type,
+    console.log('📤 Calling createDriver cloud function...');
+    const functions = getFunctions();
+    const createDriverFn = httpsCallable(functions, 'createDriver');
+    
+    const result = await createDriverFn({
+      name: newDriver.name.trim(),
+      truckNo: newDriver.truckNo || '',
+      type: newDriver.type || 'Company Driver',
       payRate: newDriver.payRate || 0,
       payType: newDriver.payType || 'flat',
       fuelEfficiency: newDriver.fuelEfficiency || null,
       email: newDriver.email ? newDriver.email.trim() : '',
-      authUid: driverUid,
-      companyId: companyId,
-      createdAt: new Date().toISOString()
+      password: newDriver.password
     });
-    console.log("✅ Driver saved to Firestore");
-   
-    if (isMountedRef.current) {
+    
+    console.log('✅ Cloud function result:', result.data);
+    
+    if (result.data.success) {
       setNewDriver({
         name: '', truckNo: '', type: 'Company Driver',
         payRate: 0, payType: 'flat', fuelEfficiency: '',
         email: '', password: ''
       });
-      setCopyFeedback("✅ Driver saved successfully");
+      setCopyFeedback("✅ Driver created successfully");
+      console.log('✅ Feedback set');
     }
   } catch (error) {
-    console.error("Error adding driver:", error);
-    if (isMountedRef.current) setCopyFeedback("❌ Failed to save driver");
+    console.error('❌ createDriver error:', error);
+    const errorMsg = error.details?.message || error.message || "Failed to create driver";
+    setCopyFeedback(`❌ ${errorMsg}`);
   }
-}, [user, companyId, newDriver, setCopyFeedback, isMountedRef]);
+}, [companyId, newDriver, setCopyFeedback]);
 
 // ===== TERMINAL HANDLERS =====
 const handleAddTerminal = useCallback(async (e) => {
@@ -9114,100 +8979,180 @@ const handleApproveBilling = useCallback(async (loadId) => {
     return;
   }
   try {
-    // ✅ Generate a unique invoice number
+    // Reserve an invoice number (don't create invoice doc yet)
     const generateInvoiceNumber = async () => {
-  // Get the current year
-  const year = new Date().getFullYear();
-  
-  // Reference to the counter document
-  const counterRef = doc(db, 'companies', companyId, 'counters', 'invoices');
-  
-  let nextSequence = 1;
-  
-  try {
-    // Try to update the counter
-    const counterSnap = await getDoc(counterRef);
-    
-    if (counterSnap.exists()) {
-      const data = counterSnap.data();
-      if (data.year === year) {
-        nextSequence = data.sequence + 1;
-        await updateDoc(counterRef, {
-          sequence: nextSequence,
-          updatedAt: new Date().toISOString()
-        });
-      } else {
-        // New year, reset sequence
-        nextSequence = 1;
-        await updateDoc(counterRef, {
-          year: year,
-          sequence: nextSequence,
-          updatedAt: new Date().toISOString()
-        });
+      const year = new Date().getFullYear();
+      const counterRef = doc(db, 'companies', companyId, 'counters', 'invoices');
+      let nextSequence = 1;
+      try {
+        const counterSnap = await getDoc(counterRef);
+        if (counterSnap.exists()) {
+          const data = counterSnap.data();
+          if (data.year === year) {
+            nextSequence = data.sequence + 1;
+            await updateDoc(counterRef, { sequence: nextSequence, updatedAt: new Date().toISOString() });
+          } else {
+            nextSequence = 1;
+            await updateDoc(counterRef, { year, sequence: nextSequence, updatedAt: new Date().toISOString() });
+          }
+        } else {
+          await setDoc(counterRef, { year, sequence: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+        }
+      } catch (error) {
+        console.error('Counter error:', error);
+        nextSequence = Math.floor(Math.random() * 9000) + 1000;
       }
-    } else {
-      // Create the counter document
-      await setDoc(counterRef, {
-        year: year,
-        sequence: 1,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      });
-      nextSequence = 1;
-    }
-  } catch (error) {
-    console.error('Counter update error:', error);
-    // Fallback: get all invoices and find max
-    const invoiceRef = collection(db, 'companies', companyId, 'invoices');
-    const snapshot = await getDocs(query(invoiceRef, where('year', '==', year)));
-    let maxSeq = 0;
-    snapshot.forEach(doc => {
-      const data = doc.data();
-      if (data.sequence && data.sequence > maxSeq) {
-        maxSeq = data.sequence;
-      }
-    });
-    nextSequence = maxSeq + 1;
-  }
-  
-  // Format: INV-2026-0001
-  const invoiceNumber = `INV-${year}-${String(nextSequence).padStart(4, '0')}`;
-  
-  // Store the invoice in the invoices collection
-  const invoiceRef = collection(db, 'companies', companyId, 'invoices');
-  await addDoc(invoiceRef, {
-    loadId: loadId,
-    invoiceNumber: invoiceNumber,
-    year: year,
-    sequence: nextSequence,
-    createdAt: new Date().toISOString(),
-    createdBy: userEmail || user?.email || 'Unknown'
-  });
-  
-  return invoiceNumber;
-};
+      return `INV-${year}-${String(nextSequence).padStart(4, '0')}`;
+    };
 
     const invoiceNumber = await generateInvoiceNumber();
     
+    // ✅ Just mark as approved — DO NOT create invoice doc here
     const loadRef = doc(db, 'companies', companyId, 'loads', loadId);
     await updateDoc(loadRef, {
       billingApproved: true,
       billingApprovedAt: new Date().toISOString(),
       billingApprovedBy: userEmail || user?.email || 'Unknown',
-      invoiceNumber: invoiceNumber, // ✅ Store the invoice number on the load
+      invoiceNumber,              // Reserved number
+      status: 'Approved',         // ✅ Moves to Approved
       updatedAt: new Date().toISOString()
     });
-    setCopyFeedback(`✅ Billing approved! Invoice #${invoiceNumber} generated`);
-
-    // ✅ Refresh the billing list if we're on the billing tab
-    if (activeTab === 'billing') {
-      await fetchPaginatedLoads(true);
-    }
+    
+    setCopyFeedback(`✅ Charges approved! Invoice #${invoiceNumber} reserved`);
+    if (activeTab === 'billing') await fetchPaginatedLoads(true);
   } catch (error) {
     console.error("Approval error:", error);
     setCopyFeedback("❌ Failed to approve billing");
   }
 }, [user, companyId, userEmail, setCopyFeedback, activeTab, fetchPaginatedLoads]);
+
+// ✅ NEW — Creates the FULL invoice from the load's data
+const handleGenerateInvoice = useCallback(async (loadId) => {
+  if (!user || !companyId || !loadId) {
+    setCopyFeedback("❌ Missing required data");
+    return;
+  }
+  try {
+    const loadSnap = await getDoc(doc(db, 'companies', companyId, 'loads', loadId));
+    if (!loadSnap.exists()) {
+      setCopyFeedback("❌ Load not found");
+      return;
+    }
+    const load = loadSnap.data();
+
+    // Build items from load's revenue
+    const items = (load.revenueItems || []).map(item => ({
+      item: item.item || 'Service',
+      details: '',
+      qty: safeFloat(item.qty || 1),
+      uom: 'RATE',
+      rate: safeFloat(item.rate),
+      amount: safeFloat(item.amount),
+      tax: 0,
+    }));
+
+    if (items.length === 0) {
+      items.push({
+        item: 'Freight Charge',
+        details: '',
+        qty: 1,
+        uom: 'RATE',
+        rate: safeFloat(calculateTotal(load)),
+        amount: safeFloat(calculateTotal(load)),
+        tax: 0,
+      });
+    }
+
+    const subtotal = items.reduce((s, i) => s + i.amount, 0);
+    const taxes = 0;
+    const total = subtotal + taxes;
+
+    const today = new Date().toISOString().split('T')[0];
+    const dueObj = new Date(today);
+    dueObj.setDate(dueObj.getDate() + 30);
+    const dueDate = dueObj.toISOString().split('T')[0];
+
+    // Get customer info
+    let customer = null;
+    if (load.customerName) {
+      const custQuery = query(
+        collection(db, 'companies', companyId, 'customers'),
+        where('name', '==', load.customerName),
+        limit(1)
+      );
+      const custSnap = await getDocs(custQuery);
+      if (!custSnap.empty) customer = custSnap.docs[0].data();
+    }
+
+    const invoiceNumber = load.invoiceNumber || `INV-${new Date().getFullYear()}-${Math.floor(Math.random()*9000)+1000}`;
+
+    const invoiceData = {
+      companyId,
+      invoiceNumber,
+      loadId,
+      containerNo: load.containerNo || 'N/A',
+      workOrderNo: load.workOrderNo || 'N/A',
+      customerName: load.customerName || 'N/A',
+      customerEmail: customer?.email || load.customerEmail || '',
+      customerAddress: customer?.address || load.customerAddress || '',
+      billTo: customer?.name || load.customerName || 'N/A',
+      salesRep: load.billingApprovedBy || userEmail || 'N/A',
+      currency: load.currency || 'CAD',
+      paymentTerms: 'NET 30',
+      type: 'Invoice',
+      items,
+      subtotal,
+      taxes,
+      total,
+      status: 'Draft',
+      invoiceDate: today,
+      dueDate,
+      billingApprovedBy: load.billingApprovedBy || 'N/A',
+      billingApprovedAt: load.billingApprovedAt || null,
+      createdAt: new Date().toISOString(),
+      createdBy: userEmail || 'N/A',
+    };
+
+    // Check if invoice doc already exists (handles old stub docs)
+    const existingQuery = query(
+      collection(db, 'companies', companyId, 'invoices'),
+      where('loadId', '==', loadId),
+      limit(1)
+    );
+    const existingSnap = await getDocs(existingQuery);
+
+    let invoiceDocId;
+    if (!existingSnap.empty) {
+      invoiceDocId = existingSnap.docs[0].id;
+      await updateDoc(doc(db, 'companies', companyId, 'invoices', invoiceDocId), invoiceData);
+    } else {
+      const ref = await addDoc(collection(db, 'companies', companyId, 'invoices'), invoiceData);
+      invoiceDocId = ref.id;
+    }
+
+    // Update load status
+    await updateDoc(doc(db, 'companies', companyId, 'loads', loadId), {
+      status: 'Invoiced',
+      invoiceId: invoiceDocId,
+      invoiceNumber,
+      updatedAt: new Date().toISOString(),
+    });
+
+    setCopyFeedback(`✅ Invoice ${invoiceNumber} generated! Go to Invoices tab to send.`);
+    if (activeTab === 'billing') await fetchPaginatedLoads(true);
+  } catch (error) {
+    console.error('Generate invoice error:', error);
+    setCopyFeedback("❌ Failed to generate invoice: " + error.message);
+  }
+}, [user, companyId, userEmail, setCopyFeedback, activeTab, fetchPaginatedLoads]);
+
+// ✅ NEW — Opens the invoice from History tab
+const handleEditInvoiceFromHistory = useCallback((load) => {
+  if (!load?.id) return;
+  setPendingInvoiceLoadId(load.id);   // Pass load ID; InvoicesModule finds the invoice by loadId
+  setActiveTab('invoices');
+  setCopyFeedback("📧 Opening invoice...");
+}, [setCopyFeedback]);
 
  const handleSendInvoiceEmail = useCallback(async (load, fromEmail) => {
   // ✅ CHECK: Billing must be approved before sending
@@ -9339,7 +9284,70 @@ const handleApproveBilling = useCallback(async (loadId) => {
   const resetInactivityTimer = useCallback(() => { if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current); if (appState === 'dashboard') { inactivityTimerRef.current = setTimeout(async () => { setCopyFeedback("⚠️ Session expired due to inactivity"); await signOut(auth); setAppState('landing'); }, INACTIVITY_TIMEOUT_MS); } }, [appState, setCopyFeedback]);
 
   const handleRegistrationComplete = (companyId, uid) => { setPendingCompanyId(companyId); setPendingOwnerUid(uid); setAppState('rolesetup'); };
-  const handleRoleSetupComplete = useCallback(async () => { if (user && pendingCompanyId) { try { await updateDoc(doc(db, 'users', user.uid), { setupComplete: true }); } catch (err) { console.error('Failed to update setup status:', err); } } setAppState('dashboard'); }, [user, pendingCompanyId]);
+  const handleRoleSetupComplete = useCallback(async () => {
+  if (!user || !pendingCompanyId) {
+    setAppState('dashboard');
+    setAuthReady(true);
+    return;
+  }
+
+  setCopyFeedback("");
+
+  try {
+    // Update user setupComplete to true
+    await updateDoc(doc(db, 'users', user.uid), { setupComplete: true });
+
+    // ✅ Verify the update succeeded
+    const userSnap = await getDoc(doc(db, 'users', user.uid));
+    if (!userSnap.exists() || !userSnap.data().setupComplete) {
+      throw new Error("Failed to set setupComplete");
+    }
+
+    // Fetch company data
+    const companySnap = await getDoc(doc(db, 'companies', pendingCompanyId));
+    if (companySnap.exists()) {
+      const companyData = companySnap.data();
+      setCompanyId(pendingCompanyId);
+      setCompanyName(companyData.name || 'Workspace');
+      setCompanyLocations(companyData.locations || []);
+      setDataSharingMode(companyData.dataSharingMode || 'separate');
+            setCompanyDetails({
+        address: companyData.address || '',
+        city: companyData.city || '',
+        phone: companyData.phone || '',
+        email: companyData.email || '',
+        logoUrl: companyData.logoUrl || '',   // ✅ ADD THIS LINE
+      });
+
+      // Fetch user doc for role and locations
+      const userDoc = await getDoc(doc(db, 'users', user.uid));
+      if (userDoc.exists()) {
+        const userData = userDoc.data();
+        setUserRole(userData.role || 'dispatcher');
+        setUserAccessibleLocations(userData.accessibleLocations || []);
+        setCurrentLocation(
+          userData.defaultLocation ||
+          (userData.accessibleLocations && userData.accessibleLocations[0]?.id) ||
+          ''
+        );
+      }
+    } else {
+      console.warn("Company not found:", pendingCompanyId);
+      setCopyFeedback("⚠️ Company not found. Please contact support.");
+    }
+
+    // Now mark as ready and go to dashboard
+    setAuthReady(true);
+    setActiveTab('summary');
+    setAppState('dashboard');
+    setCopyFeedback("");
+  } catch (error) {
+    console.error("Setup completion failed:", error);
+    setCopyFeedback("❌ Failed to complete setup. Please try again.");
+    setAppState('landing');
+    setAuthReady(false);
+  }
+}, [user, pendingCompanyId, db, setCopyFeedback]);
 
   const confirmDeleteCustomer = useCallback((id) => { setConfirmModal({ isOpen: true, title: 'Delete Customer?', message: 'Are you sure you want to delete this customer? This action cannot be undone.', onConfirm: () => executeDeleteCustomer(id) }); }, [executeDeleteCustomer]);
   const confirmDeleteLocation = useCallback((id) => { setConfirmModal({ isOpen: true, title: 'Delete Location?', message: 'Are you sure you want to delete this location? This action cannot be undone.', onConfirm: () => executeDeleteLocation(id) }); }, [executeDeleteLocation]);
@@ -9494,8 +9502,22 @@ const handleApproveBilling = useCallback(async (loadId) => {
 }, []);
   const handleTrack = useCallback((load) => { if (load) setTrackingLoad(load); }, []);
 
-const handleLeaveWorkspace = useCallback(async () => { if (!user) return; setAppState('loading'); try { await updateDoc(doc(db, 'users', user.uid), { companyId: null }); } catch (e) { console.warn(e); } if (isMountedRef.current) { setCompanyId(null); setAppState('landing'); } }, [user, isMountedRef]);
-
+const handleLeaveWorkspace = useCallback(async () => {
+  if (!auth) return;
+  try {
+    await signOut(auth);
+  } catch (error) {
+    console.error("Logout error:", error);
+  }
+  if (isMountedRef.current) {
+    setCompanyId(null);
+    setUserRole('dispatcher');
+    setAppState('landing');
+    setAuthReady(false);
+    setUser(null);
+    setUserEmail('');
+  }
+}, [auth, isMountedRef]);
 // ✅ PASTE resetDriverStatus HERE
 const resetDriverStatus = useCallback(async (driverId) => {
   if (!user || !companyId || !driverId) {
@@ -9539,6 +9561,39 @@ useEffect(() => { return () => debouncedSearch.cancel && debouncedSearch.cancel(
     const slots = [{ id: 'early', label: '00:00 — 07:59', range: [0, 7] }, { id: 'morning', label: '08:00 — 09:59', range: [8, 9] }, { id: 'midday', label: '10:00 — 12:59', range: [10, 12] }, { id: 'afternoon', label: '13:00 — 15:59', range: [13, 15] }, { id: 'late', label: '16:00 — 23:59', range: [16, 23] }];
     return slots.map(slot => ({ ...slot, items: assignmentLoads.filter(l => { const hour = parseInt(String(l?.appointmentTime || '0').split(':')[0] || '0', 10); return hour >= slot.range[0] && hour <= slot.range[1]; }) }));
   }, [assignmentLoads]);
+
+    // ===== SUBSCRIPTION GUARD - Blocks suspended companies =====
+  useEffect(() => {
+    if (!companyId || appState !== 'dashboard') return;
+    
+    const checkSubscription = async () => {
+      try {
+        const companySnap = await getDoc(doc(db, 'companies', companyId));
+        if (companySnap.exists()) {
+          const data = companySnap.data();
+          if (data.paymentStatus === 'suspended' || data.subscriptionActive === false) {
+            setCopyFeedback("🚫 Your account has been suspended. Please contact support to reactivate.");
+            // Log out after showing the message
+            setTimeout(async () => {
+              if (isMountedRef.current) {
+                await signOut(auth);
+                setAppState('landing');
+              }
+            }, 5000);
+          }
+        }
+      } catch (error) {
+        console.error("Subscription check error:", error);
+      }
+    };
+    
+    // Check immediately
+    checkSubscription();
+    
+    // Then check every 5 minutes
+    const interval = setInterval(checkSubscription, 300000);
+    return () => clearInterval(interval);
+  }, [companyId, appState]);
 
     // ========== MANUAL REFRESH SYSTEM ==========
   const [refreshKey, setRefreshKey] = useState(0);
@@ -9649,236 +9704,288 @@ const initializeAuth = () => {
       if (!isMounted) return;
       console.log("✅ Auth state ready");
      
-      unsubscribe = onAuthStateChanged(auth, async (user) => {
-        if (!isMounted) return;
+    unsubscribe = onAuthStateChanged(auth, async (user) => {
+  if (!isMounted) return;
 
-                if (!user) {
-          console.log("👤 No user logged in");
-          // ✅ Wait 3 seconds before redirecting - allows token refresh
-          setTimeout(() => {
-            if (isMounted && !auth.currentUser) {
-              setAppState('landing');
-              appStateRef.current = 'landing';
-              setAuthReady(false);
-            }
-          }, 3000);
-          return;
-        }
+  if (!user) {
+    console.log("👤 No user logged in");
+    setTimeout(() => {
+      if (isMounted && !auth.currentUser) {
+        setAppState('landing');
+        appStateRef.current = 'landing';
+        setAuthReady(false);
+      }
+    }, 3000);
+    return;
+  }
 
-        if (isAuthProcessing.current) return;
-        isAuthProcessing.current = true;
+  // =====================================================
+  // 🛡️ PLATFORM ADMIN ROUTE - CHECK FIRST
+  // =====================================================
+  // ✅ Don't set isAuthProcessing here - let admin check run first
+  try {
+    const userDocRef = doc(db, 'users', user.uid);
+    const userSnap = await getDoc(userDocRef);
+    
+    if (userSnap.exists()) {
+      const userData = userSnap.data();
+      
+      // ✅ Platform Admin - Grant immediate access
+      if (userData.isPlatformAdmin === true || userData.platformRole === 'super_admin') {
+        console.log("✅ Platform Admin logged in:", user.email);
         setUser(user);
         setUserEmail(user.email || '');
-        console.log("👤 User authenticated:", user.uid);
+        setUserRole('admin');
+        setCompanyId(null);
+        setAuthReady(true);
+        setAppState('dashboard');
+        appStateRef.current = 'dashboard';
+        setCompanyName('Platform Admin');
+        setCopyFeedback("");
+        return; // ✅ IMPORTANT: Exit completely for admin users
+      }
+    }
+  } catch (error) {
+    console.error("Error checking admin status:", error);
+    // ✅ Continue to company auth if admin check fails
+  }
 
-        // Check if user document exists
-        const userDocRef = doc(db, 'users', user.uid);
-        let userSnap;
-        try {
-          userSnap = await getDoc(userDocRef);
-        } catch (error) {
-          console.error("Error fetching user doc:", error);
+  // =====================================================
+  // NORMAL COMPANY USER AUTHENTICATION
+  // =====================================================
+  // ✅ Only set isAuthProcessing here for company users
+  if (isAuthProcessing.current) return;
+  isAuthProcessing.current = true;
+
+  const userDocRef = doc(db, 'users', user.uid);
+  let userSnap;
+  try {
+    userSnap = await getDoc(userDocRef);
+  } catch (error) {
+    console.error("Error fetching user doc:", error);
+    isAuthProcessing.current = false;
+    handleAuthError(error, "Unable to load user data. Please try again.");
+    return;
+  }
+
+  // ✅ If user document doesn't exist and user is NOT a platform admin
+  if (!userSnap.exists()) {
+    console.warn("⚠️ User document missing, attempting recovery...");
+    try {
+      const companiesQuery = query(
+        collection(db, 'companies'),
+        where('memberUids', 'array-contains', user.uid)
+      );
+      const companiesSnap = await getDocs(companiesQuery);
+     
+      if (!companiesSnap.empty) {
+        const companyDoc = companiesSnap.docs[0];
+        const companyData = companyDoc.data();
+        const companyId = companyDoc.id;
+        const locations = companyData.locations || [];
+       
+        console.log("✅ Found company, recreating user document...");
+       
+        await setDoc(userDocRef, {
+          email: user.email,
+          companyId: companyId,
+          role: "owner",
+          accessibleLocations: locations.map(l => l.id),
+          defaultLocation: locations[0]?.id || null,
+          setupComplete: true,
+          createdAt: new Date(),
+          recoveredAt: new Date()
+        });
+       
+        userSnap = await getDoc(userDocRef);
+        setUser(user);                     // ← ADD THIS LINE
+        setUserEmail(user.email || '');    // ← ADD THIS LINE
+        if (!userSnap.exists()) {
+          handleAuthError(new Error("User creation failed"), "Failed to create user profile. Please contact support.");
           isAuthProcessing.current = false;
-          handleAuthError(error, "Unable to load user data. Please try again.");
           return;
         }
-
-        // If user document doesn't exist, create it from the companies collection
-        if (!userSnap.exists()) {
-          console.warn("⚠️ User document missing, attempting recovery...");
-         
-          try {
-            // Try to find the user's company by checking if they're in any company's memberUids
-            const companiesQuery = query(
-              collection(db, 'companies'),
-              where('memberUids', 'array-contains', user.uid)
-            );
-            const companiesSnap = await getDocs(companiesQuery);
-           
-            if (!companiesSnap.empty) {
-              // Found a company! Create the user document
-              const companyDoc = companiesSnap.docs[0];
-              const companyData = companyDoc.data();
-              const companyId = companyDoc.id;
-              const locations = companyData.locations || [];
-             
-              console.log("✅ Found company, recreating user document...");
-             
-              await setDoc(userDocRef, {
-                email: user.email,
-                companyId: companyId,
-                role: "owner",
-                accessibleLocations: locations.map(l => l.id),
-                defaultLocation: locations[0]?.id || null,
-                setupComplete: true,
-                createdAt: new Date(),
-                recoveredAt: new Date()
-              });
-             
-              // Now fetch the newly created document
-              userSnap = await getDoc(userDocRef);
-              if (!userSnap.exists()) {
-                handleAuthError(new Error("User creation failed"), "Failed to create user profile. Please contact support.");
-                isAuthProcessing.current = false;
-                return;
-              }
-            } else {
-              // No company found, send to landing
-              setAppState('landing');
-              appStateRef.current = 'landing';
-              setCopyFeedback("User profile not found. Please register or contact your administrator.");
-              isAuthProcessing.current = false;
-              return;
-            }
-          } catch (error) {
-            console.error("Error recovering user document:", error);
-            handleAuthError(error, "Failed to recover user profile. Please try again.");
-            isAuthProcessing.current = false;
-            return;
-          }
-        }
-
-        // Now process the user document
-const userData = userSnap.data();
-let companyId = userData.companyId;
-const role = userData.role;
-
-// ✅ AUTO-RECOVERY: Fix users with null companyId
-if (!companyId) {
-  console.warn("⚠️ User has null companyId. Attempting recovery...");
-  try {
-    const companiesQuery = query(
-      collection(db, 'companies'),
-      where('memberUids', 'array-contains', user.uid)
-    );
-    const companiesSnap = await getDocs(companiesQuery);
-   
-    // ✅ FIX: .empty is a property, NOT a function
-    if (!companiesSnap.empty) {
-      const companyDoc = companiesSnap.docs[0];
-      companyId = companyDoc.id;
-     
-      await updateDoc(userDocRef, {
-        companyId: companyId,
-        fixedAt: new Date(),
-        fixedBy: 'auto-recovery'
-      });
-     
-      console.log("✅ User document fixed with companyId:", companyId);
-    } else {
-      console.error("❌ No company found for user:", user.uid);
-      setAppState('landing');
-      setCopyFeedback("Your account is not linked to any company. Please contact support.");
+      } else {
+        console.error("❌ No company found for user:", user.uid);
+        setAppState('landing');
+        setCopyFeedback("User profile not found. Please register or contact your administrator.");
+        isAuthProcessing.current = false;
+        return;
+      }
+    } catch (error) {
+      console.error("Error recovering user document:", error);
+      handleAuthError(error, "Failed to recover user profile. Please try again.");
       isAuthProcessing.current = false;
       return;
     }
+  }
+
+  // Now process the user document
+  const userData = userSnap.data();
+  let companyId = userData.companyId;
+
+  // Auto-recovery for users with null companyId
+  if (!companyId) {
+    console.warn("⚠️ User has null companyId. Attempting recovery...");
+    try {
+      const companiesQuery = query(
+        collection(db, 'companies'),
+        where('memberUids', 'array-contains', user.uid)
+      );
+      const companiesSnap = await getDocs(companiesQuery);
+     
+      if (!companiesSnap.empty) {
+        const companyDoc = companiesSnap.docs[0];
+        companyId = companyDoc.id;
+       
+        await updateDoc(userDocRef, {
+          companyId: companyId,
+          fixedAt: new Date(),
+          fixedBy: 'auto-recovery'
+        });
+       
+        console.log("✅ User document fixed with companyId:", companyId);
+      } else {
+        console.error("❌ No company found for user:", user.uid);
+        setAppState('landing');
+        setCopyFeedback("Your account is not linked to any company. Please contact support.");
+        isAuthProcessing.current = false;
+        return;
+      }
+    } catch (error) {
+      console.error("Error recovering companyId:", error);
+      setAppState('landing');
+      setCopyFeedback("Error recovering your account. Please try again.");
+      isAuthProcessing.current = false;
+      return;
+    }
+  }
+
+  // Get the user's role
+  const role = userData.role || 'dispatcher';
+
+  // ✅ Additional validation: Check if user is actually in the company's memberUids
+  try {
+    if (companyId) {
+      const companySnap = await getDoc(doc(db, 'companies', companyId));
+      if (companySnap.exists()) {
+        const companyData = companySnap.data();
+        const memberUids = companyData.memberUids || [];
+       
+        // If user is not in memberUids, add them
+        if (!memberUids.includes(user.uid)) {
+          console.warn(`⚠️ User ${user.uid} not in memberUids for company ${companyId}, adding...`);
+          await updateDoc(doc(db, 'companies', companyId), {
+            memberUids: arrayUnion(user.uid)
+          });
+          console.log("✅ User added to memberUids");
+        }
+      }
+    }
   } catch (error) {
-    console.error("Error recovering companyId:", error);
-    setAppState('landing');
-    setCopyFeedback("Error recovering your account. Please try again.");
+    console.error("Error checking memberUids:", error);
+    // Continue anyway - this is a non-critical check
+  }
+
+  // Define finishSetup function
+  const finishSetup = async (companyId, role, accessibleLocations = [], defaultLocation = null) => {
+  setUser(user);                      // ← ADD THIS LINE
+  setUserEmail(user.email || '');     // ← ADD THIS LINE
+  setCompanyId(companyId);
+  setAuthReady(true);
+  setUserRole(role || 'dispatcher');
+  setUserAccessibleLocations(accessibleLocations);
+  setCurrentLocation(defaultLocation || (accessibleLocations[0]?.id || ''));
+   
+    try {
+      const companySnap = await getDoc(doc(db, 'companies', companyId));
+      if (companySnap.exists()) {
+        const cData = companySnap.data();
+        setCompanyName(cData.name || 'Workspace');
+        setCompanyLocations(cData.locations || []);
+        setDataSharingMode(cData.dataSharingMode || 'separate');
+                setCompanyDetails({
+          address: cData.address || '',
+          city: cData.city || '',
+          phone: cData.phone || '',
+          email: cData.email || '',
+          logoUrl: cData.logoUrl || '',   // ✅ ADD THIS LINE
+        });
+      } else {
+        setCompanyName('Workspace');
+      }
+    } catch (err) {
+      console.error("Error loading company:", err);
+      setCompanyName('Workspace');
+      setCopyFeedback("Could not load company details. Some features may be limited.");
+    }
+   
+    setActiveTab('summary');
+    setAppState('dashboard');
+    appStateRef.current = 'dashboard';
+    isAuthProcessing.current = false;
+    setCopyFeedback("");
+  };
+
+  // Check if owner needs to complete setup
+  if (userData.role === 'owner' && userData.setupComplete === false) {
+  // ✅ Fallback: Check if the company already has team members
+  try {
+    const companySnap = await getDoc(doc(db, 'companies', companyId));
+    if (companySnap.exists()) {
+      const members = companySnap.data().memberUids || [];
+      if (members.length > 1) {
+        // Team setup was already done; auto-fix the flag
+        await updateDoc(userDocRef, { setupComplete: true });
+        userData.setupComplete = true; // update local variable
+        console.log("✅ Auto-fixed setupComplete for existing team");
+        // Continue to normal flow (do NOT go to rolesetup)
+      }
+    }
+  } catch (err) {
+    console.error("Error checking company members:", err);
+  }
+
+  // If still false after the fallback, redirect to Team Setup
+  if (userData.setupComplete === false) {
+    setPendingCompanyId(companyId);
+    setPendingOwnerUid(user.uid);
+    setAppState('rolesetup');
+    appStateRef.current = 'rolesetup';
     isAuthProcessing.current = false;
     return;
   }
 }
 
-        // ✅ Additional validation: Check if user is actually in the company's memberUids
-        try {
-          const companySnap = await getDoc(doc(db, 'companies', companyId));
-          if (companySnap.exists()) {
-            const companyData = companySnap.data();
-            const memberUids = companyData.memberUids || [];
-           
-            // If user is not in memberUids, add them
-            if (!memberUids.includes(user.uid)) {
-              console.warn(`⚠️ User ${user.uid} not in memberUids for company ${companyId}, adding...`);
-              await updateDoc(doc(db, 'companies', companyId), {
-                memberUids: arrayUnion(user.uid)
-              });
-              console.log("✅ User added to memberUids");
-            }
-          }
-        } catch (error) {
-          console.error("Error checking memberUids:", error);
-          // Continue anyway - this is a non-critical check
-        }
+  // Get accessible locations
+  const accessibleLocations = userData.accessibleLocations || [];
+  const defaultLocation = userData.defaultLocation || null;
 
-        // Define finishSetup function
-        const finishSetup = async (companyId, role, accessibleLocations = [], defaultLocation = null) => {
-          setCompanyId(companyId);
-          setAuthReady(true);
-          setUserRole(role || 'dispatcher');
-          setUserAccessibleLocations(accessibleLocations);
-          setCurrentLocation(defaultLocation || (accessibleLocations[0]?.id || ''));
-         
-          try {
-            const companySnap = await getDoc(doc(db, 'companies', companyId));
-            if (companySnap.exists()) {
-              const cData = companySnap.data();
-              setCompanyName(cData.name || 'Workspace');
-              setCompanyLocations(cData.locations || []);
-              setDataSharingMode(cData.dataSharingMode || 'separate');
-              setCompanyDetails({
-                address: cData.address || '',
-                city: cData.city || '',
-                phone: cData.phone || '',
-                email: cData.email || ''
-              });
-            } else {
-              setCompanyName('Workspace');
-            }
-          } catch (err) {
-            console.error("Error loading company:", err);
-            setCompanyName('Workspace');
-            setCopyFeedback("Could not load company details. Some features may be limited.");
-          }
-         
-          setActiveTab('summary');
-          setAppState('dashboard');
-          appStateRef.current = 'dashboard';
-          isAuthProcessing.current = false;
-          setCopyFeedback("");
-        };
-
-        // Check if owner needs to complete setup
-        if (userData.role === 'owner' && userData.setupComplete === false) {
-          setPendingCompanyId(companyId);
-          setPendingOwnerUid(user.uid);
-          setAppState('rolesetup');
-          appStateRef.current = 'rolesetup';
-          isAuthProcessing.current = false;
+  // If no accessibleLocations but company has locations, use those
+  if (accessibleLocations.length === 0 && companyId) {
+    try {
+      const companySnap = await getDoc(doc(db, 'companies', companyId));
+      if (companySnap.exists()) {
+        const companyData = companySnap.data();
+        const locations = companyData.locations || [];
+        if (locations.length > 0) {
+          const locationIds = locations.map(l => l.id);
+          console.log("✅ Setting accessibleLocations from company:", locationIds);
+          await updateDoc(userDocRef, {
+            accessibleLocations: locationIds,
+            defaultLocation: locationIds[0]
+          });
+          await finishSetup(companyId, role, locationIds, locationIds[0]);
           return;
         }
+      }
+    } catch (error) {
+      console.error("Error fetching company locations:", error);
+    }
+  }
 
-        // ✅ FIX: Ensure accessibleLocations exists and is an array
-        const accessibleLocations = userData.accessibleLocations || [];
-        const defaultLocation = userData.defaultLocation || null;
-
-        // ✅ FIX: If no accessibleLocations but company has locations, use those
-        if (accessibleLocations.length === 0) {
-          try {
-            const companySnap = await getDoc(doc(db, 'companies', companyId));
-            if (companySnap.exists()) {
-              const companyData = companySnap.data();
-              const locations = companyData.locations || [];
-              if (locations.length > 0) {
-                const locationIds = locations.map(l => l.id);
-                console.log("✅ Setting accessibleLocations from company:", locationIds);
-                // Update user document with locations
-                await updateDoc(userDocRef, {
-                  accessibleLocations: locationIds,
-                  defaultLocation: locationIds[0]
-                });
-                await finishSetup(companyId, role, locationIds, locationIds[0]);
-                return;
-              }
-            }
-          } catch (error) {
-            console.error("Error fetching company locations:", error);
-          }
-        }
-
-        await finishSetup(companyId, role, accessibleLocations, defaultLocation);
-      });
+  await finishSetup(companyId, role, accessibleLocations, defaultLocation);
+});
     })
     .catch((err) => {
       console.error("auth.authStateReady() error:", err);
@@ -9898,7 +10005,7 @@ return () => {
 };
 }, []);
 
-  useEffect(() => { if (userRole === 'accounting' && ['loads', 'assignment'].includes(activeTab)) setActiveTab('billing'); if (userRole === 'dispatcher' && ['billing', 'revenue'].includes(activeTab)) setActiveTab('loads'); }, [userRole, activeTab]);
+    useEffect(() => { if (userRole === 'dispatcher' && ['billing', 'revenue'].includes(activeTab)) setActiveTab('loads'); }, [userRole, activeTab]);
 
   useEffect(() => { if (appState === 'dashboard') { const events = ['mousedown', 'keydown', 'scroll', 'touchstart', 'click', 'mousemove']; events.forEach(event => window.addEventListener(event, resetInactivityTimer)); resetInactivityTimer(); return () => { events.forEach(event => window.removeEventListener(event, resetInactivityTimer)); if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current); }; } }, [appState, resetInactivityTimer]);
 
@@ -9909,9 +10016,13 @@ return () => {
 if (window.location.pathname.startsWith('/driver')) {
   return <DriverApp />;
 }
-// Admin Dashboard Route
+// Admin Dashboard Route - ONLY for Super Admin
 if (window.location.pathname.startsWith('/admin')) {
-  return <AdminDashboard />;
+  return (
+    <SuperAdminGuard>
+      <AdminDashboard />
+    </SuperAdminGuard>
+  );
 }
   if (appState === 'loading') return (<><div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center space-y-4"><Loader2 className="w-10 h-10 text-blue-600 animate-spin" /><div className="text-sm font-bold text-slate-500 uppercase tracking-widest">Loading Workspace...</div></div><HelpPanel currentPage={appState} /></>);
   if (appState === 'landing') {
@@ -9964,156 +10075,130 @@ if (appState === 'dashboard' && !authReady) {
         <ImportDataModal isOpen={isImportModalOpen} onClose={() => setIsImportModalOpen(false)} onImport={(file, type) => handleImportData(file, type)} isLoading={isImporting} />
         {signingContext && (<div className="fixed inset-0 z-[100] flex items-center justify-center p-4"><div className="absolute inset-0 bg-slate-900/80 backdrop-blur-sm" onClick={() => setSigningContext(null)}></div><div className="bg-white w-full max-w-lg rounded-[32px] shadow-2xl relative z-10 overflow-hidden flex flex-col animate-in zoom-in-95 duration-200"><div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50"><h2 className="font-black text-slate-900">Sign Delivery Leg</h2><button onClick={() => setSigningContext(null)} className="p-2 hover:bg-slate-200 rounded-lg"><X /></button></div><div className="p-6 space-y-6"><div className="grid grid-cols-2 gap-4"><div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase">Arrival</label><input type="time" className="w-full px-4 py-3 bg-slate-50 border rounded-xl font-bold" value={signingContext.arrivalTime} onChange={(e) => setSigningContext({...signingContext, arrivalTime: e.target.value})} /></div><div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase">Departure</label><input type="time" className="w-full px-4 py-3 bg-slate-50 border rounded-xl font-bold" value={signingContext.departureTime} onChange={(e) => setSigningContext({...signingContext, departureTime: e.target.value})} /></div></div><div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase">Receiver Name</label><input type="text" className="w-full px-4 py-3 bg-slate-50 border rounded-xl font-bold placeholder:font-normal" placeholder="Who is receiving this?" value={signingContext.receiverName} onChange={(e) => setSigningContext({...signingContext, receiverName: e.target.value})} /></div><SignaturePad onSave={handleSignLeg} onCancel={() => setSigningContext(null)} /></div></div></div>)}
         <header className="bg-white border-b border-slate-200 sticky top-0 z-30">
-  <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-    <div className="flex items-center gap-8">
-      <div className="flex items-center gap-3">
-        <div className="bg-blue-600 p-2 rounded-lg">
-          <Package className="text-white w-6 h-6" />
-        </div>
-        <div className="flex flex-col justify-center">
-          <h1 className="text-lg font-bold text-slate-800 tracking-tight leading-tight">{companyName || 'Workspace'}</h1>
-        </div>
-      </div>
-      <nav className="hidden md:flex gap-1 bg-slate-100 p-1 rounded-xl">
-  <button
-    onClick={() => setActiveTab('summary')}
-    className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${activeTab === 'summary' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}
-  >
-    Dashboard
-  </button>
-  {(isAdmin || isDispatcher) &&
-  <button
-    onClick={() => {
-      setActiveTab('loads');
-      setShowContainerBoard(false);
-    }}
-    className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${activeTab === 'loads' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}
-  >
-    Loads
-  </button>
-}
-  <button
-    onClick={() => setActiveTab('addressBook')}
-    className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${activeTab === 'addressBook' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}
-  >
-    Customers
-  </button>
-  {(isAdmin || isAccounting) &&
-    <button
-      onClick={() => setActiveTab('billing')}
-      className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${activeTab === 'billing' ? 'bg-white shadow-sm text-green-600' : 'text-slate-500 hover:text-slate-700'}`}
-    >
-      Billing
-    </button>
-  }
-  <button
-    onClick={() => setActiveTab('history')}
-    className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${activeTab === 'history' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}
-  >
-    History
-  </button>
-  {(isAdmin || isDispatcher) &&
-    <button
-      onClick={() => setActiveTab('assignment')}
-      className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${activeTab === 'assignment' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}
-    >
-      Assignment
-    </button>
-  }
-  {(isAdmin || isAccounting) &&
-    <button
-      onClick={() => setActiveTab('revenue')}
-      className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${activeTab === 'revenue' ? 'bg-white shadow-sm text-purple-600' : 'text-slate-500 hover:text-slate-700'}`}
-    >
-      Analytics
-    </button>
-  }
-  
-  {/* PAYROLL BUTTON */}
-  {(isAdmin || isAccounting) && (
-    <button
-      onClick={() => setActiveTab('payroll')}
-      className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${
-        activeTab === 'payroll'
-          ? 'bg-white shadow-sm text-green-600'
-          : 'text-slate-500 hover:text-slate-700'
-      }`}
-    >
-      <DollarSign className="inline w-4 h-4 mr-1" />
-      Payroll
-    </button>
-  )}
+  <div className="w-full px-3 sm:px-4 lg:px-6 h-16 flex items-center justify-between gap-3">
 
-  {(isAdmin || isDispatcher) &&
-    <button
-      onClick={() => setActiveTab('driverActivity')}
-      className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${activeTab === 'driverActivity' ? 'bg-white shadow-sm text-orange-600' : 'text-slate-500 hover:text-slate-700'}`}
-    >
-      Fleet
-    </button>
-  }
-</nav>
+    {/* ===== LEFT: Logo + Nav ===== */}
+    <div className="flex items-center gap-3 min-w-0 flex-1">
+
+            {/* Logo + Company Name */}
+      <div className="flex items-center gap-2 flex-shrink-0">
+        {companyDetails?.logoUrl ? (
+          <img
+            src={companyDetails.logoUrl}
+            alt={companyName || 'Company Logo'}
+            className="w-9 h-9 rounded-lg object-contain bg-white border border-slate-200 p-0.5"
+          />
+        ) : (
+          <div className="bg-blue-600 p-2 rounded-lg">
+            <Package className="text-white w-5 h-5" />
+          </div>
+        )}
+                <h1
+          className="text-sm font-bold text-slate-800 tracking-tight leading-tight truncate max-w-[180px]"
+          title={companyName || 'Workspace'}
+        >
+          {companyName || 'Workspace'}
+        </h1>
+      </div>
+
+      {/* Nav Tabs */}
+            <nav className="hidden md:flex gap-0.5 bg-slate-100 p-1 rounded-xl overflow-x-auto min-w-0">
+        {Object.entries(TAB_CONFIG).map(([tabKey, config]) => {
+          if (!config.roles.includes(userRole)) return null;
+          return (
+            <button
+              key={tabKey}
+              onClick={() => setActiveTab(tabKey)}
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                activeTab === tabKey ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              {config.label}
+            </button>
+          );
+        })}
+      </nav>
     </div>
-    <div className="flex items-center gap-4">
+
+    {/* ===== RIGHT: All Action Buttons ===== */}
+    <div className="flex items-center gap-2 flex-shrink-0">
+
+      {/* Location Selector */}
       <LocationSelector
         userLocations={userAccessibleLocations.map(id => companyLocations.find(l => l.id === id)).filter(Boolean)}
         currentLocation={currentLocation}
         onLocationChange={setCurrentLocation}
         dataSharingMode={dataSharingMode}
       />
-      <div className="flex flex-col items-end">
-        <div className="hidden sm:flex items-center gap-2 px-3 py-1 bg-green-50 text-green-700 rounded-full border border-green-200">
-          <Wifi className="w-3 h-3" />
-          <span className="text-[10px] font-black uppercase tracking-widest">Connected</span>
-        </div>
-        <div className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1 mr-1">
-          Role: {userRole}
-        </div>
-      </div>
-      <button
-        onClick={handleLeaveWorkspace}
-        className="hidden sm:flex items-center gap-2 p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"
+
+                        {/* Avatar with role tooltip */}
+      <div
+        className="relative group flex-shrink-0"
+        title={`${userEmail || 'User'}\nRole: ${ROLE_DISPLAY_NAMES[userRole] || userRole}`}
       >
-        <LogOut className="w-5 h-5" />
-      </button>
+        <div className="w-9 h-9 rounded-full bg-gradient-to-br from-purple-600 to-indigo-500 flex items-center justify-center text-white font-black text-xs cursor-help ring-2 ring-white shadow-md">
+          {userEmail ? userEmail.charAt(0).toUpperCase() : 'U'}
+        </div>
+        <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-green-500 border-2 border-white"></div>
+      </div>
+
+      {/* Team button */}
       {isAdmin && (
         <button
           onClick={() => setIsUserManagementOpen(true)}
-          className="flex items-center gap-2 bg-purple-600 text-white px-5 py-2 rounded-xl font-bold shadow-lg transition-transform active:scale-95 hover:bg-purple-700"
+          className="flex items-center gap-1.5 bg-purple-600 text-white px-3 py-2 rounded-xl font-bold text-xs shadow-md transition-transform active:scale-95 hover:bg-purple-700"
+          title="Team Management"
         >
-          <UserPlus className="w-5 h-5" />
-          <span className="hidden sm:inline">Team</span>
+          <UserPlus className="w-4 h-4" />
+          <span className="hidden xl:inline">Team</span>
         </button>
       )}
-      {(isAdmin || isDispatcher) && (
+
+            {/* Settings button (Email + Logo) */}
+      {isAdmin && (
+        <button
+          onClick={() => setShowEmailSettings(true)}
+          className="flex items-center gap-1.5 bg-slate-600 text-white px-3 py-2 rounded-xl font-bold text-xs shadow-md transition-transform active:scale-95 hover:bg-slate-700"
+          title="Company Settings"
+        >
+          <Mail className="w-4 h-4" />
+          <span className="hidden xl:inline">Settings</span>
+        </button>
+      )}
+
+      {/* New Load button */}
+      {(isAdmin || isDispatcher || isCustomerService) && (
         <button
           onClick={() => { setEditingId(null); setIsFormOpen(true); }}
-          className="flex items-center gap-2 bg-blue-600 text-white px-5 py-2 rounded-xl font-bold shadow-lg transition-transform active:scale-95 hover:bg-blue-700"
+          className="flex items-center gap-1.5 bg-blue-600 text-white px-3 py-2 rounded-xl font-bold text-xs shadow-md transition-transform active:scale-95 hover:bg-blue-700"
+          title="New Load"
         >
-          <Plus className="w-5 h-5" />
-          <span className="hidden sm:inline">New Load</span>
+          <Plus className="w-4 h-4" />
+          <span className="hidden xl:inline">New Load</span>
         </button>
       )}
-      {(isAdmin || isDispatcher) && (
+
+            {/* Fix Orphans button (icon-only) */}
+      {isAdmin && (
         <button
-          onClick={manualRefresh}
-          disabled={isRefreshing}
-          className="flex items-center gap-2 bg-green-600 text-white px-5 py-2 rounded-xl font-bold shadow-lg transition-transform active:scale-95 hover:bg-green-700 disabled:opacity-50"
+          onClick={resetOrphanedDrivers}
+          className="flex items-center justify-center w-9 h-9 bg-red-600 text-white rounded-xl shadow-md transition-transform active:scale-95 hover:bg-red-700"
+          title="Fix Orphaned Drivers"
         >
-          <RefreshCw className={`w-5 h-5 ${isRefreshing ? 'animate-spin' : ''}`} />
-          <span className="hidden sm:inline">Refresh</span>
+          <RefreshCw className="w-4 h-4" />
         </button>
       )}
-      {(isAdmin) && (
-  <button
-    onClick={resetOrphanedDrivers}
-    className="flex items-center gap-2 bg-red-600 text-white px-5 py-2 rounded-xl font-bold shadow-lg transition-transform active:scale-95 hover:bg-red-700"
-  >
-    <RefreshCw className="w-5 h-5" />
-    <span className="hidden sm:inline">Fix Orphans</span>
-  </button>
-)}
+
+      {/* Logout button */}
+      <button
+        onClick={handleLeaveWorkspace}
+        className="flex items-center gap-1.5 p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"
+        title="Log Out"
+      >
+        <LogOut className="w-4 h-4" />
+      </button>
     </div>
+
   </div>
 </header>
         <main className="w-full px-4 sm:px-6 lg:px-8 py-8">
@@ -10463,66 +10548,32 @@ if (appState === 'dashboard' && !authReady) {
         </div>
       )}
 
-      {activeTab === 'billing' && (
-        <>
-          <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm mb-6 flex flex-wrap gap-4 items-end">
-            <div>
-              <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">From Date</label>
-              <input
-                type="date"
-                value={invoiceStartDate}
-                onChange={(e) => setInvoiceStartDate(e.target.value)}
-                className="px-4 py-2 border rounded-xl text-sm font-bold"
-              />
-            </div>
-            <div>
-              <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">To Date</label>
-              <input
-                type="date"
-                value={invoiceEndDate}
-                onChange={(e) => setInvoiceEndDate(e.target.value)}
-                className="px-4 py-2 border rounded-xl text-sm font-bold"
-              />
-            </div>
-            <button
-  onClick={() => {
-    try {
-      exportInvoicesToExcel(paginatedLoads, invoiceStartDate, invoiceEndDate, companyName, savedCustomers);
-    } catch (err) {
-      console.error("Export failed:", err);
-      setCopyFeedback("❌ Export function not available");
-    }
-  }}
-  className="px-6 py-2 bg-green-600 text-white rounded-xl font-bold text-sm hover:bg-green-700 flex items-center gap-2"
->
-  <FileSpreadsheet className="w-4 h-4" />
-  Export to Excel
-</button>
-          </div>
-          <BillingTable
-            loads={paginatedLoads}
-            onStatusChange={quickUpdateStatus}
-            onDraftEmail={handleDraftEmail}
-            onEdit={handleEdit}
-            onPrint={handlePrint}
-            onViewDoc={setViewingDoc}
-            onSendInvoice={handleSendInvoiceEmail}
-            onApprove={handleApproveBilling}      // <-- NEW
-            setFeedback={setCopyFeedback} 
-            companyName={companyName}
-            companyEmail={companyDetails.email}
-          />
-        </>
+            {activeTab === 'billing' && (
+        <BillingTable
+          loads={paginatedLoads}
+          onStatusChange={quickUpdateStatus}
+          onGenerateInvoice={handleGenerateInvoice}
+          onDraftEmail={handleDraftEmail}
+          onEdit={handleEdit}
+          onPrint={handlePrint}
+          onViewDoc={setViewingDoc}
+          onSendInvoice={handleSendInvoiceEmail}
+          onApprove={handleApproveBilling}
+          setFeedback={setCopyFeedback}
+          companyName={companyName}
+          companyEmail={companyDetails.email}
+        />
       )}
 
       {activeTab === 'history' && (
         <HistoryTable
-          loads={paginatedLoads.filter(load => !load.isDeleted)}
-          onStatusChange={quickUpdateStatus}
-          onViewDoc={setViewingDoc}
-          onDelete={confirmDeleteLoad}
-          onEdit={handleEdit}
-        />
+  loads={paginatedLoads.filter(load => !load.isDeleted)}
+  onStatusChange={quickUpdateStatus}
+  onViewDoc={setViewingDoc}
+  onDelete={confirmDeleteLoad}
+  onEdit={handleEdit}
+  onEditInvoice={handleEditInvoiceFromHistory}
+/>
       )}
 
       {activeTab === 'addressBook' && (
@@ -10595,7 +10646,7 @@ if (appState === 'dashboard' && !authReady) {
         />
       )}
 
-      {activeTab === 'driverActivity' && (
+            {activeTab === 'driverActivity' && (
         <DriverActivityBoard
           drivers={savedDrivers}
           companyId={companyId}
@@ -10604,10 +10655,41 @@ if (appState === 'dashboard' && !authReady) {
           loads={summaryLoads}
         />
       )}
+
+            {activeTab === 'invoices' && (
+        <InvoicesModule
+  companyId={companyId}
+  companyName={companyName}
+  companyDetails={companyDetails}
+  companyLocations={companyLocations}
+  setFeedback={setCopyFeedback}
+  userEmail={userEmail}
+  pendingLoadId={pendingInvoiceLoadId}
+  onPendingLoadConsumed={() => setPendingInvoiceLoadId(null)}
+/>
+      )}
+
+      {activeTab === 'exportBatches' && (
+        <ExportBatchesModule
+          companyId={companyId}
+          companyName={companyName}
+          userEmail={userEmail}
+          setFeedback={setCopyFeedback}
+        />
+      )}
     </>
   )}
 </main>
         <UserManagement isOpen={isUserManagementOpen} onClose={() => setIsUserManagementOpen(false)} companyId={companyId} currentUserUid={user?.uid} userRole={userRole} />
+                    <EmailSettingsModal
+  isOpen={showEmailSettings}
+  onClose={() => setShowEmailSettings(false)}
+  companyId={companyId}
+  setFeedback={setCopyFeedback}
+  companyName={companyName}
+  currentLogoUrl={companyDetails?.logoUrl || ''}
+  onLogoUpdated={(newUrl) => setCompanyDetails(prev => ({ ...prev, logoUrl: newUrl }))}
+/>
         <LoadForm
   isOpen={isFormOpen}
   onClose={() => { setIsFormOpen(false); setEditingId(null); }}

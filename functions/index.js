@@ -1,5 +1,8 @@
+// functions/index.js — Force node22 redeploy
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
+const { onRequest } = require("firebase-functions/v2/https");
 const admin = require("firebase-admin");
+const nodemailer = require("nodemailer");
 
 // Initialize Admin SDK once
 admin.initializeApp();
@@ -25,12 +28,11 @@ const validateLoadForm = (data) => {
   if (!Array.isArray(data.legs) || data.legs.length === 0) {
     return { valid: false, error: "At least one trip leg is required." };
   }
-  
-  // Validate currency if provided
+
   if (data.currency && !['CAD', 'USD'].includes(data.currency)) {
     return { valid: false, error: "Invalid currency. Must be CAD or USD." };
   }
-  
+
   const revenueItems = data.revenueItems || [];
   const hasBasePrice = safeFloat(data.basePrice) > 0 || safeFloat(data.waitingTime) > 0 || safeFloat(data.fuelSurcharge) > 0;
   const hasLineItems = revenueItems.length > 0;
@@ -61,14 +63,13 @@ const sanitizeString = (input) => {
     .trim();
 };
 
-// FIXED: Returns new object instead of mutating input
 const sanitizeObject = (obj) => {
   if (typeof obj !== 'object' || obj === null) return obj;
-  
+
   if (Array.isArray(obj)) {
     return obj.map(item => sanitizeObject(item));
   }
-  
+
   const sanitized = {};
   for (const key in obj) {
     if (typeof obj[key] === 'string') {
@@ -83,6 +84,31 @@ const sanitizeObject = (obj) => {
   }
   return sanitized;
 };
+
+// ============================================================
+// SMTP Credentials Helper
+// ============================================================
+async function getCompanySMTPCredentials(companyId) {
+  try {
+    const doc = await admin.firestore()
+      .collection('companies').doc(companyId)
+      .collection('emailSettings').doc('smtp')
+      .get();
+    if (!doc.exists) return null;
+    const data = doc.data();
+    if (!data.email || !data.appPassword) return null;
+    return {
+      email: data.email,
+      appPassword: data.appPassword,
+      provider: data.provider || 'gmail',
+      smtpHost: data.smtpHost || 'smtp.gmail.com',
+      smtpPort: data.smtpPort || 587,
+    };
+  } catch (err) {
+    console.error('getCompanySMTPCredentials error:', err);
+    return null;
+  }
+}
 
 // ---------- 1. Send Email (Support & Contact Form) [Resend] ----------
 exports.sendEmail = onCall(
@@ -116,22 +142,19 @@ exports.createTeamMember = onCall(async (request) => {
   if (!request.auth) throw new HttpsError("unauthenticated", "Must be logged in.");
   const callerUid = request.auth.uid;
   const { email, password, role, companyId } = request.data;
-  
+
   if (!email || !password || !role || !companyId)
     throw new HttpsError("invalid-argument", "Missing required fields.");
 
-  // Validate role
-  if (!['dispatcher', 'accounting', 'admin'].includes(role)) {
+  if (!['dispatcher', 'accounting', 'admin', 'customer_service'].includes(role)) {
     throw new HttpsError("invalid-argument", "Invalid role specified.");
   }
-  
-  // Validate email format
+
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
   if (!emailRegex.test(email)) {
     throw new HttpsError("invalid-argument", "Invalid email format.");
   }
-  
-  // Validate password strength
+
   if (password.length < 6) {
     throw new HttpsError("invalid-argument", "Password must be at least 6 characters.");
   }
@@ -146,7 +169,6 @@ exports.createTeamMember = onCall(async (request) => {
   try {
     newUser = await admin.auth().createUser({ email, password });
   } catch (error) {
-    // FIXED: Better error handling for specific auth errors
     if (error.code === 'auth/email-already-exists') {
       throw new HttpsError("already-exists", "A user with this email already exists.");
     }
@@ -158,6 +180,11 @@ exports.createTeamMember = onCall(async (request) => {
     }
     throw new HttpsError("internal", error.message);
   }
+
+  await admin.auth().setCustomUserClaims(newUser.uid, {
+    companyId: companyId,
+    role: role
+  });
 
   const companySnap = await admin.firestore().collection("companies").doc(companyId).get();
   const companyData = companySnap.data();
@@ -178,13 +205,12 @@ exports.createTeamMember = onCall(async (request) => {
     memberUids: admin.firestore.FieldValue.arrayUnion(newUser.uid)
   });
 
-  // FIXED: Add audit log
   console.log(`Team member created: ${email} (${role}) by ${callerData.email || callerUid}`);
 
   return { success: true, uid: newUser.uid };
 });
 
-// ---------- 3. Validate & Write Load function (FIXED COLLECTION PATH) ----------
+// ---------- 3. Validate & Write Load function ----------
 exports.validateAndWriteLoad = onCall(async (request) => {
   try {
     if (!request.auth) throw new HttpsError("unauthenticated", "Must be logged in.");
@@ -196,7 +222,6 @@ exports.validateAndWriteLoad = onCall(async (request) => {
     const userRole = user.role;
     if (!userCompany) throw new HttpsError("failed-precondition", "User has no company.");
 
-    // FIXED: Location access validation
     const loadData = request.data.load || {};
     if (loadData.locationId) {
       const userAccessibleLocations = user.accessibleLocations || [];
@@ -205,8 +230,6 @@ exports.validateAndWriteLoad = onCall(async (request) => {
       }
     }
 
-    // ---------------------------------------------------------------
-    // Rate limiting (rolling window – server side)
     const rateDocRef = admin.firestore().collection(`rateLimits_${userCompany}`).doc(uid);
     const rateDoc = await rateDocRef.get();
     const now = Date.now();
@@ -241,17 +264,14 @@ exports.validateAndWriteLoad = onCall(async (request) => {
         timestamps: [admin.firestore.Timestamp.now()],
       });
     }
-    // ---------------------------------------------------------------
 
     const loadId = request.data.loadId || null;
 
-    // --- Role‑based locking check (only when updating an existing load) ---
     if (loadId) {
-      // FIXED: Use correct collection path
       const loadSnap = await admin.firestore()
         .collection('companies').doc(userCompany)
         .collection('loads').doc(loadId).get();
-        
+
       if (!loadSnap.exists) throw new HttpsError("not-found", "Load not found.");
       const existingStatus = loadSnap.data().status;
 
@@ -264,17 +284,13 @@ exports.validateAndWriteLoad = onCall(async (request) => {
       }
     }
 
-    // --- Input validation ---
     const validation = validateLoadForm(loadData);
     if (!validation.valid) throw new HttpsError("invalid-argument", validation.error);
 
     loadData.companyId = userCompany;
 
-    // --- Sanitize all string inputs to prevent stored XSS ---
-    // FIXED: Use returned sanitized object instead of mutating
     const sanitizedData = sanitizeObject(loadData);
 
-    // --- Write to Firestore (FIXED: Use correct collection path) ---
     const loadRef = loadId
       ? admin.firestore().collection('companies').doc(userCompany).collection('loads').doc(loadId)
       : admin.firestore().collection('companies').doc(userCompany).collection('loads').doc();
@@ -303,31 +319,29 @@ exports.extractLoadDataFromDocument = onCall(
   { secrets: ["GEMINI_API_KEY"] },
   async (request) => {
     if (!request.auth) throw new HttpsError("unauthenticated", "Must be logged in.");
-    
+
     const { fileUrl } = request.data;
     if (!fileUrl) throw new HttpsError("invalid-argument", "Missing fileUrl.");
 
-    // FIXED: SSRF protection - validate URL before downloading
     const MY_STORAGE_BUCKET = process.env.STORAGE_BUCKET || "haulix-tms.firebasestorage.app";
     const isValidStorageUrl = (url) => {
-      return url && (url.includes(`firebasestorage.googleapis.com/v0/b/${MY_STORAGE_BUCKET}`) 
+      return url && (url.includes(`firebasestorage.googleapis.com/v0/b/${MY_STORAGE_BUCKET}`)
                       || url.includes(`${MY_STORAGE_BUCKET}/`));
     };
-    
+
     if (!isValidStorageUrl(fileUrl)) {
       throw new HttpsError("invalid-argument", "Invalid file URL. Must be from our storage.");
     }
 
     try {
       const fetch = (await import("node-fetch")).default;
-      
-      // FIXED: Check file size before downloading (max 10MB)
+
       const headResponse = await fetch(fileUrl, { method: 'HEAD' });
       const contentLength = parseInt(headResponse.headers.get('content-length') || '0', 10);
       if (contentLength > 10 * 1024 * 1024) {
         throw new HttpsError("invalid-argument", "File too large. Maximum size is 10MB.");
       }
-      
+
       const response = await fetch(fileUrl);
       if (!response.ok) throw new Error(`Failed to fetch document: ${response.statusText}`);
       const buffer = await response.arrayBuffer();
@@ -341,7 +355,7 @@ exports.extractLoadDataFromDocument = onCall(
 
       const geminiKey = process.env.GEMINI_API_KEY;
       const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`;
-      
+
       const prompt = `Extract the following fields from this shipping load confirmation. Return ONLY a valid JSON object with these keys:
 - containerNo (string)
 - shippingLine (string)
@@ -377,7 +391,6 @@ Do not include any other text or explanation.`;
 
       const aiData = await aiResponse.json();
 
-      // FIXED: Removed verbose logging in production
       if (process.env.NODE_ENV === 'development') {
         console.log("Gemini API response:", JSON.stringify(aiData).slice(0, 500));
       }
@@ -415,119 +428,137 @@ Do not include any other text or explanation.`;
   }
 );
 
-// ---------- 5. Send Invoice Email (Resend – with SSRF protection & currency fix) ----------
+// ============================================================
+// 5. Send Invoice Email via SMTP (customer's own email)
+// ============================================================
 exports.sendInvoiceEmail = onCall(
-  { secrets: ["RESEND_API_KEY"] },
   async (request) => {
     if (!request.auth) throw new HttpsError("unauthenticated", "Must be logged in.");
 
-    const { loadData, fromEmail, companyName, invoiceUrl } = request.data;
-    if (!loadData || !loadData.customerEmail || !fromEmail) {
-      throw new HttpsError("invalid-argument", "Missing required fields.");
+    const {
+      companyId,
+      to,
+      cc,
+      bcc,
+      subject,
+      text,
+      html,
+      attachments
+    } = request.data;
+
+    if (!to || !Array.isArray(to) || to.length === 0) {
+      throw new HttpsError("invalid-argument", "Missing 'to' recipients.");
     }
 
-    try {
-      const { Resend } = await import("resend");
-      const resend = new Resend(process.env.RESEND_API_KEY);
+    // Determine company
+    let targetCompanyId = companyId;
+    if (!targetCompanyId) {
+      const userDoc = await admin.firestore().collection("users").doc(request.auth.uid).get();
+      if (!userDoc.exists) throw new HttpsError("not-found", "User profile not found.");
+      targetCompanyId = userDoc.data().companyId;
+    }
+    if (!targetCompanyId) {
+      throw new HttpsError("failed-precondition", "No company associated.");
+    }
 
-      // ====== SSRF protection ======
-      const MY_STORAGE_BUCKET = process.env.STORAGE_BUCKET || "haulix-tms.firebasestorage.app";
-      const isValidStorageUrl = (url) => {
-        return url && (url.includes(`firebasestorage.googleapis.com/v0/b/${MY_STORAGE_BUCKET}`) 
-                        || url.includes(`${MY_STORAGE_BUCKET}/`));
-      };
+    // Verify access
+    const userDoc = await admin.firestore().collection("users").doc(request.auth.uid).get();
+    if (!userDoc.exists || userDoc.data().companyId !== targetCompanyId) {
+      throw new HttpsError("permission-denied", "Access denied.");
+    }
 
-      // FIXED: Currency-aware formatting
-      const currencySymbol = loadData.currency === 'USD' ? 'US$' : 'C$';
-      const currencyCode = loadData.currency || 'CAD';
+    // Get SMTP credentials
+    const creds = await getCompanySMTPCredentials(targetCompanyId);
+    if (!creds) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Email not configured. Please go to Settings → Email Setup and enter your accounting email and app password."
+      );
+    }
 
-      const attachments = [];
+    // Build attachments
+    const MY_STORAGE_BUCKET = process.env.STORAGE_BUCKET || "haulix-tms.firebasestorage.app";
+    const isValidStorageUrl = (url) =>
+      url && (url.includes(`firebasestorage.googleapis.com/v0/b/${MY_STORAGE_BUCKET}`)
+           || url.includes(`${MY_STORAGE_BUCKET}/`));
 
-      const fetchAndAttach = async (fileRef, filename) => {
-        if (!fileRef || !fileRef.url) return;
-        if (!isValidStorageUrl(fileRef.url)) {
-          console.warn(`Rejected unsafe URL: ${fileRef.url}`);
-          return;
-        }
+    const finalAttachments = [];
+    if (Array.isArray(attachments)) {
+      const fetch = (await import("node-fetch")).default;
+      for (const att of attachments) {
+        if (!att?.url || !isValidStorageUrl(att.url)) continue;
         try {
-          const fetch = (await import("node-fetch")).default;
-          const res = await fetch(fileRef.url);
-          if (!res.ok) return;
+          const res = await fetch(att.url);
+          if (!res.ok) continue;
           const buffer = await res.arrayBuffer();
-          attachments.push({
-            filename: filename,
-            content: Buffer.from(buffer).toString("base64"),
+          finalAttachments.push({
+            filename: att.filename || "attachment.pdf",
+            content: Buffer.from(buffer),
           });
         } catch (e) {
-          console.warn(`Failed to attach ${filename}:`, e.message);
-        }
-      };
-
-      await fetchAndAttach(loadData.loadConfirmation,
-        `${loadData.workOrderNo || "load"}_confirmation.pdf`);
-      await fetchAndAttach(loadData.signedPodDoc,
-        `${loadData.workOrderNo || "load"}_POD.pdf`);
-
-      if (invoiceUrl) {
-        if (isValidStorageUrl(invoiceUrl)) {
-          await fetchAndAttach({ url: invoiceUrl },
-            `Invoice_${loadData.workOrderNo || "load"}.pdf`);
-        } else {
-          console.warn(`Invoice URL rejected (not from our storage): ${invoiceUrl}`);
+          console.warn("Attachment fetch error:", e.message);
         }
       }
+    }
 
-      // FIXED: Sanitize all customer-facing data
-      const customerName = sanitizeString(loadData.customerName || "Valued Customer");
-      const woNumber = sanitizeString(loadData.workOrderNo || "N/A");
-      const containerNo = sanitizeString(loadData.containerNo || "N/A");
-      const customerRef = sanitizeString(loadData.customerRefNo || "N/A");
-      const safeCompanyName = sanitizeString(companyName || "Nexdray");
+    // Nodemailer transport
+    const transport = nodemailer.createTransport({
+      host: creds.smtpHost,
+      port: creds.smtpPort,
+      secure: creds.smtpPort === 465,
+      auth: {
+        user: creds.email,
+        pass: creds.appPassword,
+      },
+    });
 
-      const textBody = `Hello,
+    const ccList = Array.isArray(cc) ? [...cc] : [];
+    const bccList = Array.isArray(bcc) ? [...bcc] : [];
 
-Please see attached invoice ${woNumber} and POD for your reference for container ${containerNo}.
-Amount: ${currencySymbol}${calculateTotalServer(loadData)} ${currencyCode}
-
-Should you have any questions, please contact us at ${fromEmail}.
-
-${safeCompanyName}
-
-This email contains confidential information intended for the recipient only.`;
-
-      const htmlBody = `<!DOCTYPE html>
-<html><head><meta charset="UTF-8"></head>
-<body style="font-family:Arial,sans-serif;color:#1e293b;">
-<p>Hello,</p>
-<p>Please see attached invoice <strong>${woNumber}</strong> and POD for your reference for container <strong>${containerNo}</strong>.</p>
-<p><strong>Amount Due:</strong> ${currencySymbol}${calculateTotalServer(loadData)} ${currencyCode}</p>
-<p>Should you have any questions, please contact us at <a href="mailto:${fromEmail}">${fromEmail}</a>.</p>
-<p>${safeCompanyName}</p>
-<br>
-<p style="font-size:11px;color:#64748b;">This email contains confidential information intended for the recipient only.</p>
-</body></html>`;
-
-      const response = await resend.emails.send({
-        from: `${safeCompanyName} <invoices@nexdray.com>`,
-        to: [loadData.customerEmail],
-        cc: [fromEmail],
-        reply_to: fromEmail,
-        subject: `Invoice: ${woNumber}, Container: ${containerNo}, Ref: ${customerRef}`,
-        text: textBody,
-        html: htmlBody,
-        attachments: attachments.length > 0 ? attachments : undefined,
+    try {
+      const info = await transport.sendMail({
+        from: creds.email,
+        to: to.join(', '),
+        cc: ccList.length > 0 ? ccList.join(', ') : undefined,
+        bcc: bccList.length > 0 ? bccList.join(', ') : undefined,
+        subject: subject || "Invoice",
+        text: text || "",
+        html: html || "",
+        attachments: finalAttachments.length > 0 ? finalAttachments : undefined,
       });
 
-      if (response?.error) throw new Error(response.error.message);
-      return { success: true, messageId: response.id };
+      try {
+        await admin.firestore()
+          .collection('companies').doc(targetCompanyId)
+          .collection('emailLog').add({
+            sentAt: admin.firestore.FieldValue.serverTimestamp(),
+            sentBy: request.auth.uid,
+            sentByEmail: userDoc.data().email || '',
+            from: creds.email,
+            to, cc: ccList, bcc: bccList,
+            subject,
+            messageId: info.messageId,
+            type: 'invoice',
+          });
+      } catch (logErr) {
+        console.warn('Audit log failed:', logErr.message);
+      }
+
+      return { success: true, messageId: info.messageId, from: creds.email };
     } catch (error) {
-      console.error("Invoice email error:", error);
-      throw new HttpsError("internal", error.message || "Failed to send invoice email");
+      console.error("SMTP send error:", error);
+      if (error.code === 'EAUTH' || error.responseCode === 535) {
+        throw new HttpsError(
+          "permission-denied",
+          "Email authentication failed. Please verify the app password in Settings."
+        );
+      }
+      throw new HttpsError("internal", error.message || "Failed to send email via SMTP.");
     }
   }
 );
 
-// ---------- 6. Update Load Status (FIXED COLLECTION PATH) ----------
+// ---------- 6. Update Load Status ----------
 exports.updateLoadStatus = onCall(async (request) => {
   if (!request.auth) throw new HttpsError("unauthenticated", "Must be logged in.");
 
@@ -542,17 +573,15 @@ exports.updateLoadStatus = onCall(async (request) => {
 
   const { companyId, role } = userDoc.data();
 
-  // FIXED: Use correct collection path
   const loadRef = admin.firestore()
     .collection('companies').doc(companyId)
     .collection('loads').doc(loadId);
-    
+
   const loadSnap = await loadRef.get();
   if (!loadSnap.exists) throw new HttpsError("not-found", "Load not found.");
 
   const loadData = loadSnap.data();
 
-  // Permission check
   const isAdmin = role === "owner" || role === "admin";
   const isAccounting = role === "accounting";
   const allowed = new Set();
@@ -585,7 +614,7 @@ exports.updateLoadStatus = onCall(async (request) => {
   return { success: true, newStatus };
 });
 
-// ---------- 7. Delete Team Member (FIXED: Added audit log) ----------
+// ---------- 7. Delete Team Member ----------
 exports.deleteTeamMember = onCall(async (request) => {
   if (!request.auth) throw new HttpsError("unauthenticated", "Must be logged in.");
 
@@ -621,12 +650,11 @@ exports.deleteTeamMember = onCall(async (request) => {
     }
 
     const targetData = targetDoc.data();
-    
+
     if (targetData.role === "owner") {
       throw new HttpsError("permission-denied", "Cannot delete the company owner");
     }
 
-    // FIXED: Log the deletion before it happens
     console.log(`Team member deleted: ${targetData.email || targetUid} (${targetData.role}) by ${callerData.email || callerUid}`);
 
     const companyRef = admin.firestore().collection("companies").doc(companyId);
@@ -692,6 +720,240 @@ exports.getTeamMembers = onCall(async (request) => {
     console.error("Error getting team members:", error);
     if (error instanceof HttpsError) throw error;
     throw new HttpsError("internal", error.message || "Failed to get team members");
+  }
+});
+
+// ---------- 9. Create Company (Super Admin only) ----------
+exports.createCompany = onCall(async (request) => {
+  const SUPER_ADMIN_UID = "UFbOqd1GElPJnrTZiJrhZEwB5uz1";
+  if (!request.auth || request.auth.uid !== SUPER_ADMIN_UID) {
+    throw new HttpsError("permission-denied", "Only super admin can create companies.");
+  }
+
+  const { companyName, adminEmail, adminPassword, locations, dataSharingMode } = request.data;
+
+  if (!companyName || !adminEmail || !adminPassword) {
+    throw new HttpsError("invalid-argument", "Missing required fields.");
+  }
+  if (adminPassword.length < 6) {
+    throw new HttpsError("invalid-argument", "Password must be at least 6 characters.");
+  }
+
+  let newUser;
+  try {
+    newUser = await admin.auth().createUser({
+      email: adminEmail,
+      password: adminPassword,
+    });
+  } catch (error) {
+    if (error.code === 'auth/email-already-exists') {
+      throw new HttpsError("already-exists", "A user with this email already exists.");
+    }
+    if (error.code === 'auth/invalid-email') {
+      throw new HttpsError("invalid-argument", "Invalid email format.");
+    }
+    throw new HttpsError("internal", error.message);
+  }
+
+  const uid = newUser.uid;
+
+  const companyRef = admin.firestore().collection("companies").doc();
+  const companyId = companyRef.id;
+
+  const trialEnd = new Date();
+  trialEnd.setDate(trialEnd.getDate() + 30);
+
+  await companyRef.set({
+    name: companyName,
+    dataSharingMode: dataSharingMode || "separate",
+    locations: locations || [],
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    createdBy: uid,
+    memberUids: [uid],
+    setupComplete: false,
+    paymentStatus: "trial",
+    trialEndsAt: trialEnd.toISOString(),
+    subscriptionActive: true,
+    monthlyAmount: 200,
+    currency: "USD",
+    createdBySuperAdmin: request.auth.uid,
+    createdAtFormatted: new Date().toISOString(),
+  });
+
+  await admin.firestore().collection("users").doc(uid).set({
+    email: adminEmail,
+    companyId: companyId,
+    role: "owner",
+    accessibleLocations: locations.map(l => l.id),
+    defaultLocation: locations[0]?.id || null,
+    setupComplete: false,
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+
+  await admin.auth().setCustomUserClaims(uid, {
+    companyId: companyId,
+    role: "owner"
+  });
+
+  return { success: true, companyId, uid };
+});
+
+// ---------- 10. Create Driver (with custom claims) ----------
+exports.createDriver = onCall(async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Must be logged in.");
+
+  const callerUid = request.auth.uid;
+  const callerDoc = await admin.firestore().collection("users").doc(callerUid).get();
+  if (!callerDoc.exists) throw new HttpsError("not-found", "Caller account not found.");
+
+  const callerData = callerDoc.data();
+  const companyId = callerData.companyId;
+
+  if (!["owner", "admin", "dispatcher"].includes(callerData.role)) {
+    throw new HttpsError("permission-denied", "You are not allowed to create drivers.");
+  }
+
+  const { name, truckNo, type, payRate, payType, fuelEfficiency, email, password } = request.data;
+
+  if (!name || !email || !password) {
+    throw new HttpsError("invalid-argument", "Missing required fields.");
+  }
+  if (password.length < 6) {
+    throw new HttpsError("invalid-argument", "Password must be at least 6 characters.");
+  }
+
+  let newUser;
+  try {
+    newUser = await admin.auth().createUser({ email, password });
+  } catch (error) {
+    if (error.code === 'auth/email-already-exists') {
+      throw new HttpsError("already-exists", "A user with this email already exists.");
+    }
+    throw new HttpsError("internal", error.message);
+  }
+
+  await admin.auth().setCustomUserClaims(newUser.uid, {
+    companyId: companyId,
+    role: "driver"
+  });
+
+  const driverRef = admin.firestore()
+    .collection("companies").doc(companyId)
+    .collection("drivers").doc();
+
+  await driverRef.set({
+    name,
+    truckNo: truckNo || "",
+    type: type || "Company Driver",
+    payRate: payRate || 0,
+    payType: payType || "flat",
+    fuelEfficiency: fuelEfficiency || null,
+    email: email,
+    authUid: newUser.uid,
+    companyId: companyId,
+    createdAt: admin.firestore.FieldValue.serverTimestamp()
+  });
+
+  await admin.firestore().collection("companies").doc(companyId).update({
+    memberUids: admin.firestore.FieldValue.arrayUnion(newUser.uid)
+  });
+
+  await admin.firestore().collection("users").doc(newUser.uid).set({
+    email: email,
+    companyId: companyId,
+    role: "driver",
+    setupComplete: true,
+    createdAt: admin.firestore.FieldValue.serverTimestamp()
+  });
+
+  console.log(`Driver created: ${email} for company ${companyId}`);
+  return { success: true, driverId: driverRef.id, uid: newUser.uid };
+});
+
+// ---------- 11. Update Driver Password ----------
+exports.updateUserPassword = onCall(async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Must be logged in.");
+  const { uid, newPassword } = request.data;
+  if (!uid || !newPassword || newPassword.length < 6) {
+    throw new HttpsError("invalid-argument", "Invalid UID or password.");
+  }
+
+  const callerDoc = await admin.firestore().collection("users").doc(request.auth.uid).get();
+  const targetDoc = await admin.firestore().collection("users").doc(uid).get();
+  if (!callerDoc.exists || !targetDoc.exists) throw new HttpsError("not-found", "User not found.");
+  if (callerDoc.data().companyId !== targetDoc.data().companyId) {
+    throw new HttpsError("permission-denied", "Cannot update password for another company.");
+  }
+
+  await admin.auth().updateUser(uid, { password: newPassword });
+  return { success: true };
+});
+
+// ============================================================
+// 12. Save Company SMTP Settings
+// ============================================================
+exports.saveCompanySMTP = onCall(async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Must be logged in.");
+
+  const { companyId, email, appPassword, provider, smtpHost, smtpPort } = request.data;
+
+  if (!companyId || !email || !appPassword) {
+    throw new HttpsError("invalid-argument", "companyId, email, and appPassword are required.");
+  }
+
+  const userDoc = await admin.firestore().collection("users").doc(request.auth.uid).get();
+  if (!userDoc.exists) throw new HttpsError("not-found", "User not found.");
+  const userData = userDoc.data();
+
+  if (userData.companyId !== companyId) {
+    throw new HttpsError("permission-denied", "Not your company.");
+  }
+  if (!["owner", "admin"].includes(userData.role)) {
+    throw new HttpsError("permission-denied", "Only owners and admins can configure email.");
+  }
+
+  await admin.firestore()
+    .collection('companies').doc(companyId)
+    .collection('emailSettings').doc('smtp')
+    .set({
+      email,
+      appPassword,
+      provider: provider || 'gmail',
+      smtpHost: smtpHost || 'smtp.gmail.com',
+      smtpPort: smtpPort || 587,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedBy: request.auth.uid,
+    }, { merge: true });
+
+  return { success: true };
+});
+
+// ============================================================
+// 13. Test Company SMTP Connection
+// ============================================================
+exports.testCompanySMTP = onCall(async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Must be logged in.");
+  const { companyId } = request.data;
+
+  const userDoc = await admin.firestore().collection("users").doc(request.auth.uid).get();
+  if (!userDoc.exists || userDoc.data().companyId !== companyId) {
+    throw new HttpsError("permission-denied", "Access denied.");
+  }
+
+  const creds = await getCompanySMTPCredentials(companyId);
+  if (!creds) throw new HttpsError("failed-precondition", "No SMTP configured.");
+
+  try {
+    const transport = nodemailer.createTransport({
+      host: creds.smtpHost,
+      port: creds.smtpPort,
+      secure: creds.smtpPort === 465,
+      auth: { user: creds.email, pass: creds.appPassword },
+    });
+    await transport.verify();
+    return { success: true, message: "Connection OK" };
+  } catch (err) {
+    throw new HttpsError("internal", "Connection failed: " + err.message);
   }
 });
 

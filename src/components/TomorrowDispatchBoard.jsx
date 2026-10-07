@@ -1,9 +1,11 @@
 // src/components/TomorrowDispatchBoard.jsx
 import React, { useState, useEffect, useCallback } from 'react';
-import { getFirestore, collection, query, where, getDocs } from 'firebase/firestore';
+import { collection, query, where, getDocs, limit } from 'firebase/firestore';
 import { db } from '../firebase.js';
-import { Clock, Calendar, Package, Truck, User, MapPin, ChevronDown, AlertCircle, Loader2 } from 'lucide-react';
-import DailyDispatchBoard from './DailyDispatchBoard';
+import { 
+  Clock, Calendar, Package, Truck, User, MapPin, 
+  ChevronDown, AlertCircle, Loader2, Zap, CheckCircle2 
+} from 'lucide-react';
 
 const TomorrowDispatchBoard = ({ 
   companyId, 
@@ -25,6 +27,7 @@ const TomorrowDispatchBoard = ({
 
   const [tomorrowDate, setTomorrowDate] = useState(selectedDate || getTomorrowDate());
   const [tomorrowLoads, setTomorrowLoads] = useState([]);
+  const [smartSuggestions, setSmartSuggestions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [stats, setStats] = useState({
@@ -35,6 +38,57 @@ const TomorrowDispatchBoard = ({
     completed: 0
   });
 
+  // ===== SMART MATCHING LOGIC =====
+  const generateSmartSuggestions = useCallback((loads) => {
+    const suggestions = [];
+    
+    // 1. Find all containers that are terminating (Ready for pickup / Empty)
+    const terminatingContainers = loads.filter(l => 
+      l.isReadyForPickup || 
+      l.isTerminated ||
+      l.legs?.some(leg => leg.legType === 'termination') ||
+      l.status === 'Ready for Termination'
+    );
+
+    // 2. Find all containers that are picking up (Import / Pre-pull / Live load)
+    const pickupContainers = loads.filter(l => 
+      l.shipmentType === 'import' || 
+      l.isPrePull || 
+      l.legs?.some(leg => leg.legType === 'pickup' || leg.legType === 'prepull')
+    );
+
+    // 3. Match them based on Location and Size
+    terminatingContainers.forEach(term => {
+      pickupContainers.forEach(pickup => {
+        if (term.id === pickup.id) return; // Don't match with itself
+
+        // Extract locations (Terminal or first leg origin)
+        const termLocation = (term.terminal || term.legs?.[0]?.to || '').toLowerCase().trim();
+        const pickupLocation = (pickup.terminal || pickup.legs?.[0]?.from || '').toLowerCase().trim();
+
+        // Extract sizes (e.g., 40GE, 20GE, 40HC)
+        const termSize = (term.size || '').trim();
+        const pickupSize = (pickup.size || '').trim();
+
+        // STRICT MATCHING: Location must match AND Size must match
+        if (termLocation && termLocation === pickupLocation && termSize && termSize === pickupSize) {
+          suggestions.push({
+            terminationContainer: term.containerNo || 'N/A',
+            pickupContainer: pickup.containerNo || 'N/A',
+            location: term.terminal || term.legs?.[0]?.to || 'N/A',
+            size: termSize,
+            termId: term.id,
+            pickupId: pickup.id,
+            termCustomer: term.customerName || 'N/A',
+            pickupCustomer: pickup.customerName || 'N/A'
+          });
+        }
+      });
+    });
+
+    return suggestions;
+  }, []);
+
   // Fetch tomorrow's loads
   const fetchTomorrowLoads = useCallback(async () => {
     if (!companyId) return;
@@ -43,51 +97,110 @@ const TomorrowDispatchBoard = ({
     setError(null);
     
     try {
-      const q = query(
-        collection(db, 'companies', companyId, 'loads'),
-        where('appointmentDate', '==', tomorrowDate)
+      const loadsCollection = collection(db, 'companies', companyId, 'loads');
+      const seen = new Set();
+      let merged = [];
+      
+      const addLoads = (snapshot) => {
+        snapshot.docs.forEach(docSnap => {
+          if (seen.has(docSnap.id)) return;
+          seen.add(docSnap.id);
+          const data = docSnap.data();
+          merged.push({
+            id: docSnap.id,
+            ...data,
+            etaDate: data.etaDate || '',
+            etaTime: data.etaTime || '',
+            lfdDate: data.lfdDate || '',
+            appointmentDate: data.appointmentDate || '',
+            appointmentTime: data.appointmentTime || '',
+            prepullDate: data.prepullDate || data.prePullDate || '',
+            isPrePull: data.isPrePull || false,
+            isDelivered: data.isDelivered || false,
+            isTerminated: data.isTerminated || false,
+            isReadyForPickup: data.isReadyForPickup || false,
+            readyForPickupDate: data.readyForPickupDate || '',
+            shippingLine: data.shippingLine || '',
+            railCarrier: data.railCarrier || 'CN',
+            terminal: data.terminal || '',
+            delivery: data.delivery || '',
+            driverName: data.legs?.[0]?.driverName || '',
+            truckNo: data.legs?.[0]?.truckNo || ''
+          });
+        });
+      };
+      
+      // 1. Appointment date = tomorrow
+      const apptQuery = query(loadsCollection, where('appointmentDate', '==', tomorrowDate));
+      const apptSnap = await getDocs(apptQuery);
+      addLoads(apptSnap);
+      
+      // 2. Ready for pickup tomorrow (needs termination)
+      const readyQuery = query(loadsCollection, where('readyForPickupDate', '==', tomorrowDate));
+      try {
+        const readySnap = await getDocs(readyQuery);
+        addLoads(readySnap);
+      } catch (e) { /* index may not exist yet, ignore */ }
+      
+      // 3. Pre-pull date = tomorrow
+      const prepullQuery = query(loadsCollection, where('prepullDate', '==', tomorrowDate));
+      try {
+        const prepullSnap = await getDocs(prepullQuery);
+        addLoads(prepullSnap);
+      } catch (e) { /* ignore */ }
+      
+      // 4. Backdated drops (delivered before today, not terminated)
+      const todayStr = new Date().toISOString().split('T')[0];
+      const allActiveQuery = query(
+        loadsCollection,
+        where('status', 'in', ['Open', 'Dispatched', 'In Transit', 'Delivered', 'Ready for Termination']),
+        limit(200)
       );
+      try {
+        const allSnap = await getDocs(allActiveQuery);
+        allSnap.docs.forEach(docSnap => {
+          const data = docSnap.data();
+          if (data.isDelivered && !data.isTerminated && data.deliveryDate && data.deliveryDate < todayStr) {
+            if (!seen.has(docSnap.id)) {
+              seen.add(docSnap.id);
+              merged.push({
+                id: docSnap.id,
+                ...data,
+                isReadyForPickup: data.isReadyForPickup || false,
+                readyForPickupDate: data.readyForPickupDate || ''
+              });
+            }
+          }
+        });
+      } catch (e) { /* ignore */ }
+
+      // ===== ENRICH DATA WITH TERMINATION NOTES =====
+      merged = merged.map(load => {
+        if (load.isReadyForPickup || load.isTerminated) {
+          const dropDate = load.deliveryDate || load.appointmentDate || 'recently';
+          return {
+            ...load,
+            terminationNote: `Dropped on ${dropDate}. Ready to terminate today!`
+          };
+        }
+        return load;
+      });
       
-      const snapshot = await getDocs(q);
-      const loads = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
+      setTomorrowLoads(merged);
+      setSmartSuggestions(generateSmartSuggestions(merged));
       
-      // Process loads to ensure consistent data structure
-      const processedLoads = loads.map(load => ({
-        ...load,
-        etaDate: load.etaDate || '',
-        etaTime: load.etaTime || '',
-        lfdDate: load.lfdDate || '',
-        appointmentDate: load.appointmentDate || '',
-        appointmentTime: load.appointmentTime || '',
-        prepullDate: load.prepullDate || load.prePullDate || '',
-        isPrePull: load.isPrePull || false,
-        isDelivered: load.isDelivered || false,
-        isTerminated: load.isTerminated || false,
-        shippingLine: load.shippingLine || '',
-        railCarrier: load.railCarrier || 'CN',
-        terminal: load.terminal || '',
-        delivery: load.delivery || '',
-        driverName: load.legs?.[0]?.driverName || '',
-        truckNo: load.legs?.[0]?.truckNo || ''
-      }));
-      
-      setTomorrowLoads(processedLoads);
-      
-      // Calculate statistics
+      // Statistics
       const statsData = {
-        total: processedLoads.length,
-        prepull: processedLoads.filter(l => l.isPrePull).length,
-        delivery: processedLoads.filter(l => 
+        total: merged.length,
+        prepull: merged.filter(l => l.isPrePull).length,
+        delivery: merged.filter(l => 
           l.loadType === 'DROP' || 
           l.legs?.some(leg => leg.legType === 'delivery')
         ).length,
-        termination: processedLoads.filter(l => 
-          l.legs?.some(leg => leg.legType === 'termination')
+        termination: merged.filter(l => 
+          l.legs?.some(leg => leg.legType === 'termination') || l.isReadyForPickup
         ).length,
-        completed: processedLoads.filter(l => 
+        completed: merged.filter(l => 
           l.status === 'Completed' || 
           l.status === 'Delivered' || 
           l.status === 'Ready for Billing'
@@ -102,12 +215,11 @@ const TomorrowDispatchBoard = ({
     } finally {
       setLoading(false);
     }
-  }, [companyId, tomorrowDate, setFeedback]);
+  }, [companyId, tomorrowDate, setFeedback, generateSmartSuggestions]);
 
   // Auto-refresh every 60 seconds
   useEffect(() => {
     fetchTomorrowLoads();
-    
     const interval = setInterval(fetchTomorrowLoads, 60000);
     return () => clearInterval(interval);
   }, [fetchTomorrowLoads]);
@@ -166,8 +278,8 @@ const TomorrowDispatchBoard = ({
               </div>
               <div>
                 <h2 className="text-2xl font-black text-orange-900 tracking-tight">
-  Tomorrow's Board
-</h2>
+                  Tomorrow's Board
+                </h2>
                 <p className="text-orange-700 font-bold text-sm">
                   {getDayOfWeek(tomorrowDate)} — {formatDisplayDate(tomorrowDate)}
                 </p>
@@ -214,6 +326,34 @@ const TomorrowDispatchBoard = ({
         </div>
       </div>
 
+      {/* ===== SMART SUGGESTIONS ALERT BANNER ===== */}
+      {smartSuggestions.length > 0 && (
+        <div className="bg-yellow-50 border-2 border-yellow-400 rounded-2xl p-4 shadow-md animate-pulse">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="bg-yellow-400 p-2 rounded-xl">
+              <Zap className="w-5 h-5 text-yellow-900" />
+            </div>
+            <div>
+              <h3 className="font-black text-yellow-900 text-lg">Smart Dispatch Suggestions</h3>
+              <p className="text-xs font-bold text-yellow-700">Reuse terminating containers for pickups to save time and fuel!</p>
+            </div>
+          </div>
+          <div className="space-y-2">
+            {smartSuggestions.map((s, i) => (
+              <div key={i} className="bg-white p-3 rounded-xl border border-yellow-200 flex items-start gap-3 shadow-sm">
+                <CheckCircle2 className="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" />
+                <div className="text-sm font-medium text-slate-700">
+                  Use <span className="font-black text-blue-700">{s.terminationContainer}</span> ({s.size}) terminating at <span className="font-bold">{s.location}</span> to pick up <span className="font-black text-green-700">{s.pickupContainer}</span> ({s.size}) from the same location. 
+                  <span className="block text-xs text-slate-400 mt-1">
+                    Term Customer: {s.termCustomer} | Pickup Customer: {s.pickupCustomer}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Error State */}
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-2xl p-4 animate-in slide-in-from-top-4">
@@ -243,25 +383,6 @@ const TomorrowDispatchBoard = ({
         </div>
       )}
 
-      {/* Pre-Pull Alert for Tomorrow */}
-      {!loading && stats.prepull > 0 && (
-        <div className="bg-purple-50 border border-purple-200 rounded-2xl p-4 animate-in slide-in-from-top-4">
-          <div className="flex items-center gap-3">
-            <div className="bg-purple-100 p-2 rounded-xl">
-              <AlertCircle className="w-5 h-5 text-purple-600" />
-            </div>
-            <div>
-              <span className="font-bold text-purple-800">
-                📦 {stats.prepull} container{stats.prepull > 1 ? 's' : ''} need pre-pull tomorrow
-              </span>
-              <span className="text-xs text-purple-600 ml-2 font-medium">
-                (Prepare chassis and yard space)
-              </span>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Empty State */}
       {!loading && tomorrowLoads.length === 0 && (
         <div className="bg-amber-50 border-2 border-dashed border-amber-300 rounded-2xl p-12 text-center">
@@ -281,102 +402,108 @@ const TomorrowDispatchBoard = ({
         </div>
       )}
 
-      {/* Dispatch Board with pre-loaded data */}
+      {/* ===== CARD VIEW FOR TOMORROW'S LOADS ===== */}
       {!loading && tomorrowLoads.length > 0 && (
-        <div>
-          <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-2xl">
-            <p className="text-sm font-bold text-blue-800">
-              📋 Showing dispatch board for {formatDisplayDate(tomorrowDate)} with {tomorrowLoads.length} pre-loaded containers
-            </p>
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="font-black text-lg text-slate-800 flex items-center gap-2">
+              <Package className="w-5 h-5 text-orange-600" />
+              Tomorrow's Load Cards
+            </h3>
+            <span className="text-sm font-bold text-slate-400 bg-slate-100 px-3 py-1 rounded-full">
+              {tomorrowLoads.length} Containers
+            </span>
           </div>
-          <DailyDispatchBoard
-            companyId={companyId}
-            onEdit={onEdit}
-            onDelete={onDelete}
-            onViewDetails={onViewDetails}
-            setFeedback={setFeedback}
-            isAdmin={isAdmin}
-            isDispatcher={isDispatcher}
-            isAccounting={isAccounting}
-            selectedDate={tomorrowDate}
-            preloadedContainers={tomorrowLoads}
-            skipInitialFetch={true}
-          />
-        </div>
-      )}
-
-      {/* Quick Summary */}
-      {!loading && tomorrowLoads.length > 0 && (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-          <h3 className="font-black text-sm text-slate-700 mb-4 flex items-center gap-2">
-            <Package className="w-5 h-5 text-orange-600" />
-            Tomorrow's Load Summary
-          </h3>
-          <div className="space-y-2 max-h-48 overflow-y-auto">
-            {tomorrowLoads.slice(0, 10).map((load) => (
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {tomorrowLoads.map((load) => (
               <div 
                 key={load.id} 
-                className="flex items-center justify-between p-3 bg-slate-50 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer group"
+                className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm hover:shadow-md hover:border-orange-300 transition-all cursor-pointer group"
                 onClick={() => onEdit?.(load)}
               >
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                    load.isPrePull ? 'bg-purple-500' :
-                    load.loadType === 'LIVE' ? 'bg-blue-500' :
-                    load.loadType === 'DROP' ? 'bg-green-500' :
-                    'bg-slate-300'
-                  }`} />
-                  <span className="font-bold text-sm text-slate-700 truncate">{load.containerNo || 'N/A'}</span>
-                  <span className="text-xs text-slate-400 truncate hidden sm:block">{load.customerName || 'N/A'}</span>
-                </div>
-                <div className="flex items-center gap-3 flex-shrink-0">
-                  {load.loadType && (
-                    <span className={`font-bold px-2 py-0.5 rounded text-xs ${
-                      load.loadType === 'LIVE' ? 'bg-blue-100 text-blue-700' :
-                      load.loadType === 'DROP' ? 'bg-green-100 text-green-700' :
+                {/* Card Header */}
+                <div className="flex justify-between items-start mb-3">
+                  <div className="flex gap-2">
+                    <span className={`text-[10px] font-black px-2 py-1 rounded uppercase tracking-wider ${
+                      load.shipmentType === 'import' ? 'bg-blue-100 text-blue-700' : 
+                      load.shipmentType === 'export' ? 'bg-green-100 text-green-700' : 
                       'bg-slate-100 text-slate-700'
                     }`}>
-                      {load.loadType}
+                      {load.shipmentType || 'IMPORT'}
                     </span>
-                  )}
+                    <span className={`text-[10px] font-black px-2 py-1 rounded uppercase tracking-wider ${
+                      load.loadType === 'LIVE' ? 'bg-blue-100 text-blue-700' : 
+                      load.loadType === 'DROP' ? 'bg-green-100 text-green-700' : 
+                      'bg-slate-100 text-slate-700'
+                    }`}>
+                      {load.loadType || 'DROP'}
+                    </span>
+                  </div>
                   {load.isPrePull && (
-                    <span className="font-bold text-purple-600 bg-purple-50 px-2 py-0.5 rounded text-xs">
+                    <span className="text-[10px] font-black text-purple-600 bg-purple-50 px-2 py-1 rounded border border-purple-200">
                       Pre-Pull
                     </span>
                   )}
-                  <span className="text-slate-400 text-xs font-medium">{load.appointmentTime || 'TBD'}</span>
-                  <ChevronDown className="w-4 h-4 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" />
                 </div>
+
+                {/* Container & Customer */}
+                <div className="mb-3">
+                  <h4 className="font-black text-xl text-slate-800 group-hover:text-orange-600 transition-colors">
+                    {load.containerNo || 'N/A'}
+                  </h4>
+                  <p className="text-sm font-bold text-slate-600 truncate">
+                    {load.customerName || 'N/A'}
+                  </p>
+                </div>
+
+                {/* Time & Location */}
+                <div className="space-y-1.5 text-xs text-slate-500 font-medium mb-3">
+                  <div className="flex items-center gap-2">
+                    <Clock className="w-3.5 h-3.5 text-slate-400" />
+                    <span>{load.appointmentTime || load.etaTime || 'TBD'}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <MapPin className="w-3.5 h-3.5 text-slate-400" />
+                    <span className="truncate">{load.delivery || load.terminal || 'No Location'}</span>
+                  </div>
+                  {load.size && (
+                    <div className="flex items-center gap-2">
+                      <Package className="w-3.5 h-3.5 text-slate-400" />
+                      <span className="font-bold text-slate-700">{load.size}</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Termination Note */}
+                {load.terminationNote && (
+                  <div className="mb-3 bg-red-50 p-2.5 rounded-xl border border-red-100 flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+                    <span className="text-xs font-bold text-red-700">
+                      {load.terminationNote}
+                    </span>
+                  </div>
+                )}
+
+                {/* Driver Info */}
+                {load.driverName ? (
+                  <div className="flex items-center gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                    <div className="w-6 h-6 rounded-full bg-slate-200 flex items-center justify-center">
+                      <User className="w-3.5 h-3.5 text-slate-500" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-black text-slate-700 truncate">{load.driverName}</div>
+                      <div className="text-[10px] font-bold text-slate-400">Truck: {load.truckNo || 'N/A'}</div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 bg-yellow-50 p-2.5 rounded-xl border border-yellow-100">
+                    <User className="w-4 h-4 text-yellow-500" />
+                    <span className="text-xs font-bold text-yellow-700">Driver Unassigned</span>
+                  </div>
+                )}
               </div>
             ))}
-            {tomorrowLoads.length > 10 && (
-              <div className="text-center text-xs text-slate-400 font-bold pt-2 bg-slate-50 rounded-xl py-3">
-                +{tomorrowLoads.length - 10} more loads
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Legend */}
-      {!loading && tomorrowLoads.length > 0 && (
-        <div className="p-4 bg-white rounded-2xl border border-slate-200 flex flex-wrap items-center gap-4 text-xs">
-          <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Legend:</span>
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full bg-purple-500"></div>
-            <span className="font-bold text-slate-600">Pre-Pull</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full bg-blue-500"></div>
-            <span className="font-bold text-slate-600">Live Load</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full bg-green-500"></div>
-            <span className="font-bold text-slate-600">Drop</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full bg-slate-300"></div>
-            <span className="font-bold text-slate-600">Other</span>
           </div>
         </div>
       )}
