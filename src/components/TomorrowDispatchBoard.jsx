@@ -149,18 +149,20 @@ const TomorrowDispatchBoard = ({
         addLoads(prepullSnap);
       } catch (e) { /* ignore */ }
       
-      // 4. Backdated drops (delivered before today, not terminated)
+            // 4. Backdated drops AND Today's drops (needs follow-up tomorrow)
       const todayStr = new Date().toISOString().split('T')[0];
       const allActiveQuery = query(
         loadsCollection,
         where('status', 'in', ['Open', 'Dispatched', 'In Transit', 'Delivered', 'Ready for Termination']),
         limit(200)
       );
-      try {
+            try {
         const allSnap = await getDocs(allActiveQuery);
         allSnap.docs.forEach(docSnap => {
           const data = docSnap.data();
-          if (data.isDelivered && !data.isTerminated && data.deliveryDate && data.deliveryDate < todayStr) {
+          const effectiveDeliveryDate = data.deliveryDate || data.appointmentDate;
+          // ✅ CHANGED: <= todayStr so today's drops show up on tomorrow's board
+          if ((data.isDelivered || data.isDroppedAtCustomer) && !data.isTerminated && effectiveDeliveryDate && effectiveDeliveryDate <= todayStr) {
             if (!seen.has(docSnap.id)) {
               seen.add(docSnap.id);
               merged.push({
@@ -174,13 +176,15 @@ const TomorrowDispatchBoard = ({
         });
       } catch (e) { /* ignore */ }
 
-      // ===== ENRICH DATA WITH TERMINATION NOTES =====
+                  // ===== ENRICH DATA WITH TERMINATION NOTES =====
       merged = merged.map(load => {
-        if (load.isReadyForPickup || load.isTerminated) {
+        // ✅ Check for isDroppedAtCustomer as well
+        if ((load.isDroppedAtCustomer || load.isDelivered) && !load.isTerminated) {
           const dropDate = load.deliveryDate || load.appointmentDate || 'recently';
           return {
             ...load,
-            terminationNote: `Dropped on ${dropDate}. Ready to terminate today!`
+            // ✅ Changed the text to prompt a follow-up
+            terminationNote: `Dropped on ${dropDate}. Follow up with customer to confirm if ready for termination.`
           };
         }
         return load;
@@ -189,16 +193,22 @@ const TomorrowDispatchBoard = ({
       setTomorrowLoads(merged);
       setSmartSuggestions(generateSmartSuggestions(merged));
       
-      // Statistics
+            // Statistics
       const statsData = {
         total: merged.length,
         prepull: merged.filter(l => l.isPrePull).length,
+        // ✅ Count all active loads that aren't pre-pulls or terminations as deliveries
         delivery: merged.filter(l => 
-          l.loadType === 'DROP' || 
-          l.legs?.some(leg => leg.legType === 'delivery')
+          !l.isPrePull && 
+          !l.isTerminated && 
+          !l.isReadyForPickup && 
+          l.status !== 'Completed' && 
+          l.status !== 'Delivered' && 
+          l.status !== 'Ready for Billing' &&
+          !(l.legs?.some(leg => leg.legType === 'termination'))
         ).length,
         termination: merged.filter(l => 
-          l.legs?.some(leg => leg.legType === 'termination') || l.isReadyForPickup
+          l.legs?.some(leg => leg.legType === 'termination') || l.isReadyForPickup || l.isTerminated
         ).length,
         completed: merged.filter(l => 
           l.status === 'Completed' || 
@@ -475,11 +485,11 @@ const TomorrowDispatchBoard = ({
                   )}
                 </div>
 
-                {/* Termination Note */}
+                                {/* Termination Note */}
                 {load.terminationNote && (
-                  <div className="mb-3 bg-red-50 p-2.5 rounded-xl border border-red-100 flex items-start gap-2">
-                    <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
-                    <span className="text-xs font-bold text-red-700">
+                  <div className="mb-3 bg-amber-50 p-2.5 rounded-xl border border-amber-200 flex items-start gap-2">
+                    <Clock className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
+                    <span className="text-xs font-bold text-amber-800">
                       {load.terminationNote}
                     </span>
                   </div>

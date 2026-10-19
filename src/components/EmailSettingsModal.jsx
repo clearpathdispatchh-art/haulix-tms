@@ -1,6 +1,9 @@
 // src/components/EmailSettingsModal.jsx
 import React, { useState, useEffect } from 'react';
-import { Mail, X, Loader2, CheckCircle, Upload, Trash2, Image as ImageIcon } from 'lucide-react';
+import {
+  Mail, X, Loader2, CheckCircle, Upload, Trash2,
+  Image as ImageIcon, Building2, MapPin, Phone, Save, Info
+} from 'lucide-react';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
@@ -15,9 +18,25 @@ const EmailSettingsModal = ({
   companyId,
   setFeedback,
   companyName,
+  companyDetails = {},
   currentLogoUrl,
   onLogoUpdated,
+  onCompanyUpdated,
 }) => {
+  // ===== COMPANY PROFILE STATE =====
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [profile, setProfile] = useState({
+    name: '',
+    address: '',
+    city: '',
+    province: '',
+    postalCode: '',
+    phone: '',
+    email: '',
+    website: '',
+    emailTemplate: ''
+  });
+
   // ===== SMTP STATE =====
   const [loading, setLoading] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -39,33 +58,73 @@ const EmailSettingsModal = ({
     setLogoUrl(currentLogoUrl || '');
   }, [currentLogoUrl, isOpen]);
 
-  // ===== LOAD EXISTING SMTP SETTINGS =====
+  // ===== SYNC PROFILE FROM PROPS =====
+  useEffect(() => {
+    if (!isOpen) return;
+    setProfile({
+      name: companyName || '',
+      address: companyDetails?.address || '',
+      city: companyDetails?.city || '',
+      province: companyDetails?.province || '',
+      postalCode: companyDetails?.postalCode || '',
+      phone: companyDetails?.phone || '',
+      email: companyDetails?.email || '',
+      website: companyDetails?.website || '',
+      emailTemplate: companyDetails?.emailTemplate || 'Hello,\n\nPlease see attached invoice {invoiceNumber} and POD for your reference For container {containerNo}\nShould you have any questions please feel free to reach out.\n\nOffice Administrator| {companyName}\n\n{phone}\n{email}\n{website}\n{address}\n\nThis email contains confidential information and is for the exclusive use of the addressee/s. Any unauthorized copying, distribution or use of information\ncontained in this email is prohibited. If received in error, please advise the sender and delete immediately. International Freight Transport accepts no liability\nfor any loss or damage suffered from use of this email.'
+    });
+  }, [isOpen, companyName, companyDetails]);
+
+  // ===== LOAD EXISTING SMTP SETTINGS (BLOCKED BY RULES) =====
   useEffect(() => {
     if (!isOpen || !companyId) return;
-    (async () => {
-      try {
-        const snap = await getDoc(
-          doc(db, 'companies', companyId, 'emailSettings', 'smtp')
-        );
-        if (snap.exists()) {
-          const data = snap.data();
-          setExisting({ email: data.email, provider: data.provider });
-          setForm(prev => ({
-            ...prev,
-            email: data.email || '',
-            provider: data.provider || 'gmail',
-            smtpHost: data.smtpHost || 'smtp.gmail.com',
-            smtpPort: data.smtpPort || 587,
-          }));
-        }
-      } catch (err) {
-        console.warn('Could not read email settings:', err.message);
-      }
-    })();
+    setExisting(null);
+    setForm(prev => ({ ...prev, email: '', appPassword: '' }));
   }, [isOpen, companyId]);
 
+  // ===== SAVE COMPANY PROFILE =====
+    const handleSaveProfile = async () => {
+    if (!companyId) return;
+    if (!profile.name.trim()) {
+      setFeedback?.('❌ Company name is required');
+      return;
+    }
+    setSavingProfile(true);
+    try {
+      await updateDoc(doc(db, 'companies', companyId), {
+        name: profile.name.trim(),
+        address: profile.address.trim(),
+        city: profile.city.trim(),
+        province: profile.province.trim(),
+        postalCode: profile.postalCode.trim(),
+        phone: profile.phone.trim(),
+        email: profile.email.trim(),
+        website: profile.website.trim(),
+        emailTemplate: profile.emailTemplate,
+        updatedAt: new Date().toISOString(),
+      });
+      onCompanyUpdated?.({
+        name: profile.name.trim(),
+        address: profile.address.trim(),
+        city: profile.city.trim(),
+        province: profile.province.trim(),
+        postalCode: profile.postalCode.trim(),
+        phone: profile.phone.trim(),
+        email: profile.email.trim(),
+        website: profile.website.trim(),
+        emailTemplate: profile.emailTemplate,
+      });
+      setFeedback?.('✅ Company profile saved');
+      onClose(); // ✅ ADD THIS LINE TO CLOSE THE MODAL
+    } catch (err) {
+      console.error('Profile save error:', err);
+      setFeedback?.('❌ ' + (err.message || 'Save failed'));
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
   // ===== SAVE SMTP =====
-  const handleSave = async () => {
+    const handleSave = async () => {
     if (!form.email || !form.appPassword) {
       setFeedback?.('❌ Email and App Password are required');
       return;
@@ -77,6 +136,7 @@ const EmailSettingsModal = ({
       setFeedback?.('✅ Email settings saved');
       setExisting({ email: form.email, provider: form.provider });
       setForm(prev => ({ ...prev, appPassword: '' }));
+      onClose(); // ✅ ADD THIS LINE TO CLOSE THE MODAL
     } catch (err) {
       setFeedback?.('❌ ' + (err.message || 'Save failed'));
     } finally {
@@ -103,12 +163,10 @@ const EmailSettingsModal = ({
     const file = e.target.files?.[0];
     if (!file || !companyId) return;
 
-    // Validate file type
     if (!ALLOWED_LOGO_TYPES.includes(file.type)) {
       setFeedback?.('❌ Please upload PNG, JPG, WEBP, or SVG');
       return;
     }
-    // Validate file size
     if (file.size > MAX_LOGO_SIZE) {
       setFeedback?.('❌ Logo must be smaller than 2 MB');
       return;
@@ -116,7 +174,6 @@ const EmailSettingsModal = ({
 
     setUploadingLogo(true);
     try {
-      // Build a unique file path to avoid browser caching
       const ext = file.name.split('.').pop().toLowerCase();
       const safeExt = ['png', 'jpg', 'jpeg', 'webp', 'svg'].includes(ext) ? ext : 'png';
       const filePath = `companies/${companyId}/logo/logo_${Date.now()}.${safeExt}`;
@@ -125,7 +182,6 @@ const EmailSettingsModal = ({
       await uploadBytes(storageRef, file, { contentType: file.type });
       const url = await getDownloadURL(storageRef);
 
-      // Save URL to company doc
       await updateDoc(doc(db, 'companies', companyId), {
         logoUrl: url,
         logoFileName: file.name,
@@ -140,7 +196,6 @@ const EmailSettingsModal = ({
       setFeedback?.('❌ Logo upload failed: ' + (err.message || 'Unknown error'));
     } finally {
       setUploadingLogo(false);
-      // Reset input so the same file can be selected again if needed
       e.target.value = '';
     }
   };
@@ -170,17 +225,17 @@ const EmailSettingsModal = ({
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-slate-900/70 backdrop-blur-sm" onClick={onClose} />
-      <div className="bg-white w-full max-w-lg rounded-[32px] shadow-2xl relative z-10 overflow-hidden flex flex-col max-h-[90vh]">
+      <div className="bg-white w-full max-w-2xl rounded-[32px] shadow-2xl relative z-10 overflow-hidden flex flex-col max-h-[92vh]">
 
         {/* HEADER */}
         <div className="p-6 border-b bg-slate-50/50 flex justify-between items-center">
           <div className="flex items-center gap-3">
             <div className="bg-blue-600 p-2 rounded-xl text-white">
-              <Mail className="w-5 h-5" />
+              <Building2 className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="font-black text-slate-900 text-lg">Settings</h2>
-              <p className="text-xs text-slate-500">Company logo & invoice email configuration</p>
+              <h2 className="font-black text-slate-900 text-lg">Company Settings</h2>
+              <p className="text-xs text-slate-500">Profile, logo & invoice email configuration</p>
             </div>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-lg">
@@ -189,6 +244,140 @@ const EmailSettingsModal = ({
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
+
+          {/* ============ COMPANY PROFILE SECTION ============ */}
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <Building2 className="w-4 h-4 text-blue-600" />
+              <h3 className="font-black text-xs uppercase tracking-widest text-slate-700">
+                Company Profile
+              </h3>
+            </div>
+            <p className="text-[10px] text-slate-500 -mt-1">
+              These details appear on your PODs and Invoices.
+            </p>
+
+            <div className="bg-slate-50 rounded-xl p-4 border border-slate-200 space-y-3">
+              <div>
+                <label className="text-[10px] font-black text-slate-500 uppercase">Company Name *</label>
+                <input
+                  value={profile.name}
+                  onChange={e => setProfile({ ...profile, name: e.target.value })}
+                  className="w-full p-3 border rounded-xl text-sm mt-1 font-bold"
+                  placeholder="e.g. IFS Transport Ltd"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black text-slate-500 uppercase flex items-center gap-1">
+                  <MapPin className="w-3 h-3" /> Street Address
+                </label>
+                <input
+                  value={profile.address}
+                  onChange={e => setProfile({ ...profile, address: e.target.value })}
+                  className="w-full p-3 border rounded-xl text-sm mt-1"
+                  placeholder="e.g. 41 Redstone Drive NE"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] font-black text-slate-500 uppercase">City</label>
+                  <input
+                    value={profile.city}
+                    onChange={e => setProfile({ ...profile, city: e.target.value })}
+                    className="w-full p-3 border rounded-xl text-sm mt-1"
+                    placeholder="Calgary"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-slate-500 uppercase">Province / State</label>
+                  <input
+                    value={profile.province}
+                    onChange={e => setProfile({ ...profile, province: e.target.value })}
+                    className="w-full p-3 border rounded-xl text-sm mt-1"
+                    placeholder="AB"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] font-black text-slate-500 uppercase">Postal Code</label>
+                  <input
+                    value={profile.postalCode}
+                    onChange={e => setProfile({ ...profile, postalCode: e.target.value })}
+                    className="w-full p-3 border rounded-xl text-sm mt-1"
+                    placeholder="T3N 0N2"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-slate-500 uppercase flex items-center gap-1">
+                    <Phone className="w-3 h-3" /> Phone
+                  </label>
+                  <input
+                    value={profile.phone}
+                    onChange={e => setProfile({ ...profile, phone: e.target.value })}
+                    className="w-full p-3 border rounded-xl text-sm mt-1"
+                    placeholder="(403) 555-1234"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] font-black text-slate-500 uppercase flex items-center gap-1">
+                    <Mail className="w-3 h-3" /> Company Email
+                  </label>
+                  <input
+                    type="email"
+                    value={profile.email}
+                    onChange={e => setProfile({ ...profile, email: e.target.value })}
+                    className="w-full p-3 border rounded-xl text-sm mt-1"
+                    placeholder="info@yourcompany.com"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-slate-500 uppercase flex items-center gap-1">
+                    Website
+                  </label>
+                  <input
+                    value={profile.website}
+                    onChange={e => setProfile({ ...profile, website: e.target.value })}
+                    className="w-full p-3 border rounded-xl text-sm mt-1"
+                    placeholder="www.yourcompany.com"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-2">
+                <label className="text-[10px] font-black text-slate-500 uppercase">Invoice Email Message Template</label>
+                <textarea
+                  value={profile.emailTemplate}
+                  onChange={e => setProfile({ ...profile, emailTemplate: e.target.value })}
+                  className="w-full p-3 border rounded-xl text-sm mt-1 min-h-[220px] font-mono"
+                />
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Available variables: <code>{'{invoiceNumber}'}</code>, <code>{'{containerNo}'}</code>, <code>{'{companyName}'}</code>, <code>{'{phone}'}</code>, <code>{'{email}'}</code>, <code>{'{website}'}</code>, <code>{'{address}'}</code>
+                </p>
+              </div>
+
+              <button
+                onClick={handleSaveProfile}
+                disabled={savingProfile}
+                className="w-full mt-2 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2 transition-all"
+              >
+                {savingProfile ? (
+                  <><Loader2 className="w-4 h-4 animate-spin" /> Saving...</>
+                ) : (
+                  <><Save className="w-4 h-4" /> Save Company Profile</>
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* ============ DIVIDER ============ */}
+          <div className="border-t border-slate-200"></div>
 
           {/* ============ COMPANY LOGO SECTION ============ */}
           <div className="space-y-3">
@@ -258,13 +447,20 @@ const EmailSettingsModal = ({
           <div className="space-y-4">
             <div className="flex items-center gap-2">
               <Mail className="w-4 h-4 text-blue-600" />
-              <h3 className="font-black text-xs uppercase tracking-widest text-slate-700">Invoice Email</h3>
+              <h3 className="font-black text-xs uppercase tracking-widest text-slate-700">Invoice Email (SMTP)</h3>
             </div>
 
             {existing && (
               <div className="bg-green-50 border border-green-200 rounded-xl p-3 flex items-center gap-2 text-xs text-green-800">
                 <CheckCircle className="w-4 h-4" />
                 <span>Currently sending from <strong>{existing.email}</strong></span>
+              </div>
+            )}
+
+            {!existing && (
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 flex items-center gap-2 text-xs text-blue-800">
+                <Info className="w-4 h-4" />
+                <span>Enter your SMTP credentials below to save or update your invoice email settings.</span>
               </div>
             )}
 

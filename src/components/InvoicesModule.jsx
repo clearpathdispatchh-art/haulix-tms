@@ -52,7 +52,21 @@ const getTodayStr = () => {
   return `${y}-${m}-${d}`;
 };
 
-const delay = (ms) => new Promise(r => setTimeout(r, ms));
+const buildEmailBody = (inv, companyName, companyDetails) => {
+  const defaultTemplate = `Hello,\n\nPlease see attached invoice {invoiceNumber} and POD for your reference For container {containerNo}\nShould you have any questions please feel free to reach out.\n\nOffice Administrator| {companyName}\n\n{phone}\n{email}\n{website}\n{address}\n\nThis email contains confidential information and is for the exclusive use of the addressee/s. Any unauthorized copying, distribution or use of information\ncontained in this email is prohibited. If received in error, please advise the sender and delete immediately. International Freight Transport accepts no liability\nfor any loss or damage suffered from use of this email.`;
+  
+  const template = companyDetails?.emailTemplate || defaultTemplate;
+  const addressStr = [companyDetails?.address, companyDetails?.city, companyDetails?.province, companyDetails?.postalCode].filter(Boolean).join(', ');
+  
+  return template
+    .replace(/{invoiceNumber}/g, inv.invoiceNumber || '')
+    .replace(/{containerNo}/g, inv.containerNo || '')
+    .replace(/{companyName}/g, companyName || '')
+    .replace(/{phone}/g, companyDetails?.phone || '')
+    .replace(/{email}/g, companyDetails?.email || '')
+    .replace(/{website}/g, companyDetails?.website || '')
+    .replace(/{address}/g, addressStr);
+};
 
 const STATUS_STYLES = {
   'Draft':     'bg-slate-100 text-slate-700 border-slate-300',
@@ -485,19 +499,7 @@ const InvoicesModule = ({
     }
 
     const subject = `Invoice: ${inv.invoiceNumber}, Container: ${inv.containerNo}, LC #: ${inv.workOrderNo || ''}`;
-    const body = `Hello,
-
-Please see attached invoice ${inv.invoiceNumber} and POD for your reference for container ${inv.containerNo}.
-Amount Due: ${formatCurrency(inv.total, inv.currency)}.
-
-Should you have any questions please feel free to reach out.
-
-Thank you,
-${companyName || ''}
-${companyDetails?.email || ''}
-${companyDetails?.phone || ''}
-
-This email contains confidential information and is for the exclusive use of the addressee/s. Any unauthorized copying, distribution or use of information contained in this email is prohibited.`;
+    const body = buildEmailBody(inv, companyName, companyDetails);
 
     const sendFn = httpsCallable(getFunctions(), 'sendInvoiceEmail');
     await sendFn({
@@ -1521,20 +1523,7 @@ const EmailInvoiceModal = ({ invoice, companyId, companyName, companyDetails, co
   const [subject, setSubject] = useState(
     `Invoice: ${invoice.invoiceNumber}, Container: ${invoice.containerNo}, LC #: ${invoice.workOrderNo || ''}`
   );
-  const [body, setBody] = useState(
-    `Hello,
-
-Please see attached invoice ${invoice.invoiceNumber} and POD for your reference for container ${invoice.containerNo}.
-
-Should you have any questions please feel free to reach out.
-
-Thank you,
-${companyName || ''}
-${companyDetails?.email || ''}
-${companyDetails?.phone || ''}
-
-This email contains confidential information and is for the exclusive use of the addressee/s. Any unauthorized copying, distribution or use of information contained in this email is prohibited.`
-  );
+  const [body, setBody] = useState(() => buildEmailBody(invoice, companyName, companyDetails));
 
   const handleSend = async () => {
     if (!to.trim()) { setFeedback?.('❌ Please enter recipient email'); return; }
@@ -1706,7 +1695,7 @@ This email contains confidential information and is for the exclusive use of the
   );
 };
 
-// ========== BULK SEND PROGRESS MODAL (NaN% fixed + always-dismissible) ==========
+// ========== BULK SEND PROGRESS MODAL ==========
 const BulkSendProgressModal = ({ progress, onClose }) => {
   const total = Number(progress?.total) || 0;
   const current = Number(progress?.current) || 0;

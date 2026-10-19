@@ -114,7 +114,13 @@ const formatTime = (timeStr) => {
 const getWorkType = (container, selectedDateStr) => {
   if (!selectedDateStr) selectedDateStr = getTodayDate();
 
-  if (container.isDelivered && !container.isTerminated && container.status !== 'Ready for Billing') {
+  // 1. Check if completed/terminated first
+  if (container.isTerminated || container.status === 'Ready for Billing' || container.status === 'Completed') {
+    return WORK_TYPES.COMPLETED;
+  }
+
+    // 2. Check if delivered / dropped (needs follow-up or back-dated drop)
+  if (container.isDelivered || container.isDroppedAtCustomer) {
     const deliveryDate = container.deliveryDate || container.appointmentDate;
     if (deliveryDate && isSameDay(deliveryDate, selectedDateStr) === false) {
       try {
@@ -123,18 +129,34 @@ const getWorkType = (container, selectedDateStr) => {
         if (d1 < d2) return WORK_TYPES.BACKDATE_DROPPED;
       } catch (e) {}
     }
-    if (deliveryDate && isSameDay(deliveryDate, selectedDateStr)) return WORK_TYPES.PENDING_FOLLOWUP;
     return WORK_TYPES.PENDING_FOLLOWUP;
   }
 
+  // 3. Check if ready for termination
   if (container.isReadyForPickup && container.readyForPickupDate && isSameDay(container.readyForPickupDate, selectedDateStr)) {
     return WORK_TYPES.TERMINATION;
   }
-  if (container.isTerminated || container.status === 'Ready for Billing' || container.status === 'Completed') {
-    return WORK_TYPES.COMPLETED;
+
+  // 4. ✅ LFD TAKES PRIORITY: If LFD is today, it's a Pre-Pull (even if it's currently grounded at the terminal)
+  if (container.lfdDate && isSameDay(container.lfdDate, selectedDateStr) && !container.isInYard) {
+    return WORK_TYPES.PREPULL;
   }
+
+  // 5. Check if a trip leg is scheduled for today
+  const legs = container.legs || [];
+  const todayLeg = legs.find(l => isSameDay(l.legDate, selectedDateStr));
+  if (todayLeg) {
+    if (todayLeg.legType === 'termination') return WORK_TYPES.TERMINATION;
+    if (todayLeg.legType === 'prepull') return WORK_TYPES.PREPULL;
+    if (todayLeg.legType === 'delivery') return WORK_TYPES.DELIVERY;
+  }
+
+  // 6. Explicit Pre-Pull flag
   if (container.isPrePull) return WORK_TYPES.PREPULL;
+  
+  // 7. Fallback: If it has an appointment date, it's a Delivery
   if (container.appointmentDate) return WORK_TYPES.DELIVERY;
+  
   return 'scheduled';
 };
 
@@ -409,20 +431,31 @@ const DailyDispatchBoard = ({
     let filtered = [...containers];
     const today = selectedDate || todayStr;
 
-    filtered = filtered.filter(c => {
+            filtered = filtered.filter(c => {
       if (c.status === 'Completed' || c.status === 'Paid' || c.status === 'Closed' || c.status === 'Ready for Billing' || c.isTerminated === true) {
         return false;
       }
 
-      const isBackdatedDrop = c.isDelivered && !c.isTerminated &&
-                              c.status !== 'Ready for Billing' &&
-                              c.deliveryDate &&
-                              isSameDay(c.deliveryDate, today) === false;
+            // ✅ Use appointmentDate as fallback if deliveryDate is missing
+      const effectiveDeliveryDate = c.deliveryDate || c.appointmentDate;
 
-      let isBeforeToday = false;
+      // ✅ HIDE TODAY'S DROPS COMPLETELY FROM TODAY'S BOARD
+      // If dropped today, it disappears from here and will show up on Tomorrow's Board for follow-up.
+      if ((c.isDelivered || c.isDroppedAtCustomer) && effectiveDeliveryDate && isSameDay(effectiveDeliveryDate, today)) {
+        return false;
+      }
+
+      const isActuallyDelivered = c.isDelivered || c.isDroppedAtCustomer;
+
+      const isBackdatedDrop = isActuallyDelivered && !c.isTerminated &&
+                              c.status !== 'Ready for Billing' &&
+                              effectiveDeliveryDate &&
+                              isSameDay(effectiveDeliveryDate, today) === false;
+
+            let isBeforeToday = false;
       if (isBackdatedDrop) {
         try {
-          const d1 = new Date(c.deliveryDate);
+          const d1 = new Date(effectiveDeliveryDate);
           const d2 = new Date(today);
           isBeforeToday = d1 < d2;
         } catch (e) {
@@ -430,12 +463,21 @@ const DailyDispatchBoard = ({
         }
       }
 
-      if (isBackdatedDrop && isBeforeToday) return true;
-
-      const isPendingFollowup = c.isDelivered && !c.isTerminated &&
+      const isPendingFollowup = isActuallyDelivered && !c.isTerminated &&
                                 c.status !== 'Ready for Billing' &&
-                                c.deliveryDate &&
-                                isSameDay(c.deliveryDate, today);
+                                effectiveDeliveryDate &&
+                                isSameDay(effectiveDeliveryDate, today);
+
+      // ✅ FIX: Hide Pending Follow-Up and Backdated from the main active grid.
+      // They will still appear in the top Alert Banners so dispatchers can plan the termination.
+      if (workTypeFilter === 'all') {
+        if (isBackdatedDrop && isBeforeToday) return false;
+        if (isPendingFollowup) return false;
+      }
+
+      // If the user explicitly filters to see them, keep them.
+      if (workTypeFilter === WORK_TYPES.BACKDATE_DROPPED) return isBackdatedDrop && isBeforeToday;
+      if (workTypeFilter === WORK_TYPES.PENDING_FOLLOWUP) return isPendingFollowup;
 
       const hasAppointmentToday = isSameDay(c.appointmentDate, today);
       const hasPrepullToday = isSameDay(c.prepullDate, today) && c.isPrePull === true;
@@ -444,15 +486,18 @@ const DailyDispatchBoard = ({
       const hasLoadingDateToday = isSameDay(c.loadingDate, today);
       const hasErdToday = isSameDay(c.erd, today);
       const hasReadyForPickupToday = isSameDay(c.readyForPickupDate, today) && c.isReadyForPickup === true;
+      const hasLfdToday = isSameDay(c.lfdDate, today);
+      const hasLegToday = (c.legs || []).some(leg => isSameDay(leg.legDate, today));
 
-      return isPendingFollowup ||
-             hasAppointmentToday ||
+      return hasAppointmentToday ||
              hasPrepullToday ||
              hasDeliveryToday ||
              hasReturnToday ||
              hasLoadingDateToday ||
              hasErdToday ||
-             hasReadyForPickupToday;
+             hasReadyForPickupToday ||
+             hasLfdToday ||
+             hasLegToday;
     });
 
     if (workTypeFilter !== 'all') {
@@ -727,47 +772,6 @@ const DailyDispatchBoard = ({
                     <div className="pt-3 mt-auto flex gap-2 border-t border-slate-100">
                       <button onClick={(e) => { e.stopPropagation(); handleConfirmReady(container.id); }} disabled={updatingContainer === container.id} className="flex-1 py-2 bg-green-600 text-white rounded-xl font-bold text-xs hover:bg-green-700 shadow-md shadow-green-200 transition-all active:scale-95 disabled:opacity-50">{updatingContainer === container.id ? <span className="flex items-center justify-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />Updating...</span> : '✅ Confirm Ready'}</button>
                       <button onClick={(e) => { e.stopPropagation(); if (onEdit) onEdit(container); }} className="flex-1 py-2 bg-orange-600 text-white rounded-xl font-bold text-xs hover:bg-orange-700 shadow-md shadow-orange-200 transition-all active:scale-95">📝 Plan Termination</button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* PENDING FOLLOW-UP ALERT SECTION */}
-      {pendingFollowupContainers.length > 0 && (
-        <div className="bg-amber-50 border-2 border-amber-400 rounded-[32px] p-6 animate-in slide-in-from-top-4 relative overflow-hidden shadow-lg">
-          <div className="absolute top-0 right-0 p-8 opacity-10 pointer-events-none"><Bell className="w-32 h-32 text-amber-600" /></div>
-          <div className="relative z-10">
-            <div className="flex items-center gap-4 mb-4">
-              <div className="bg-amber-100 p-3 rounded-2xl text-amber-700 shadow-sm"><ClockIcon className="w-8 h-8" /></div>
-              <div>
-                <h3 className="font-black text-2xl text-amber-900 tracking-tight">⏳ Pending Customer Follow-Up (Today)</h3>
-                <p className="text-amber-800 font-bold text-sm">{pendingFollowupContainers.length} container{pendingFollowupContainers.length > 1 ? 's' : ''} dropped today — waiting for confirmation</p>
-              </div>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {pendingFollowupContainers.map(container => {
-                const isExport = container._type === 'export';
-                return (
-                  <div key={container.id} className="bg-white p-5 rounded-2xl border border-amber-200 shadow-sm flex flex-col gap-3 group hover:shadow-md hover:border-amber-300 transition-all cursor-pointer" onClick={() => onEdit && onEdit(container)}>
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <div className="font-black text-slate-800 text-lg flex items-center gap-2">
-                          {container.containerNo || 'N/A'}
-                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${isExport ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>{isExport ? '📤 EXPORT' : '📥 IMPORT'}</span>
-                        </div>
-                        <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">{container.customerName || 'N/A'}</div>
-                      </div>
-                      <div className="bg-amber-100 text-amber-700 px-2 py-1 rounded-lg text-[10px] font-black uppercase border border-amber-200">{isExport ? 'LOADED ⏳' : 'EMPTY ⏳'}</div>
-                    </div>
-                    <div className="flex items-center gap-2 text-xs font-bold text-slate-500"><MapPin className="w-3.5 h-3.5 text-amber-500" /><span className="truncate">{container.delivery || container.terminal || 'Customer Location'}</span></div>
-                    {container.deliveryDate && (<div className="flex items-center gap-2 text-xs font-medium text-slate-400"><Calendar className="w-3.5 h-3.5" /><span>Dropped: {formatDate(container.deliveryDate)}</span></div>)}
-                    <div className="pt-3 mt-auto flex gap-2 border-t border-slate-100">
-                      <button onClick={(e) => { e.stopPropagation(); handleConfirmReady(container.id); }} disabled={updatingContainer === container.id} className="flex-1 py-2 bg-green-600 text-white rounded-xl font-bold text-xs hover:bg-green-700 shadow-md shadow-green-200 transition-all active:scale-95 disabled:opacity-50">{updatingContainer === container.id ? <span className="flex items-center justify-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />Updating...</span> : '✅ Confirm Ready'}</button>
-                      <button onClick={(e) => { e.stopPropagation(); if (onEdit) onEdit(container); }} className="flex-1 py-2 bg-amber-600 text-white rounded-xl font-bold text-xs hover:bg-amber-700 shadow-md shadow-amber-200 transition-all active:scale-95">📝 Plan Termination</button>
                     </div>
                   </div>
                 );

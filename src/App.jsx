@@ -10,7 +10,8 @@ import {
   Globe, Train, Ship, ExternalLink, RefreshCw, Sparkles, MessageSquare, Cloud, Wifi, Briefcase,
   TrendingUp, BarChart3, Activity, Wallet, AlertCircle, History, Archive,
   Key, LogOut, ShieldCheck, Upload, FileSpreadsheet, CheckCircle, XCircle,
-  Camera, Target
+  Camera, Target,
+  Lock, EyeOff // ✅ ADD THESE TWO ICONS HERE
 } from "lucide-react";
 
 // ✅ NEEDED FOR FUNCTIONS
@@ -54,7 +55,6 @@ import { db, auth, storage, app } from './firebase.js';
 
 import ErrorBoundary from "./ErrorBoundary.jsx";
 import DriverApp from "./DriverApp.jsx";
-import HelpPanel from "./HelpPanel.jsx";
 import DOMPurify from 'dompurify';
 import html2pdf from 'html2pdf.js';
 import * as XLSX from 'xlsx';
@@ -380,6 +380,11 @@ const copyToClipboard = async (text) => {
 const copyDispatch = async (load, leg, setFeedback) => {
   try {
     let text = '';
+    
+    // ✅ FALLBACK: Use the leg's data, but if it's empty, fall back to the main Load data
+    const pickupLocation = leg?.from || load?.terminal || 'N/A';
+    const dropLocation = leg?.to || load?.delivery || 'N/A';
+
     if (load?.emptyPickupBookingNo) {
       text = `🚛 EXPORT DISPATCH ASSIGNMENT 🚛
 ---------------------------
@@ -396,8 +401,8 @@ PO #: ${load.poNumber || 'N/A'}
 Ref #: ${load.customerRefNo || 'N/A'}
 Appointment: ${load.appointmentDate || 'TBD'} at ${load.appointmentTime || 'TBD'}
 
-From: ${leg?.from || 'N/A'}
-To: ${leg?.to || 'N/A'}
+From: ${pickupLocation}
+To: ${dropLocation}
 
 Driver: ${leg?.driverName || 'TBD'}
 Truck: ${leg?.truckNo || 'TBD'}
@@ -414,8 +419,8 @@ Pickup #: ${load?.pickupNo || 'N/A'}
 Ref #: ${load?.customerRefNo || 'N/A'}
 Appointment: ${load?.appointmentDate || 'TBD'} at ${load?.appointmentTime || 'TBD'}
 
-From: ${leg?.from || 'N/A'}
-To: ${leg?.to || 'N/A'}
+From: ${pickupLocation}
+To: ${dropLocation}
 
 Driver: ${leg?.driverName || 'TBD'}
 Truck: ${leg?.truckNo || 'TBD'}
@@ -447,6 +452,7 @@ const normalizeLoad = (data, id) => ({
   legs: getSafeLegs(data),
   loadConfirmation: normalizeFileRef(data?.loadConfirmation),
   signedPodDoc: normalizeFileRef(data?.signedPodDoc),
+  documents: data?.documents || [], // ✅ ADD THIS LINE
   lastTrackingStatus: data?.lastTrackingStatus || "Pending",
   auditLog: data?.auditLog || [],
   isPrePull: data?.isPrePull || false,
@@ -540,6 +546,8 @@ const createEmptyLoadForm = () => ({
   size: "40GE (General)",
   weight: "",
   weightUnit: "lbs",
+  sealNumber: "", // ✅ ADD THIS
+  deliveryTime: "", // ✅ ADD THIS
   customerName: "",
   customerEmail: "",
   customerPhone: "",
@@ -549,6 +557,7 @@ const createEmptyLoadForm = () => ({
   appointmentAmPm: "AM",
   loadConfirmation: null,
   signedPodDoc: null,
+  documents: [], // ✅ ADD THIS LINE
   basePrice: "",
   waitingTime: "",
   fuelSurcharge: "",
@@ -575,6 +584,7 @@ const createEmptyLoadForm = () => ({
   isPrePull: false,
   prePullDate: "",
   delivery: "",
+  deliveryDate: "", // ✅ Add this line
   terminal: "",
   loadType: "",
   shipmentType: "",
@@ -590,10 +600,12 @@ const createEmptyLoadForm = () => ({
   isInYard: false,
   isInYardPrePull: false,
   isInYardReturn: false,
-  isDroppedAtCustomer: false,
+    isDroppedAtCustomer: false,
   isReadyForPickup: false,
   isTerminated: false,
   isBillingComplete: false,
+  etaDate: "",  // ✅ ADD THIS
+  etaTime: "",  // ✅ ADD THIS
   readyForPickupDate: '',
   containerStatusHistory: [],
 });
@@ -733,13 +745,22 @@ export const downloadPOD = (load, leg, setFeedback, companyName, companyDetails 
     const originAddr = leg?.from || 'Address provided separately';
     const destName = leg?.to?.split(' - ')[0] || 'N/A';
     const destAddr = leg?.to || 'Address provided separately';
+    
+    // Build the full address string for display
+    const fullCompanyAddress = [
+      companyDetails?.address,
+      companyDetails?.city,
+      companyDetails?.province,
+      companyDetails?.postalCode
+    ].filter(Boolean).join(', ');
+
     const podContent = `
       <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 11px; color: #111827; background: #fff; line-height: 1.4; box-sizing: border-box; width: 100%;">
         <style>
           * { box-sizing: border-box; }
           .flex { display: flex; }
           .justify-between { justify-content: space-between; }
-          .items-center { align-items: center; }
+          .items-start { align-items: flex-start; }
           .gap-4 { gap: 16px; }
           .w-1-2 { width: 50%; }
           .text-right { text-align: right; }
@@ -772,13 +793,18 @@ export const downloadPOD = (load, leg, setFeedback, companyName, companyDetails 
           .meta-table .value { font-weight: 800; text-align: right; color: #111827; }
           .sig-line { border-bottom: 1px solid #9ca3af; height: 20px; width: 100%; margin-top: 5px;}
         </style>
-        <div class="flex justify-between items-center">
+        <div class="flex justify-between items-start">
+          <!-- LEFT SIDE: Company Info -->
           <div>
             <div class="text-2xl font-black text-blue mb-2">${sanitizeInput(companyName || 'Company Name')}</div>
-            <div class="text-sm text-dark">${sanitizeInput(addressStr)}</div>
-            ${companyDetails?.email ? `<div class="text-sm text-dark">Email: ${sanitizeInput(companyDetails.email)}</div>` : ''}
+            ${fullCompanyAddress ? `<div style="color: #374151; font-size: 11px; line-height: 1.4; font-weight: bold;">${sanitizeInput(fullCompanyAddress)}</div>` : ''}
+            ${companyDetails?.email ? `<div style="color: #374151; font-size: 11px; line-height: 1.4; font-weight: bold;">Email: ${sanitizeInput(companyDetails.email)}</div>` : ''}
+            ${companyDetails?.phone ? `<div style="color: #374151; font-size: 11px; line-height: 1.4; font-weight: bold;">Tel: ${sanitizeInput(companyDetails.phone)}</div>` : ''}
           </div>
+          
+          <!-- RIGHT SIDE: Logo and Work Order Details -->
           <div class="text-right">
+            ${companyDetails?.logoUrl ? `<img src="${sanitizeInput(companyDetails.logoUrl)}" style="max-height: 70px; max-width: 220px; margin-bottom: 10px; margin-left: auto; display: block;" alt="Company Logo" crossorigin="anonymous" />` : ''}
             <div class="text-2xl font-black text-gray mb-2">WORK ORDER</div>
             <table class="meta-table">
               <tr><td class="label">WO #</td><td class="value">${sanitizeInput(load.workOrderNo || String(load.id || '').substring(0,8).toUpperCase())}</td></tr>
@@ -837,7 +863,7 @@ export const downloadPOD = (load, leg, setFeedback, companyName, companyDetails 
         <div class="text-center text-xs text-gray" style="margin-top: 40px;">Generated by ${sanitizeInput(companyName || 'System')} - ${new Date().toLocaleString()}</div>
       </div>
     `;
-    const sanitizedHtml = DOMPurify.sanitize(podContent, { ALLOWED_TAGS: ['div','span','style','table','thead','tbody','tr','td','th','p','h3','h4','strong','b','i','em','br','hr','ul','li','pre','img','a','input','label','select','option'], ALLOWED_ATTR: ['class','style','href','src','alt','title','type','name','value','checked','for','id','colspan','rowspan','align','border','cellpadding'] });
+    const sanitizedHtml = DOMPurify.sanitize(podContent, { ALLOWED_TAGS: ['div','span','style','table','thead','tbody','tr','td','th','p','h3','h4','strong','b','i','em','br','hr','ul','li','pre','img','a','input','label','select','option'], ALLOWED_ATTR: ['class','style','href','src','alt','title','type','name','value','checked','for','id','colspan','rowspan','align','border','cellpadding','crossorigin'] });
     const element = document.createElement('div');
     element.innerHTML = sanitizedHtml;
     const opt = { margin: 0.4, filename: `POD-${load.workOrderNo || 'WorkOrder'}.pdf`, image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2, useCORS: true }, jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' } };
@@ -857,6 +883,7 @@ export const downloadInvoice = (load, setFeedback, companyName, companyDetails =
     }
     const currencySymbol = load?.currency === 'USD' ? 'US$' : 'C$';
     const currentDate = new Date().toISOString().split('T')[0];
+    
     let rowsHtml = '';
     if (load.revenueItems && Array.isArray(load.revenueItems) && load.revenueItems.length > 0) {
       load.revenueItems.forEach(item => {
@@ -865,12 +892,22 @@ export const downloadInvoice = (load, setFeedback, companyName, companyDetails =
         }
       });
     }
+    
+    // Build the full address string for display
+    const fullCompanyAddress = [
+      companyDetails?.address,
+      companyDetails?.city,
+      companyDetails?.province,
+      companyDetails?.postalCode
+    ].filter(Boolean).join(', ');
+
     const invoiceContent = `
       <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 12px; color: #111827; background: #fff; line-height: 1.4; box-sizing: border-box; width: 100%;">
         <style>
           * { box-sizing: border-box; }
           .flex { display: flex; }
           .justify-between { justify-content: space-between; }
+          .items-start { align-items: flex-start; }
           .gap-4 { gap: 16px; }
           .w-1-2 { width: 50%; }
           .text-right { text-align: right; }
@@ -898,9 +935,20 @@ export const downloadInvoice = (load, setFeedback, companyName, companyDetails =
           .totals-row.grand { background: #1d4ed8; color: #fff; border-bottom: none; }
           .totals-row.grand .label, .totals-row.grand .value { color: #fff; font-weight: 900; font-size: 16px; }
         </style>
-        <div class="flex justify-between" style="align-items: flex-start;">
-          <div><div class="text-2xl font-black text-blue mb-2">${sanitizeInput(companyName || 'Company Name')}</div><div style="color: #374151;">${sanitizeInput(addressStr)}</div>${companyDetails?.phone ? `<div style="color: #374151;">Tel: ${sanitizeInput(companyDetails.phone)}</div>` : ''}${companyDetails?.email ? `<div style="color: #374151;">Email: ${sanitizeInput(companyDetails.email)}</div>` : ''}</div>
-          <div class="text-right"><div class="text-2xl font-black text-gray mb-2">INVOICE</div><table class="meta-table"><tr><td class="label">INVOICE #</td><td class="value">${sanitizeInput(load.workOrderNo || String(load.id || '').substring(0,8).toUpperCase())}</td></tr><tr><td class="label">DATE</td><td class="value">${currentDate}</td></tr><tr><td class="label">PO #</td><td class="value">${sanitizeInput(load.poNumber || 'N/A')}</td></tr><tr><td class="label">CURRENCY</td><td class="value">${load.currency || 'CAD'}</td></tr><tr><td class="label">TERMS</td><td class="value">Due on Receipt</td></tr></table></div>
+        <div class="flex justify-between items-start">
+          <!-- LEFT SIDE: Company Info -->
+          <div>
+            <div class="text-2xl font-black text-blue mb-2">${sanitizeInput(companyName || 'Company Name')}</div>
+            ${fullCompanyAddress ? `<div style="color: #374151; font-size: 11px; line-height: 1.4; font-weight: bold;">${sanitizeInput(fullCompanyAddress)}</div>` : ''}
+            ${companyDetails?.phone ? `<div style="color: #374151; font-size: 11px; line-height: 1.4; font-weight: bold;">Tel: ${sanitizeInput(companyDetails.phone)}</div>` : ''}
+            ${companyDetails?.email ? `<div style="color: #374151; font-size: 11px; line-height: 1.4; font-weight: bold;">Email: ${sanitizeInput(companyDetails.email)}</div>` : ''}
+          </div>
+          
+          <!-- RIGHT SIDE: Logo and Invoice Details -->
+          <div class="text-right">
+            ${companyDetails?.logoUrl ? `<img src="${sanitizeInput(companyDetails.logoUrl)}" style="max-height: 70px; max-width: 220px; margin-bottom: 10px; margin-left: auto; display: block;" alt="Company Logo" crossorigin="anonymous" />` : ''}
+            <div class="text-2xl font-black text-gray mb-2">INVOICE</div>
+            <table class="meta-table"><tr><td class="label">INVOICE #</td><td class="value">${sanitizeInput(load.workOrderNo || String(load.id || '').substring(0,8).toUpperCase())}</td></tr><tr><td class="label">DATE</td><td class="value">${currentDate}</td></tr><tr><td class="label">PO #</td><td class="value">${sanitizeInput(load.poNumber || 'N/A')}</td></tr><tr><td class="label">CURRENCY</td><td class="value">${load.currency || 'CAD'}</td></tr><tr><td class="label">TERMS</td><td class="value">Due on Receipt</td></tr></table></div>
         </div>
         <div class="divider"></div>
         <div class="flex gap-4 mb-8">
@@ -911,7 +959,7 @@ export const downloadInvoice = (load, setFeedback, companyName, companyDetails =
         <div class="flex justify-between" style="margin-top: 30px; align-items: flex-start;"><div style="width: 50%; color: #6b7280; font-size: 11px; padding-right: 20px;"><p>Thank you for your business.</p><p>Please include invoice number on your check or remittance advice.</p></div><div style="width: 40%;"><div class="totals-box"><div class="totals-row"><span class="label font-bold" style="color: #4b5563;">Subtotal</span><span class="value font-bold">${currencySymbol}${calculateTotal(load)}</span></div><div class="totals-row"><span class="label font-bold" style="color: #4b5563;">Tax (0%)</span><span class="value font-bold">${currencySymbol}0.00</span></div><div class="totals-row grand"><span class="label">TOTAL DUE</span><span class="value">${currencySymbol}${calculateTotal(load)}</span></div></div></div></div>
       </div>
     `;
-    const sanitizedHtml = DOMPurify.sanitize(invoiceContent, { ALLOWED_TAGS: ['div','span','style','table','thead','tbody','tr','td','th','p','h3','h4','strong','b','i','em','br','hr','ul','li','pre','img','a','input','label','select','option'], ALLOWED_ATTR: ['class','style','href','src','alt','title','type','name','value','checked','for','id','colspan','rowspan','align','border','cellpadding'] });
+    const sanitizedHtml = DOMPurify.sanitize(invoiceContent, { ALLOWED_TAGS: ['div','span','style','table','thead','tbody','tr','td','th','p','h3','h4','strong','b','i','em','br','hr','ul','li','pre','img','a','input','label','select','option'], ALLOWED_ATTR: ['class','style','href','src','alt','title','type','name','value','checked','for','id','colspan','rowspan','align','border','cellpadding','crossorigin'] });
     const element = document.createElement('div');
     element.innerHTML = sanitizedHtml;
     const opt = { margin: 0.4, filename: `Invoice-${load.workOrderNo || 'WorkOrder'}.pdf`, image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2, useCORS: true }, jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' } };
@@ -1799,8 +1847,9 @@ const LoadForm = ({
   const [recurringTemplate, setRecurringTemplate] = useState(null);
   const [selectedTemplate, setSelectedTemplate] = useState('');
   const [showTemplateDropdown, setShowTemplateDropdown] = useState(false);
-  const [activeStep, setActiveStep] = useState('details');
-  const [expandedLegId, setExpandedLegId] = useState(null);
+  const [activeStep, setActiveStep] = useState('step1');
+  const [editingLegId, setEditingLegId] = useState(null); // ✅ Replaces expandedLegId
+  const [isSaving, setIsSaving] = useState(false); // ✅ Prevent double submit
 
   const initializedLoadRef = useRef(null);
   const [formVersion, setFormVersion] = useState(0);
@@ -2330,10 +2379,10 @@ const LoadForm = ({
     }, 600);
   };
 
-  // ===== FILE UPLOAD =====
+    // ===== FILE UPLOAD (MULTIPLE SUPPORT) =====
   const handleFileUpload = async (e, field) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
     if (!userId || !companyId) {
       setFeedback?.("Authentication required");
       return;
@@ -2343,54 +2392,80 @@ const LoadForm = ({
       setFeedback?.("❌ Please wait before uploading another file");
       return;
     }
-    try {
-      const userDoc = await getDoc(doc(db, "users", userId));
-      if (!userDoc.exists() || userDoc.data().companyId !== companyId) {
-        setFeedback?.("Unauthorized");
-        return;
-      }
-    } catch (err) {
-      setFeedback?.("Authorization failed");
-      return;
-    }
+
     setUploadingFile(true);
+    const newDocs = [];
+
     try {
-      if (!ALLOWED_UPLOAD_TYPES.has(file.type) || file.size > MAX_UPLOAD_SIZE_BYTES) {
-        setFeedback?.("Invalid file type or file is too large");
-        return;
-      }
-      const safeFileName = file.name.replace(/[^\w.-]/g, "_");
-      const filePath = `uploads/${companyId}/${userId}/${Date.now()}_${safeFileName}`;
-      const storageRef = ref(storage, filePath);
-      await uploadBytes(storageRef, file, { contentType: file.type });
-      const url = await getDownloadURL(storageRef);
-      if (!isMountedRef.current) return;
-      const auditEntry = {
-        timestamp: new Date().toISOString(),
-        user: userEmail || userId,
-        role: userRole,
-        action: `Uploaded ${field}`,
-        changes: [{ field: field, from: 'none', to: file.name }]
-      };
-      setFormData(prev => ({
-        ...prev,
-        [field]: {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        if (!ALLOWED_UPLOAD_TYPES.has(file.type) || file.size > MAX_UPLOAD_SIZE_BYTES) {
+          setFeedback?.(`❌ Skipped ${file.name}: Invalid type or too large`);
+          continue;
+        }
+
+        const safeFileName = file.name.replace(/[^\w.-]/g, "_");
+        const filePath = `uploads/${companyId}/${userId}/${Date.now()}_${safeFileName}`;
+        const storageRef = ref(storage, filePath);
+        
+        await uploadBytes(storageRef, file, { contentType: file.type });
+        const url = await getDownloadURL(storageRef);
+        
+        newDocs.push({
           name: file.name,
           type: file.type,
           url,
           uploadedBy: userId,
           uploadedAt: new Date().toISOString()
-        },
-        auditLog: [...(prev.auditLog || []), auditEntry]
-      }));
+        });
+      }
+
+            if (!isMountedRef.current) return;
+
+      setFormData(prev => {
+        // ✅ NEW: If we are uploading a POD, save it to signedPodDoc
+        if (field === 'signedPodDoc') {
+          return { ...prev, signedPodDoc: newDocs[0] };
+        }
+
+        const updatedDocs = [...(prev.documents || []), ...newDocs];
+        // Backward compatibility: if loadConfirmation is empty, set the first doc as load confirmation
+        let updatedLoadConf = prev.loadConfirmation;
+        if (!updatedLoadConf && newDocs.length > 0) updatedLoadConf = newDocs[0];
+
+        return {
+          ...prev,
+          documents: updatedDocs,
+          loadConfirmation: updatedLoadConf
+        };
+      });
+
       lastUploadTimeRef.current = now;
-      setFeedback?.("File uploaded successfully");
+      setFeedback?.(`✅ Uploaded ${newDocs.length} file(s) successfully`);
     } catch (err) {
       console.error("Upload failed:", err);
-      setFeedback?.("Upload failed");
+      setFeedback?.("❌ Some uploads failed");
     } finally {
       setUploadingFile(false);
+      // Reset input so the same file can be selected again if needed
+      e.target.value = null; 
     }
+  };
+
+  const removeDocument = (urlToRemove) => {
+    setFormData(prev => {
+      const updatedDocs = (prev.documents || []).filter(d => d.url !== urlToRemove);
+      // If we are removing the load confirmation, try to set it to the next available doc
+      let updatedLoadConf = prev.loadConfirmation;
+      if (prev.loadConfirmation?.url === urlToRemove) {
+        updatedLoadConf = updatedDocs.length > 0 ? updatedDocs[0] : null;
+      }
+      return {
+        ...prev,
+        documents: updatedDocs,
+        loadConfirmation: updatedLoadConf
+      };
+    });
   };
 
   // ===== TEMPLATE APPLICATION =====
@@ -2466,8 +2541,8 @@ const LoadForm = ({
       <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-md" onClick={onClose}></div>
       <div className="bg-white w-full h-full rounded-none shadow-2xl relative z-10 overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
        
-        {/* HEADER */}
-        <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                {/* HEADER */}
+        <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 shrink-0">
           <h2 className="text-2xl font-black text-slate-900 flex items-center">
             {initialData ? "Update Load Profile" : "Create New Load"}
             {formData.workOrderNo && (
@@ -2510,36 +2585,23 @@ const LoadForm = ({
           </div>
         </div>
 
-        {/* TAB SWITCHER */}
-        <div className="flex gap-1 bg-slate-100 p-1 rounded-xl mx-8 mt-2">
-          <button
-            onClick={() => setActiveStep('details')}
-            className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${
-              activeStep === 'details'
-                ? 'bg-white shadow-sm text-blue-600'
-                : 'text-slate-500 hover:text-slate-700'
-            }`}
-          >
-            📋 Load Details
-          </button>
-          <button
-            onClick={() => setActiveStep('lifecycle')}
-            className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${
-              activeStep === 'lifecycle'
-                ? 'bg-white shadow-sm text-purple-600'
-                : 'text-slate-500 hover:text-slate-700'
-            }`}
-          >
-            🔄 Container Lifecycle
-          </button>
+                                {/* TAB SWITCHER / WIZARD NAVIGATION */}
+        <div className="flex gap-2 bg-slate-100 p-2 mx-8 mt-4 rounded-xl overflow-x-auto shrink-0">
+          <button type="button" onClick={() => setActiveStep('step1')} className={`flex-1 h-12 flex items-center justify-center px-3 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${activeStep === 'step1' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}>1. Shipment</button>
+          <button type="button" onClick={() => setActiveStep('step2')} className={`flex-1 h-12 flex items-center justify-center px-3 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${activeStep === 'step2' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}>2. Customer</button>
+          <button type="button" onClick={() => setActiveStep('step3')} className={`flex-1 h-12 flex items-center justify-center px-3 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${activeStep === 'step3' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}>3. Dispatch</button>
+          <button type="button" onClick={() => setActiveStep('step4')} className={`flex-1 h-12 flex items-center justify-center px-3 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${activeStep === 'step4' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}>4. Billing</button>
+          <button type="button" onClick={() => setActiveStep('step5')} className={`flex-1 h-12 flex items-center justify-center px-3 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${activeStep === 'step5' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}>5. Docs</button>
+          <button type="button" onClick={() => setActiveStep('lifecycle')} className={`flex-1 h-12 flex items-center justify-center px-3 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${activeStep === 'lifecycle' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}>🔄 Lifecycle</button>
         </div>
 
         <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            
-            // ===== EXISTING VALIDATIONS =====
-            if (!formData.shipmentType) {
+  onSubmit={async (e) => {
+    e.preventDefault();
+    if (isSaving) return; // ✅ Prevents double clicks
+    
+    // ===== EXISTING VALIDATIONS =====
+    if (!formData.shipmentType) {
               setFeedback?.("❌ Please select Import or Export before saving");
               return;
             }
@@ -2572,29 +2634,27 @@ const LoadForm = ({
               }
             }
 
-            // ===== ✅ NEW: DATA INTEGRITY GUARD (Lifecycle vs Trip Legs) =====
+                        // ===== ✅ NEW: DATA INTEGRITY GUARD (Lifecycle vs Trip Legs) =====
             const legs = formData.legs || [];
             
             // 1. Verify "Dropped at Customer"
             if (formData.isDroppedAtCustomer) {
-              const hasCompletedDelivery = legs.some(l => 
-                (l.legType === 'delivery' || l.legType === 'pickup') && 
+              const hasCompletedLeg = legs.some(l => 
                 (l.status === 'Completed' || l.status === 'Delivered')
               );
-              if (!hasCompletedDelivery) {
-                setFeedback?.("❌ Mismatch: You marked 'Dropped at Customer', but there is no completed Delivery Trip Leg. Please update the Trip Legs first.");
+              if (!hasCompletedLeg) {
+                setFeedback?.("❌ Mismatch: You marked 'Dropped at Customer', but there is no completed Trip Leg. Please mark a leg as Completed first.");
                 return;
               }
             }
 
             // 2. Verify "Ready for Pickup"
             if (formData.isReadyForPickup) {
-              const hasCompletedDelivery = legs.some(l => 
-                (l.legType === 'delivery' || l.legType === 'pickup') && 
+              const hasCompletedLeg = legs.some(l => 
                 (l.status === 'Completed' || l.status === 'Delivered')
               );
-              if (!hasCompletedDelivery) {
-                setFeedback?.("❌ Mismatch: You marked 'Ready for Pickup', but the Delivery Trip Leg is not completed. Please mark the Delivery leg as Completed first.");
+              if (!hasCompletedLeg) {
+                setFeedback?.("❌ Mismatch: You marked 'Ready for Pickup', but there is no completed Trip Leg. Please mark a leg as Completed first.");
                 return;
               }
             }
@@ -2605,8 +2665,11 @@ const LoadForm = ({
                 l.legType === 'termination' && 
                 (l.status === 'Completed' || l.status === 'Delivered')
               );
-              if (!hasCompletedTermination) {
-                setFeedback?.("❌ Mismatch: You marked 'Container Terminated', but there is no completed Termination Trip Leg. Please update the Trip Legs first.");
+              // Fallback: Allow saving if at least one leg is completed, even if type is missing
+              const hasAnyCompletedLeg = legs.some(l => l.status === 'Completed' || l.status === 'Delivered');
+              
+              if (!hasCompletedTermination && !hasAnyCompletedLeg) {
+                setFeedback?.("❌ Mismatch: You marked 'Container Terminated', but there is no completed Trip Leg. Please update the Trip Legs first.");
                 return;
               }
             }
@@ -2617,13 +2680,18 @@ const LoadForm = ({
                 return;
             }
 
-            // If all checks pass, submit the form
-            onSubmit(formData);
+                        // If all checks pass, submit the form
+            setIsSaving(true); // ✅ Disables button
+            try {
+              await onSubmit(formData);
+            } finally {
+              setIsSaving(false); // ✅ Re-enables if it fails
+            }
           }}
-          className="p-8 overflow-y-auto space-y-12"
+                    className="p-8 pb-32 overflow-y-auto space-y-12"
         >
-          {/* ===== CONTENT BASED ON ACTIVE STEP ===== */}
-          {activeStep === 'details' && (
+                    {/* ===== PAGE 1: SHIPMENT ===== */}
+          {activeStep === 'step1' && (
             <>
               {/* Currency Settings */}
               <div className="space-y-4 bg-blue-50/30 p-6 rounded-[32px] border border-blue-100">
@@ -2633,47 +2701,20 @@ const LoadForm = ({
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-1">
-                    <label className="text-[10px] font-black text-blue-700/70 uppercase" htmlFor="currencySelect">
-                      Billing Currency
-                    </label>
-                    <select
-                      id="currencySelect"
-                      name="currency"
-                      value={formData.currency || 'CAD'}
-                      onChange={handleChange}
-                      className="w-full px-5 py-3 bg-white border border-blue-200/50 rounded-2xl font-bold outline-none focus:ring-2 focus:ring-blue-200 transition-all"
-                    >
+                    <label className="text-[10px] font-black text-blue-700/70 uppercase" htmlFor="currencySelect">Billing Currency</label>
+                    <select id="currencySelect" name="currency" value={formData.currency || 'CAD'} onChange={handleChange} className="w-full px-5 py-3 bg-white border border-blue-200/50 rounded-2xl font-bold outline-none focus:ring-2 focus:ring-blue-200 transition-all">
                       <option value="CAD">🇨🇦 CAD - Canadian Dollar (C$)</option>
                       <option value="USD">🇺🇸 USD - US Dollar (US$)</option>
                     </select>
-                    <p className="text-[9px] font-medium text-blue-600/70 mt-1">Select the currency for billing this customer</p>
                   </div>
-
                   <div className="space-y-1">
-                    <label className="text-[10px] font-black text-blue-700/70 uppercase" htmlFor="terminal">
-                      Terminal *
-                    </label>
-                    <input
-                      id="terminal"
-                      name="terminal"
-                      value={formData.terminal || ''}
-                      onChange={handleChange}
-                      className="w-full px-5 py-3 bg-white border border-blue-200/50 rounded-2xl font-bold outline-none focus:ring-2 focus:ring-blue-200 transition-all"
-                      list="terminalLocations"
-                      placeholder="Search saved terminals..."
-                      required
-                      autoComplete="off"
-                    />
+                    <label className="text-[10px] font-black text-blue-700/70 uppercase" htmlFor="terminal">Terminal *</label>
+                    <input id="terminal" name="terminal" value={formData.terminal || ''} onChange={handleChange} className="w-full px-5 py-3 bg-white border border-blue-200/50 rounded-2xl font-bold outline-none focus:ring-2 focus:ring-blue-200 transition-all" list="terminalLocations" placeholder="Search saved terminals..." required autoComplete="off" />
                     <datalist id="terminalLocations">
                       {companyTerminals && companyTerminals.length > 0 ? (
-                        companyTerminals.map((t, i) => (
-                          <option key={t.id || i} value={t.name + (t.code ? ` (${t.code})` : '') + ' - ' + t.address}></option>
-                        ))
-                      ) : (
-                        <option value="">No terminals saved yet</option>
-                      )}
+                        companyTerminals.map((t, i) => (<option key={t.id || i} value={t.name + (t.code ? ` (${t.code})` : '') + ' - ' + t.address}></option>))
+                      ) : (<option value="">No terminals saved yet</option>)}
                     </datalist>
-                    <p className="text-[9px] font-medium text-blue-600/70 mt-1">Terminal where container will be picked up</p>
                   </div>
                 </div>
               </div>
@@ -2687,24 +2728,12 @@ const LoadForm = ({
                   </div>
                   <div className="space-y-1">
                     <label className="text-[10px] font-black text-indigo-700/70 uppercase">Assigned Location</label>
-                    <select
-                      name="locationId"
-                      value={formData.locationId || currentLocation || ''}
-                      onChange={handleChange}
-                      className="w-full px-5 py-3 bg-white border border-indigo-200/50 rounded-2xl font-bold outline-none focus:ring-2 focus:ring-indigo-200 transition-all"
-                    >
+                    <select name="locationId" value={formData.locationId || currentLocation || ''} onChange={handleChange} className="w-full px-5 py-3 bg-white border border-indigo-200/50 rounded-2xl font-bold outline-none focus:ring-2 focus:ring-indigo-200 transition-all">
                       {userAccessibleLocations.map(locId => {
                         const loc = companyLocations?.find(l => l.id === locId);
-                        return loc ? (
-                          <option key={loc.id} value={loc.id}>
-                            {loc.name} - {[loc.address, loc.city, loc.province].filter(Boolean).join(', ')}
-                          </option>
-                        ) : null;
+                        return loc ? (<option key={loc.id} value={loc.id}>{loc.name} - {[loc.address, loc.city, loc.province].filter(Boolean).join(', ')}</option>) : null;
                       }).filter(Boolean)}
                     </select>
-                    <p className="text-[9px] font-medium text-indigo-600/70 mt-1">
-                      This location's address will appear on PODs and invoices
-                    </p>
                   </div>
                 </div>
               )}
@@ -2715,7 +2744,7 @@ const LoadForm = ({
                   <Layers className="w-4 h-4 text-blue-600" />
                   <h3 className="font-black text-xs uppercase tracking-widest">Shipment Identity</h3>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   <div className="space-y-1">
                     <label className="text-[10px] font-black text-slate-400 uppercase" htmlFor="containerNo">Container No.*</label>
                     <input id="containerNo" required name="containerNo" value={formData.containerNo} onChange={handleChange} className="w-full px-5 py-3 bg-slate-50 border rounded-2xl font-black focus:ring-4 focus:ring-blue-100 outline-none transition-all" />
@@ -2723,200 +2752,39 @@ const LoadForm = ({
                   <div className="space-y-1">
                     <label className="text-[10px] font-black text-slate-400 uppercase" htmlFor="shippingLine">Shipping Line</label>
                     <input id="shippingLine" required name="shippingLine" value={formData.shippingLine} onChange={handleChange} className="w-full px-5 py-3 bg-slate-50 border rounded-2xl font-bold" list="lines" placeholder="e.g. CMA, COSCO, MAERSK" />
-                    <datalist id="lines">
-                      <option value="CMA" /><option value="COSCO" /><option value="EVERGREEN" />
-                      <option value="HAPAG" /><option value="HMM" /><option value="MAERSK" />
-                      <option value="MSC" /><option value="ONE" /><option value="OOCL" /><option value="ZIM" />
-                    </datalist>
                   </div>
                   <div className="space-y-1">
                     <label className="text-[10px] font-black text-slate-400 uppercase" htmlFor="sizeSelect">Size</label>
                     <select id="sizeSelect" name="size" value={formData.size} onChange={handleChange} className="w-full px-5 py-3 bg-slate-50 border rounded-2xl font-bold transition-all">
                       <option>20GE (General)</option><option>40GE (General)</option><option>40HC (High Cube)</option>
                       <option>45EQ (High Cube)</option><option>53GE (General)</option><option>53RE (Reefer)</option>
-                      <option>20FL (Flat Rack)</option><option>20OT (Open Top)</option><option>20RE (Reefer)</option>
-                      <option>40RE (Reefer)</option>
+                      <option>20FL (Flat Rack)</option><option>20OT (Open Top)</option><option>20RE (Reefer)</option><option>40RE (Reefer)</option>
                     </select>
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[10px] font-black text-slate-400 uppercase" htmlFor="weightInput">Weight</label>
-                    <div className="flex gap-2">
-                      <div className="relative flex-1">
-                        <input 
-                          id="weightInput" 
-                          name="weight" 
-                          type="number"
-                          value={formData.weight} 
-                          onChange={handleChange} 
-                          className="w-full px-5 py-3 bg-slate-50 border rounded-2xl font-bold outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all" 
-                          placeholder="Enter weight..."
-                        />
-                        {formData.weight && (
-                          <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1 bg-blue-50 px-2 py-1 rounded-lg">
-                            <span className="text-[10px] font-black text-blue-600">
-                              {formData.weightUnit === 'kg' || !formData.weightUnit 
-                                ? `${formData.weight} kg` 
-                                : `${formData.weight} lbs`}
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex rounded-2xl border border-slate-200 overflow-hidden bg-white shadow-sm">
-                        <button
-                          type="button"
-                          className={`px-4 py-3 text-sm font-bold transition-all ${
-                            formData.weightUnit === 'lbs' || !formData.weightUnit
-                              ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20'
-                              : 'bg-white text-slate-600 hover:bg-slate-50'
-                          }`}
-                          onClick={() => {
-                            const event = { target: { name: 'weightUnit', value: 'lbs' } };
-                            handleChange(event);
-                          }}
-                        >
-                          lbs
-                        </button>
-                        <button
-                          type="button"
-                          className={`px-4 py-3 text-sm font-bold transition-all ${
-                            formData.weightUnit === 'kg'
-                              ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20'
-                              : 'bg-white text-slate-600 hover:bg-slate-50'
-                          }`}
-                          onClick={() => {
-                            const event = { target: { name: 'weightUnit', value: 'kg' } };
-                            handleChange(event);
-                          }}
-                        >
-                          kg
-                        </button>
-                      </div>
-                    </div>
-                    <div className="mt-3 grid grid-cols-4 gap-2">
-                      {['1000', '5000', '10000', '15000', '20000', '25000', '30000', '45000'].map((preset) => (
-                        <button
-                          key={preset}
-                          type="button"
-                          onClick={() => {
-                            const event = {
-                              target: {
-                                name: 'weight',
-                                value: preset
-                              }
-                            };
-                            handleChange(event);
-                          }}
-                          className={`px-3 py-2 text-xs font-bold rounded-xl border transition-all duration-200 ${
-                            formData.weight === preset
-                              ? 'bg-blue-600 text-white border-blue-600 shadow-lg shadow-blue-600/20 scale-105'
-                              : 'bg-white border-slate-200 text-slate-600 hover:border-blue-300 hover:text-blue-600 hover:bg-blue-50'
-                          }`}
-                        >
-                          {parseInt(preset).toLocaleString()} {formData.weightUnit === 'kg' || !formData.weightUnit ? 'kg' : 'lbs'}
-                        </button>
-                      ))}
-                    </div>
-                    {formData.weight && (
-                      <div className="mt-3 p-3 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl border border-blue-100">
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-[10px] font-black text-blue-600 uppercase">Weight Class</span>
-                          <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${
-                            parseInt(formData.weight) <= 15000 
-                              ? 'bg-green-100 text-green-700' 
-                              : parseInt(formData.weight) <= 30000 
-                              ? 'bg-yellow-100 text-yellow-700' 
-                              : 'bg-red-100 text-red-700'
-                          }`}>
-                            {parseInt(formData.weight) <= 15000 ? 'Light' : parseInt(formData.weight) <= 30000 ? 'Medium' : 'Heavy'}
-                          </span>
-                        </div>
-                        <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
-                          <div 
-                            className={`h-full rounded-full transition-all duration-500 ${
-                              parseInt(formData.weight) <= 15000 
-                                ? 'bg-green-500' 
-                                : parseInt(formData.weight) <= 30000 
-                                ? 'bg-yellow-500' 
-                                : 'bg-red-500'
-                            }`}
-                            style={{ width: `${Math.min((parseInt(formData.weight) / 45000) * 100, 100)}%` }}
-                          />
-                        </div>
-                        <div className="flex justify-between mt-2">
-                          <span className="text-[9px] font-bold text-slate-400">0</span>
-                          <span className="text-[9px] font-bold text-slate-400">22,500</span>
-                          <span className="text-[9px] font-bold text-slate-400">45,000</span>
-                        </div>
-                        <div className="mt-3 pt-3 border-t border-blue-200/50">
-                          <div className="flex items-center justify-between text-[10px]">
-                            <span className="font-bold text-slate-500">Equivalent:</span>
-                            <span className="font-black text-blue-700">
-                              {formData.weightUnit === 'kg' || !formData.weightUnit
-                                ? `${(parseInt(formData.weight) * 2.20462).toFixed(0)} lbs`
-                                : `${(parseInt(formData.weight) / 2.20462).toFixed(0)} kg`
-                              }
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    )}
+                    <label className="text-[10px] font-black text-slate-400 uppercase" htmlFor="weight">Weight</label>
+                    <input id="weight" name="weight" value={formData.weight || ''} onChange={handleChange} className="w-full px-5 py-3 bg-slate-50 border rounded-2xl font-bold" placeholder="Enter weight..." />
                   </div>
-                </div>
-               
-                <div className="grid grid-cols-1 gap-6 mt-4 pt-4 border-t border-slate-200">
                   <div className="space-y-1">
-                    <label className="text-[10px] font-black text-slate-400 uppercase" htmlFor="delivery">
-                      Delivery *
-                    </label>
-                    <input
-                      id="delivery"
-                      name="delivery"
-                      value={formData.delivery || ''}
-                      onChange={handleChange}
-                      className="w-full px-5 py-3 bg-slate-50 border rounded-2xl font-bold"
-                      placeholder="Customer delivery location"
-                      list="deliveryLocations"
-                      required
-                      autoComplete="off"
-                    />
-                    <datalist id="deliveryLocations">
-                      {savedDestinations && savedDestinations.length > 0 ? (
-                        savedDestinations.map((d, i) => (
-                          <option key={d.id || i} value={d.name + ' - ' + d.address}></option>
-                        ))
-                      ) : null}
-                      {savedBasePrices && savedBasePrices.map((bp, i) => (
-                        <option key={bp.id || 'bp-' + i} value={bp.location}></option>
-                      ))}
-                      {(!savedDestinations || savedDestinations.length === 0) && 
-                       (!savedBasePrices || savedBasePrices.length === 0) && (
-                        <option value="">No locations saved yet</option>
-                      )}
-                    </datalist>
-                    <p className="text-[9px] font-medium text-slate-400 mt-1">Where the container is being delivered</p>
+                    <label className="text-[10px] font-black text-slate-400 uppercase" htmlFor="sealNumber">Seal Number</label>
+                    <input id="sealNumber" name="sealNumber" value={formData.sealNumber || ''} onChange={handleChange} className="w-full px-5 py-3 bg-slate-50 border rounded-2xl font-bold" placeholder="Enter seal number..." />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-400 uppercase" htmlFor="workOrderNo">WO #</label>
+                    <input id="workOrderNo" name="workOrderNo" value={formData.workOrderNo || ''} onChange={handleChange} className="w-full px-5 py-3 bg-slate-50 border rounded-2xl font-bold" placeholder="Auto-generated if blank" />
                   </div>
                 </div>
               </div>
 
-              {/* Chassis Field */}
+                            {/* Chassis Number */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4 pt-4 border-t border-slate-200">
                 <div className="space-y-1">
-                  <label className="text-[10px] font-black text-slate-400 uppercase" htmlFor="chassisNumber">
-                    Chassis Number
-                  </label>
-                  <input
-                    id="chassisNumber"
-                    name="chassisNumber"
-                    value={formData.chassisNumber || ''}
-                    onChange={handleChange}
-                    className="w-full px-5 py-3 bg-slate-50 border rounded-2xl font-bold"
-                    placeholder="Enter chassis number..."
-                  />
-                  <p className="text-[9px] font-medium text-slate-400 mt-1">Chassis assigned to this load</p>
+                  <label className="text-[10px] font-black text-slate-400 uppercase" htmlFor="chassisNumber">Chassis Number</label>
+                  <input id="chassisNumber" name="chassisNumber" value={formData.chassisNumber || ''} onChange={handleChange} className="w-full px-5 py-3 bg-slate-50 border rounded-2xl font-bold" placeholder="Enter chassis number..." />
                 </div>
               </div>
 
-              {/* Live/Drop Toggle */}
+              {/* Load Type */}
               <div className="space-y-4 bg-amber-50/30 p-6 rounded-[32px] border-2 border-amber-200">
                 <div className="flex items-center gap-2">
                   <AlertCircle className="w-4 h-4 text-amber-600" />
@@ -2924,502 +2792,238 @@ const LoadForm = ({
                   <span className="text-[10px] font-bold text-red-500 ml-2">(Required)</span>
                 </div>
                 <div className="flex gap-6">
-                  <label className={`flex items-center gap-3 cursor-pointer px-6 py-4 rounded-2xl border-2 transition-all flex-1 justify-center ${
-                    formData.loadType === 'LIVE'
-                      ? 'border-blue-600 bg-blue-50 shadow-md'
-                      : 'border-slate-200 hover:border-blue-200 hover:bg-slate-50'
-                  }`}>
-                    <input
-                      type="radio"
-                      name="loadType"
-                      value="LIVE"
-                      checked={formData.loadType === 'LIVE'}
-                      onChange={(e) => setFormData(prev => ({ ...prev, loadType: e.target.value }))}
-                      className="w-4 h-4 text-blue-600 focus:ring-blue-500"
-                    />
-                    <div className="flex items-center gap-2">
-                      <div className={`p-2 rounded-lg ${formData.loadType === 'LIVE' ? 'bg-blue-100' : 'bg-slate-100'}`}>
-                        <Clock className={`w-5 h-5 ${formData.loadType === 'LIVE' ? 'text-blue-600' : 'text-slate-400'}`} />
-                      </div>
-                      <div>
-                        <div className="font-black text-sm text-slate-800">LIVE LOAD</div>
-                        <div className="text-[10px] text-slate-400">Immediate loading/unloading</div>
-                      </div>
-                    </div>
+                  <label className={`flex items-center gap-3 cursor-pointer px-6 py-4 rounded-2xl border-2 transition-all flex-1 justify-center ${formData.loadType === 'LIVE' ? 'border-blue-600 bg-blue-50 shadow-md' : 'border-slate-200 hover:border-blue-200 hover:bg-slate-50'}`}>
+                    <input type="radio" name="loadType" value="LIVE" checked={formData.loadType === 'LIVE'} onChange={(e) => setFormData(prev => ({ ...prev, loadType: e.target.value }))} className="w-4 h-4 text-blue-600" />
+                    <div className="flex items-center gap-2"><Clock className="w-5 h-5 text-blue-600" /><div><div className="font-black text-sm text-slate-800">LIVE LOAD</div><div className="text-[10px] text-slate-400">Immediate loading</div></div></div>
                   </label>
-                 
-                  <label className={`flex items-center gap-3 cursor-pointer px-6 py-4 rounded-2xl border-2 transition-all flex-1 justify-center ${
-                    formData.loadType === 'DROP'
-                      ? 'border-green-600 bg-green-50 shadow-md'
-                      : 'border-slate-200 hover:border-green-200 hover:bg-slate-50'
-                  }`}>
-                    <input
-                      type="radio"
-                      name="loadType"
-                      value="DROP"
-                      checked={formData.loadType === 'DROP'}
-                      onChange={(e) => setFormData(prev => ({ ...prev, loadType: e.target.value }))}
-                      className="w-4 h-4 text-green-600 focus:ring-green-500"
-                    />
-                    <div className="flex items-center gap-2">
-                      <div className={`p-2 rounded-lg ${formData.loadType === 'DROP' ? 'bg-green-100' : 'bg-slate-100'}`}>
-                        <Package className={`w-5 h-5 ${formData.loadType === 'DROP' ? 'text-green-600' : 'text-slate-400'}`} />
-                      </div>
-                      <div>
-                        <div className="font-black text-sm text-slate-800">DROP LOAD</div>
-                        <div className="text-[10px] text-slate-400">Drop & go / no waiting</div>
-                      </div>
-                    </div>
+                  <label className={`flex items-center gap-3 cursor-pointer px-6 py-4 rounded-2xl border-2 transition-all flex-1 justify-center ${formData.loadType === 'DROP' ? 'border-green-600 bg-green-50 shadow-md' : 'border-slate-200 hover:border-green-200 hover:bg-slate-50'}`}>
+                    <input type="radio" name="loadType" value="DROP" checked={formData.loadType === 'DROP'} onChange={(e) => setFormData(prev => ({ ...prev, loadType: e.target.value }))} className="w-4 h-4 text-green-600" />
+                    <div className="flex items-center gap-2"><Package className="w-5 h-5 text-green-600" /><div><div className="font-black text-sm text-slate-800">DROP LOAD</div><div className="text-[10px] text-slate-400">Drop & go</div></div></div>
                   </label>
                 </div>
-                {!formData.loadType && (
-                  <div className="text-xs font-bold text-red-500 bg-red-50 p-3 rounded-xl border border-red-200 flex items-center gap-2">
-                    <AlertCircle className="w-4 h-4" />
-                    ⚠️ Please select LIVE or DROP before saving this load
-                  </div>
-                )}
               </div>
 
-              {/* Import/Export Classification */}
+              {/* Import/Export */}
               <div className="space-y-4 bg-blue-50/30 p-6 rounded-[32px] border-2 border-blue-200">
                 <div className="flex items-center gap-2">
                   <Ship className="w-4 h-4 text-blue-600" />
                   <h3 className="font-black text-xs uppercase tracking-widest text-blue-900">Shipment Type *</h3>
-                  <span className="text-[10px] font-bold text-red-500 ml-2">(Required for Container Board)</span>
                 </div>
                 <div className="flex gap-6">
-                  <label className={`flex items-center gap-3 cursor-pointer px-6 py-4 rounded-2xl border-2 transition-all flex-1 justify-center ${
-                    formData.shipmentType === 'import'
-                      ? 'border-blue-600 bg-blue-50 shadow-md'
-                      : 'border-slate-200 hover:border-blue-200 hover:bg-slate-50'
-                  }`}>
-                    <input
-                      type="radio"
-                      name="shipmentType"
-                      value="import"
-                      checked={formData.shipmentType === 'import'}
-                      onChange={(e) => setFormData(prev => ({ ...prev, shipmentType: e.target.value }))}
-                      className="w-4 h-4 text-blue-600 focus:ring-blue-500"
-                    />
-                    <div className="flex items-center gap-2">
-                      <div className={`p-2 rounded-lg ${formData.shipmentType === 'import' ? 'bg-blue-100' : 'bg-slate-100'}`}>
-                        <Package className={`w-5 h-5 ${formData.shipmentType === 'import' ? 'text-blue-600' : 'text-slate-400'}`} />
-                      </div>
-                      <div>
-                        <div className="font-black text-sm text-slate-800">IMPORT</div>
-                        <div className="text-[10px] text-slate-400">Incoming container</div>
-                      </div>
-                    </div>
+                  <label className={`flex items-center gap-3 cursor-pointer px-6 py-4 rounded-2xl border-2 transition-all flex-1 justify-center ${formData.shipmentType === 'import' ? 'border-blue-600 bg-blue-50 shadow-md' : 'border-slate-200'}`}>
+                    <input type="radio" name="shipmentType" value="import" checked={formData.shipmentType === 'import'} onChange={(e) => setFormData(prev => ({ ...prev, shipmentType: e.target.value }))} className="w-4 h-4 text-blue-600" />
+                    <div className="font-black text-sm text-slate-800">IMPORT</div>
                   </label>
-                 
-                  <label className={`flex items-center gap-3 cursor-pointer px-6 py-4 rounded-2xl border-2 transition-all flex-1 justify-center ${
-                    formData.shipmentType === 'export'
-                      ? 'border-green-600 bg-green-50 shadow-md'
-                      : 'border-slate-200 hover:border-green-200 hover:bg-slate-50'
-                  }`}>
-                    <input
-                      type="radio"
-                      name="shipmentType"
-                      value="export"
-                      checked={formData.shipmentType === 'export'}
-                      onChange={(e) => setFormData(prev => ({ ...prev, shipmentType: e.target.value }))}
-                      className="w-4 h-4 text-green-600 focus:ring-green-500"
-                    />
-                    <div className="flex items-center gap-2">
-                      <div className={`p-2 rounded-lg ${formData.shipmentType === 'export' ? 'bg-green-100' : 'bg-slate-100'}`}>
-                        <Ship className={`w-5 h-5 ${formData.shipmentType === 'export' ? 'text-green-600' : 'text-slate-400'}`} />
-                      </div>
-                      <div>
-                        <div className="font-black text-sm text-slate-800">EXPORT</div>
-                        <div className="text-[10px] text-slate-400">Outgoing container</div>
-                      </div>
-                    </div>
+                  <label className={`flex items-center gap-3 cursor-pointer px-6 py-4 rounded-2xl border-2 transition-all flex-1 justify-center ${formData.shipmentType === 'export' ? 'border-green-600 bg-green-50 shadow-md' : 'border-slate-200'}`}>
+                    <input type="radio" name="shipmentType" value="export" checked={formData.shipmentType === 'export'} onChange={(e) => setFormData(prev => ({ ...prev, shipmentType: e.target.value }))} className="w-4 h-4 text-green-600" />
+                    <div className="font-black text-sm text-slate-800">EXPORT</div>
                   </label>
                 </div>
-                {!formData.shipmentType && (
-                  <div className="text-xs font-bold text-red-500 bg-red-50 p-3 rounded-xl border border-red-200 flex items-center gap-2">
-                    <AlertCircle className="w-4 h-4" />
-                    ⚠️ Please select Import or Export before saving
-                  </div>
-                )}
               </div>
 
               {/* Export Specific Fields */}
               {formData.shipmentType === 'export' && (
                 <div className="space-y-4 bg-teal-50/30 p-6 rounded-[32px] border-2 border-teal-200">
-                  <div className="flex items-center gap-2">
-                    <Ship className="w-4 h-4 text-teal-600" />
-                    <h3 className="font-black text-xs uppercase tracking-widest text-teal-900">Export Details</h3>
-                  </div>
+                  <div className="flex items-center gap-2"><Ship className="w-4 h-4 text-teal-600" /><h3 className="font-black text-xs uppercase tracking-widest text-teal-900">Export Details</h3></div>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-black text-teal-700/70 uppercase">Booking No.*</label>
-                      <input
-                        name="bookingNo"
-                        value={formData.bookingNo || ''}
-                        onChange={handleChange}
-                        className="w-full px-5 py-3 bg-white border border-teal-200/50 rounded-2xl font-bold outline-none focus:ring-2 focus:ring-teal-200 transition-all"
-                        placeholder="e.g. BKG-2026-001"
-                        required={formData.shipmentType === 'export'}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-black text-teal-700/70 uppercase">Vessel Name*</label>
-                      <input
-                        name="vesselName"
-                        value={formData.vesselName || ''}
-                        onChange={handleChange}
-                        className="w-full px-5 py-3 bg-white border border-teal-200/50 rounded-2xl font-bold outline-none focus:ring-2 focus:ring-teal-200 transition-all"
-                        placeholder="e.g. MAERSK EDINBURGH"
-                        required={formData.shipmentType === 'export'}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-black text-teal-700/70 uppercase">Port Name*</label>
-                      <input
-                        name="portName"
-                        value={formData.portName || ''}
-                        onChange={handleChange}
-                        className="w-full px-5 py-3 bg-white border border-teal-200/50 rounded-2xl font-bold outline-none focus:ring-2 focus:ring-teal-200 transition-all"
-                        placeholder="e.g. VANCOUVER"
-                        required={formData.shipmentType === 'export'}
-                      />
-                    </div>
+                    <div className="space-y-1"><label className="text-[10px] font-black text-teal-700/70 uppercase">Booking No.*</label><input name="bookingNo" value={formData.bookingNo || ''} onChange={handleChange} className="w-full px-5 py-3 bg-white border border-teal-200/50 rounded-2xl font-bold outline-none" required={formData.shipmentType === 'export'} /></div>
+                    <div className="space-y-1"><label className="text-[10px] font-black text-teal-700/70 uppercase">Vessel Name*</label><input name="vesselName" value={formData.vesselName || ''} onChange={handleChange} className="w-full px-5 py-3 bg-white border border-teal-200/50 rounded-2xl font-bold outline-none" required={formData.shipmentType === 'export'} /></div>
+                    <div className="space-y-1"><label className="text-[10px] font-black text-teal-700/70 uppercase">Port Name*</label><input name="portName" value={formData.portName || ''} onChange={handleChange} className="w-full px-5 py-3 bg-white border border-teal-200/50 rounded-2xl font-bold outline-none" required={formData.shipmentType === 'export'} /></div>
                   </div>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-black text-teal-700/70 uppercase">ERD Date*</label>
-                      <input
-                        type="date"
-                        name="erdDate"
-                        value={formData.erdDate || ''}
-                        onChange={handleChange}
-                        className="w-full px-4 py-3 bg-white border border-teal-200/50 rounded-2xl font-bold outline-none focus:ring-2 focus:ring-teal-200 transition-all"
-                        required={formData.shipmentType === 'export'}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-black text-teal-700/70 uppercase">Cut‑Off Date*</label>
-                      <input
-                        type="date"
-                        name="cutoffDate"
-                        value={formData.cutoffDate || ''}
-                        onChange={handleChange}
-                        className="w-full px-4 py-3 bg-white border border-teal-200/50 rounded-2xl font-bold outline-none focus:ring-2 focus:ring-teal-200 transition-all"
-                        required={formData.shipmentType === 'export'}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-black text-teal-700/70 uppercase">Loading Date</label>
-                      <input
-                        type="date"
-                        name="loadingDate"
-                        value={formData.loadingDate || ''}
-                        onChange={handleChange}
-                        className="w-full px-4 py-3 bg-white border border-teal-200/50 rounded-2xl font-bold outline-none focus:ring-2 focus:ring-teal-200 transition-all"
-                      />
-                    </div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-4">
+                    <div className="space-y-1"><label className="text-[10px] font-black text-teal-700/70 uppercase">ERD Date*</label><input type="date" name="erdDate" value={formData.erdDate || ''} onChange={handleChange} className="w-full px-4 py-3 bg-white border border-teal-200/50 rounded-2xl font-bold outline-none" required={formData.shipmentType === 'export'} /></div>
+                    <div className="space-y-1"><label className="text-[10px] font-black text-teal-700/70 uppercase">Cut‑Off Date*</label><input type="date" name="cutoffDate" value={formData.cutoffDate || ''} onChange={handleChange} className="w-full px-4 py-3 bg-white border border-teal-200/50 rounded-2xl font-bold outline-none" required={formData.shipmentType === 'export'} /></div>
+                    <div className="space-y-1"><label className="text-[10px] font-black text-teal-700/70 uppercase">Loading Date</label><input type="date" name="loadingDate" value={formData.loadingDate || ''} onChange={handleChange} className="w-full px-4 py-3 bg-white border border-teal-200/50 rounded-2xl font-bold outline-none" /></div>
                   </div>
-                  <div className="flex items-center gap-4 mt-2 flex-wrap">
-                    <label className="flex items-center gap-2 cursor-pointer bg-white px-5 py-3 rounded-xl border border-teal-200 hover:bg-teal-50 transition-colors">
-                      <input
-                        type="checkbox"
-                        name="railBill"
-                        checked={formData.railBill || false}
-                        onChange={(e) => setFormData(prev => ({ ...prev, railBill: e.target.checked }))}
-                        className="w-4 h-4 text-teal-600 border-teal-300 rounded focus:ring-teal-500 cursor-pointer"
-                      />
-                      <span className="text-[10px] font-black text-teal-700 uppercase tracking-wider">
-                        {formData.railBill ? '✅ Rail Bill / RV Provided' : '☐ Rail Bill / RV Required'}
-                      </span>
-                    </label>
-                    {formData.railBill && (
-                      <input
-                        name="railBillNumber"
-                        value={formData.railBillNumber || ''}
-                        onChange={handleChange}
-                        className="flex-1 min-w-[150px] px-4 py-3 bg-white border border-teal-200/50 rounded-2xl font-bold outline-none focus:ring-2 focus:ring-teal-200 transition-all"
-                        placeholder="Enter Rail Bill / RV number..."
-                      />
-                    )}
-                  </div>
-                  <p className="text-[9px] font-medium text-teal-600/70 mt-1">
-                    ⚠️ Booking is valid between ERD and Cut‑Off dates. If Cut‑Off changes, reschedule booking.
-                  </p>
                 </div>
               )}
 
               {/* Tracking & Reference Numbers */}
               <div className="space-y-4 bg-slate-50/50 p-6 rounded-[32px] border border-slate-100">
-                <div className="flex items-center gap-2">
-                  <Hash className="w-4 h-4 text-slate-600" />
-                  <h3 className="font-black text-xs uppercase tracking-widest">Tracking & Reference Numbers</h3>
-                </div>
+                <div className="flex items-center gap-2"><Hash className="w-4 h-4 text-slate-600" /><h3 className="font-black text-xs uppercase tracking-widest">Tracking & Reference Numbers</h3></div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-slate-400 uppercase" htmlFor="poNumber">PO Number</label>
-                    <input id="poNumber" name="poNumber" value={formData.poNumber} onChange={handleChange} className="w-full px-5 py-3 bg-white border border-slate-200 rounded-2xl font-bold outline-none" />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-slate-400 uppercase" htmlFor="pickupNo">Pick up Number</label>
-                    <input id="pickupNo" name="pickupNo" value={formData.pickupNo} onChange={handleChange} className="w-full px-5 py-3 bg-white border border-slate-200 rounded-2xl font-bold outline-none" />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-slate-400 uppercase" htmlFor="customerRefNo">Customer Ref No.</label>
-                    <input id="customerRefNo" name="customerRefNo" value={formData.customerRefNo} onChange={handleChange} className="w-full px-5 py-3 bg-white border border-slate-200 rounded-2xl font-bold outline-none" />
-                  </div>
+                  <div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase" htmlFor="poNumber">PO Number</label><input id="poNumber" name="poNumber" value={formData.poNumber} onChange={handleChange} className="w-full px-5 py-3 bg-white border border-slate-200 rounded-2xl font-bold outline-none" /></div>
+                  <div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase" htmlFor="pickupNo">Pick up Number</label><input id="pickupNo" name="pickupNo" value={formData.pickupNo} onChange={handleChange} className="w-full px-5 py-3 bg-white border border-slate-200 rounded-2xl font-bold outline-none" /></div>
+                  <div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase" htmlFor="customerRefNo">Customer Ref No.</label><input id="customerRefNo" name="customerRefNo" value={formData.customerRefNo} onChange={handleChange} className="w-full px-5 py-3 bg-white border border-slate-200 rounded-2xl font-bold outline-none" /></div>
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* ===== PAGE 2: CUSTOMER & SCHEDULE ===== */}
+          {activeStep === 'step2' && (
+            <>
+              {/* Delivery Location */}
+              <div className="space-y-4 bg-emerald-50/30 p-6 rounded-[32px] border border-emerald-100">
+                <div className="flex items-center gap-2">
+                  <MapPin className="w-4 h-4 text-emerald-600" />
+                  <h3 className="font-black text-xs uppercase tracking-widest text-emerald-900">Delivery Location</h3>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-emerald-700/70 uppercase" htmlFor="delivery">Delivery Location *</label>
+                  <input id="delivery" name="delivery" value={formData.delivery || ''} onChange={handleChange} className="w-full px-5 py-3 bg-white border border-emerald-200/50 rounded-2xl font-bold outline-none" placeholder="Customer delivery location" list="deliveryLocations" required autoComplete="off" />
+                  <datalist id="deliveryLocations">
+                    {savedDestinations && savedDestinations.map((d, i) => (<option key={d.id || i} value={d.name + ' - ' + d.address}></option>))}
+                    {savedBasePrices && savedBasePrices.map((bp, i) => (<option key={bp.id || 'bp-' + i} value={bp.location}></option>))}
+                  </datalist>
                 </div>
               </div>
 
-              {/* Documentation */}
-              <div className="space-y-4 bg-slate-50 p-6 rounded-[32px] border border-slate-100">
+              {/* Customer Profile */}
+              <div className="space-y-4 bg-slate-50/50 p-6 rounded-[32px] border border-slate-100 relative">
                 <div className="flex items-center gap-2">
-                  <FileText className="w-4 h-4 text-slate-600" />
-                  <h3 className="font-black text-xs uppercase tracking-widest">Documentation</h3>
+                  <Building className="text-blue-600 w-4 h-4" />
+                  <h3 className="font-black text-xs uppercase tracking-widest">Customer Profile</h3>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-slate-400 uppercase">Load Confirmation</label>
-                    <div className="flex items-center gap-3">
-                      <label className={`cursor-pointer flex items-center gap-2 px-4 py-3 bg-white border border-slate-200 rounded-xl transition-colors w-full justify-center border-dashed ${uploadingFile ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-50'}`}>
-                        <FileUp className="w-4 h-4 text-blue-600" />
-                        <span className="text-xs font-bold text-slate-600">
-                          {uploadingFile ? "Uploading..." : "Upload PDF / Image"}
-                        </span>
-                        <input
-                          type="file"
-                          accept=".pdf,image/*"
-                          className="hidden"
-                          onChange={(e) => handleFileUpload(e, 'loadConfirmation')}
-                          disabled={uploadingFile}
-                        />
-                      </label>
-                      {formData.loadConfirmation && (
-                        <div className="p-2 bg-green-50 text-green-600 rounded-lg">
-                          <CheckCircle2 className="w-5 h-5" />
-                        </div>
-                      )}
-                    </div>
-                    {formData.loadConfirmation && (
-                      <div className="text-[10px] font-bold text-slate-400 pl-1 truncate">
-                        {formData.loadConfirmation.name}
-                      </div>
-                    )}
+                  <div className="relative">
+                    <label className="text-[10px] font-black text-slate-400 uppercase" htmlFor="customerName">Customer Name *</label>
+                    <select name="customerName" value={formData.customerName} onChange={(e) => {
+                      const selectedName = e.target.value;
+                      const cust = savedCustomers.find(c => c.name === selectedName);
+                      setFormData(prev => {
+                        if (cust) return { ...prev, customerName: cust.name, customerEmail: cust.email || '', customerPhone: cust.phone || '', customerAddress: cust.address || '' };
+                        return { ...prev, customerName: selectedName };
+                      });
+                    }} className="w-full px-4 py-3 bg-white border rounded-2xl font-bold outline-none appearance-none">
+                      <option value="" disabled>Select saved customer...</option>
+                      {savedCustomers.map((c, i) => (<option key={c.id || i} value={c.name}>{c.name}</option>))}
+                    </select>
+                    <ChevronDown className="absolute right-4 bottom-4 w-5 h-5 text-slate-400 pointer-events-none" />
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-slate-400 uppercase">Signed POD</label>
-                    <div className="flex items-center gap-3">
-                      <label className={`cursor-pointer flex items-center gap-2 px-4 py-3 bg-white border border-slate-200 rounded-xl transition-colors w-full justify-center border-dashed ${uploadingFile ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-50'}`}>
-                        <FileUp className="w-4 h-4 text-green-600" />
-                        <span className="text-xs font-bold text-slate-600">
-                          {uploadingFile ? "Uploading..." : "Upload Signed POD"}
-                        </span>
-                        <input
-                          type="file"
-                          accept=".pdf,image/*"
-                          className="hidden"
-                          onChange={(e) => handleFileUpload(e, 'signedPodDoc')}
-                          disabled={uploadingFile}
-                        />
-                      </label>
-                      {formData.signedPodDoc && (
-                        <div className="p-2 bg-green-50 text-green-600 rounded-lg">
-                          <CheckCircle2 className="w-5 h-5" />
-                        </div>
-                      )}
-                    </div>
-                    {formData.signedPodDoc && (
-                      <div className="text-[10px] font-bold text-slate-400 pl-1 truncate">
-                        {formData.signedPodDoc.name}
-                      </div>
-                    )}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div><label className="text-[10px] font-black text-slate-400 uppercase" htmlFor="customerEmail">Billing Email</label><input id="customerEmail" name="customerEmail" value={formData.customerEmail} onChange={handleChange} className="w-full px-4 py-3 bg-white border rounded-xl font-bold text-sm outline-none" /></div>
+                    <div><label className="text-[10px] font-black text-slate-400 uppercase" htmlFor="customerPhone">Phone</label><input id="customerPhone" name="customerPhone" value={formData.customerPhone} onChange={handleChange} className="w-full px-4 py-3 bg-white border rounded-xl font-bold text-sm outline-none" /></div>
                   </div>
                 </div>
               </div>
 
-              {/* Appointment & Customer */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                <div className="space-y-4">
-                  <div className="flex items-center gap-2">
-                    <Clock className="w-4 h-4 text-orange-600" />
-                    <h3 className="font-black text-xs uppercase tracking-widest">Appointment Schedule</h3>
-                  </div>
+              {/* Appointment Schedule */}
+              <div className="space-y-4 bg-orange-50/30 p-6 rounded-[32px] border border-orange-100">
+                <div className="flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-orange-600" />
+                  <h3 className="font-black text-xs uppercase tracking-widest text-orange-900">Appointment Schedule</h3>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-4">
-                    <input
-                      type="date"
-                      name="appointmentDate"
-                      value={formData.appointmentDate && formData.appointmentDate.length === 10 ? formData.appointmentDate : ''}
-                      onChange={handleChange}
-                      className="w-full px-4 py-3 bg-slate-50 border border-orange-200 rounded-2xl font-black text-orange-700 outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all"
-                    />
-                    <div className="relative">
-                      <input
-                        type="time"
-                        name="appointmentTime"
-                        value={formData.appointmentTime || ''}
-                        onChange={handleChange}
-                        className="w-full px-4 py-3 bg-slate-50 border border-orange-200 rounded-2xl font-black text-orange-700 outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all cursor-pointer"
-                      />
-                      <div className="mt-3 grid grid-cols-4 gap-2">
-                        {['09:00', '10:00', '11:00', '14:00', '15:00', '16:00', '17:00', '18:00'].map((time) => (
-                          <button
-                            key={time}
-                            type="button"
-                            onClick={() => {
-                              const event = {
-                                target: {
-                                  name: 'appointmentTime',
-                                  value: time
-                                }
-                              };
-                              handleChange(event);
-                            }}
-                            className={`px-3 py-2 text-xs font-bold rounded-xl border transition-all duration-200 ${
-                              formData.appointmentTime === time
-                                ? 'bg-orange-600 text-white border-orange-600 shadow-lg shadow-orange-600/20 scale-105'
-                                : 'bg-white border-slate-200 text-slate-600 hover:border-orange-300 hover:text-orange-600 hover:bg-orange-50'
-                            }`}
-                          >
-                            {time}
-                          </button>
-                        ))}
+                    <input type="date" name="appointmentDate" value={formData.appointmentDate && formData.appointmentDate.length === 10 ? formData.appointmentDate : ''} onChange={handleChange} className="w-full px-4 py-3 bg-white border border-orange-200 rounded-2xl font-black text-orange-700 outline-none" />
+                    <input type="time" name="appointmentTime" value={formData.appointmentTime || ''} onChange={handleChange} className="w-full px-4 py-3 bg-white border border-orange-200 rounded-2xl font-black text-orange-700 outline-none" />
+                  </div>
+                  <div className="grid grid-cols-4 gap-2">
+                    {['09:00', '10:00', '11:00', '14:00', '15:00', '16:00', '17:00', '18:00'].map((time) => (
+                      <button key={time} type="button" onClick={() => handleChange({ target: { name: 'appointmentTime', value: time } })} className={`px-3 py-2 text-xs font-bold rounded-xl border transition-all ${formData.appointmentTime === time ? 'bg-orange-600 text-white border-orange-600 shadow-lg' : 'bg-white border-slate-200 text-slate-600'}`}>{time}</button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+
+                    {/* ===== PAGE 3: DISPATCH & LEGS ===== */}
+          {activeStep === 'step3' && (
+            <div className="space-y-6 animate-in fade-in">
+              <div className="flex justify-between items-center flex-wrap gap-2">
+                <h3 className="font-black text-xs uppercase tracking-widest text-slate-700">Trip Legs & Dispatching</h3>
+                <div className="flex items-center gap-2">
+                  <button type="button" onClick={calculateAllLegs} className="text-xs font-black text-green-600 hover:underline transition-all flex items-center gap-1 px-2 py-1 bg-green-50 rounded-lg border border-green-200">
+                    <RefreshCw className="w-3 h-3" /> Calculate All
+                  </button>
+                  <button type="button" onClick={addLeg} className="text-xs font-black text-blue-600 hover:underline transition-all">+ Add Trip Leg</button>
+                </div>
+              </div>
+
+              {(!formData.legs || formData.legs.length === 0) && (
+                <div className="bg-amber-50 border-2 border-dashed border-amber-300 rounded-2xl p-8 text-center">
+                  <div className="flex flex-col items-center gap-3">
+                    <Truck className="w-12 h-12 text-amber-400" />
+                    <div className="font-black text-amber-800">No Trip Legs Added</div>
+                    <button type="button" onClick={addLeg} className="mt-2 px-6 py-2 bg-amber-600 text-white rounded-xl font-bold text-sm hover:bg-amber-700 transition-all shadow-lg shadow-amber-200">+ Add Your First Leg</button>
+                  </div>
+                </div>
+              )}
+
+              <div className="space-y-4">
+                {(formData.legs || []).map((leg, index) => (
+                  <div key={leg.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 flex flex-col md:flex-row gap-4 items-start md:items-center justify-between group hover:border-blue-300 transition-colors">
+                    
+                    {/* Left: Arrows & Actions */}
+                    <div className="flex items-center gap-3">
+                      <div className="flex flex-col gap-0.5">
+                        <button type="button" onClick={() => moveLegUp(index)} disabled={index === 0} className="p-0.5 text-slate-400 hover:text-slate-700 disabled:opacity-30"><ChevronUp className="w-3.5 h-3.5" /></button>
+                        <button type="button" onClick={() => moveLegDown(index)} disabled={index === formData.legs.length - 1} className="p-0.5 text-slate-400 hover:text-slate-700 disabled:opacity-30"><ChevronDown className="w-3.5 h-3.5" /></button>
                       </div>
-                      {formData.appointmentTime && (
-                        <div className="mt-3 p-3 bg-gradient-to-r from-orange-50 to-amber-50 rounded-xl border border-orange-100 flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <div className="w-8 h-8 bg-orange-600 rounded-lg flex items-center justify-center">
-                              <Clock className="w-4 h-4 text-white" />
-                            </div>
-                            <div>
-                              <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">Selected Time</div>
-                              <div className="font-black text-orange-700">
-                                {formData.appointmentTime}
-                              </div>
-                            </div>
+                      
+                      <button type="button" onClick={() => setEditingLegId(leg.id)} className="p-2 bg-emerald-100 text-emerald-700 rounded-full hover:bg-emerald-200 transition-colors shadow-sm" title="Edit Leg">
+                        <Edit3 className="w-4 h-4" />
+                      </button>
+                      <button type="button" onClick={(e) => { e.stopPropagation(); copyDispatch(formData, leg, setFeedback); }} className="p-2 bg-blue-50 text-blue-600 rounded-full hover:bg-blue-100 transition-colors">
+                        <Copy className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    {/* Middle: Date, Time, Driver */}
+                    <div className="flex flex-col min-w-[150px]">
+                      <div className="flex items-center gap-2 text-sm font-bold text-slate-700">
+                        <Calendar className="w-4 h-4 text-slate-400" />
+                        {leg.legDate ? new Date(leg.legDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'No Date'}
+                        <span className="text-xs font-medium text-slate-500">({leg.arrivalTime || '00:00'} - {leg.departureTime || '00:00'})</span>
+                      </div>
+                      <div className="flex items-center gap-2 mt-1">
+                         <span className={`px-2 py-0.5 text-[10px] font-black uppercase tracking-wider rounded-full ${
+                            leg.status === 'Dispatched' ? 'bg-blue-100 text-blue-700' :
+                            leg.status === 'Completed' ? 'bg-green-100 text-green-700' :
+                            'bg-yellow-100 text-yellow-700'
+                          }`}>
+                            {leg.status || 'Planned'}
+                          </span>
+                          <div className="flex items-center gap-1 text-xs font-bold text-slate-600">
+                            <User className="w-3.5 h-3.5 text-slate-400" /> {leg.driverName || 'Unassigned'}
                           </div>
-                          <div className="text-[10px] font-bold text-orange-400 bg-white px-3 py-1 rounded-full border border-orange-200">
-                            {formData.appointmentTime < '12:00' ? 'Morning' : 
-                             formData.appointmentTime < '17:00' ? 'Afternoon' : 'Evening'}
-                          </div>
-                        </div>
-                      )}
+                      </div>
                     </div>
-                  </div>
-                </div>
-                <div className="space-y-4 relative">
-                  <div className="flex items-center gap-2">
-                    <Building className="text-blue-600 w-4 h-4" />
-                    <h3 className="font-black text-xs uppercase tracking-widest">Customer Profile</h3>
-                  </div>
-                  <div className="relative">
-                    <select
-                      name="customerName"
-                      value={formData.customerName}
-                      onChange={(e) => {
-                        const selectedName = e.target.value;
-                        const cust = savedCustomers.find(c => c.name === selectedName);
-                        setFormData(prev => {
-                          if (cust) {
-                            return {
-                              ...prev,
-                              customerName: cust.name,
-                              customerEmail: cust.email || '',
-                              customerPhone: cust.phone || '',
-                              customerAddress: cust.address || ''
-                            };
-                          }
-                          return { ...prev, customerName: selectedName };
-                        });
-                      }}
-                      className="w-full px-4 py-3 bg-slate-50 border rounded-2xl font-bold outline-none appearance-none"
-                    >
-                      <option value="" disabled>Select saved customer...</option>
-                      {savedCustomers.map((c, i) => (
-                        <option key={c.id || i} value={c.name}>{c.name}</option>
-                      ))}
-                    </select>
-                    <ChevronDown className="absolute right-4 top-4 w-5 h-5 text-slate-400 pointer-events-none" />
-                  </div>
-                  <div className="pt-2 grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="text-[10px] font-black text-slate-400 uppercase" htmlFor="customerEmail">Billing Email</label>
-                      <input id="customerEmail" name="customerEmail" value={formData.customerEmail} onChange={handleChange} className="w-full px-4 py-2 bg-slate-50 border rounded-xl font-bold text-sm outline-none" placeholder="email@example.com" />
+
+                    {/* Right: Pick and Drop summary */}
+                    <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4 w-full md:w-auto border-t md:border-t-0 md:border-l border-slate-100 pt-3 md:pt-0 md:pl-4">
+                      <div>
+                        <span className="text-[10px] font-black text-emerald-600 uppercase tracking-widest flex items-center gap-1"><MapPin className="w-3 h-3"/> Pick</span>
+                        <div className="text-sm font-bold text-slate-800 mt-1 truncate max-w-[250px]">{leg.from || 'Not set'}</div>
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-black text-rose-600 uppercase tracking-widest flex items-center gap-1"><MapPin className="w-3 h-3"/> Drop</span>
+                        <div className="text-sm font-bold text-slate-800 mt-1 truncate max-w-[250px]">{leg.to || 'Not set'}</div>
+                      </div>
                     </div>
-                    <div>
-                      <label className="text-[10px] font-black text-slate-400 uppercase" htmlFor="customerPhone">Phone</label>
-                      <input id="customerPhone" name="customerPhone" value={formData.customerPhone} onChange={handleChange} className="w-full px-4 py-2 bg-slate-50 border rounded-xl font-bold text-sm outline-none" placeholder="Phone Number" />
-                    </div>
-                  </div>
-                </div>
-                {recurringTemplate && (
-                  <div className="mt-3 bg-green-50 p-3 rounded-xl border border-green-100 flex items-center gap-3">
-                    <CheckCircle2 className="w-5 h-5 text-green-600" />
-                    <div className="flex-1 text-[10px] font-bold text-green-800">
-                      Recurring shipment to <span className="underline">{formData.legs?.[0]?.to?.split(' - ')[0]}</span> detected.
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFormData(prev => ({
-                          ...prev,
-                          shippingLine: recurringTemplate.shippingLine || prev.shippingLine,
-                          size: recurringTemplate.size || prev.size,
-                          weight: recurringTemplate.weight || prev.weight,
-                          poNumber: recurringTemplate.poNumber || prev.poNumber,
-                          pickupNo: recurringTemplate.pickupNo || prev.pickupNo,
-                          customerRefNo: recurringTemplate.customerRefNo || prev.customerRefNo,
-                          customerEmail: recurringTemplate.customerEmail || prev.customerEmail,
-                          customerPhone: recurringTemplate.customerPhone || prev.customerPhone,
-                          legs: recurringTemplate.legs?.length > 0 ? recurringTemplate.legs.map(leg => ({
-                            ...createDefaultLeg(),
-                            from: leg.from,
-                            to: leg.to,
-                            driverName: leg.driverName,
-                            truckNo: leg.truckNo
-                          })) : prev.legs,
-                          notes: recurringTemplate.notes || prev.notes
-                        }));
-                        setRecurringTemplate(null);
-                      }}
-                      className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-[10px] font-black uppercase"
-                    >
-                      Use Template
+
+                    {/* Far Right: Delete */}
+                    <button type="button" onClick={() => { if(window.confirm('Remove this leg?')) removeLeg(leg.id); }} className="p-2 bg-red-50 text-red-500 rounded-full hover:bg-red-100 transition-colors">
+                      <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
-                )}
+                ))}
               </div>
+            </div>
+          )}
 
-              {/* Pre-Pull Section */}
+                    {/* ===== PAGE 4: BILLING & CHARGES ===== */}
+          {activeStep === 'step4' && (
+            <div className="animate-in fade-in space-y-8">
+              
+              {/* Pre-Pull Option */}
               <div className="space-y-4 bg-purple-50/30 p-6 rounded-[32px] border border-purple-100">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Clock className="w-4 h-4 text-purple-600" />
                     <h3 className="font-black text-xs uppercase tracking-widest text-purple-900">Pre-Pull Option</h3>
-                    {formData.isPrePull && formData.prePullRate > 0 && (
-                      <span className="text-[9px] font-bold text-purple-600 ml-2">
-                        ({currencySymbol}{formData.prePullRate})
-                      </span>
-                    )}
                   </div>
-                  <label className="flex items-center gap-2 cursor-pointer bg-white px-4 py-2 rounded-xl border border-purple-200 hover:bg-purple-50 transition-colors">
-                    <input
-                      type="checkbox"
-                      name="isPrePull"
-                      checked={formData.isPrePull || false}
-                      onChange={(e) => {
+                  <label className="flex items-center gap-2 cursor-pointer bg-white px-4 py-2 rounded-xl border border-purple-200">
+                    <input type="checkbox" name="isPrePull" checked={formData.isPrePull || false} onChange={(e) => {
                         const checked = e.target.checked;
                         setFormData(prev => ({ ...prev, isPrePull: checked }));
                         if (checked) {
                           const rateData = getCustomerRate(formData.customerName, 'prepull');
                           if (rateData && rateData.rate > 0) {
-                            setFormData(prev => ({
-                              ...prev,
-                              prePullRate: rateData.rate,
-                              prePullAmount: rateData.rate,
-                              prePullChargeAdded: true
-                            }));
+                            setFormData(prev => ({ ...prev, prePullRate: rateData.rate, prePullAmount: rateData.rate, prePullChargeAdded: true }));
                             addExtraChargeItem('Pre-Pull Fee', rateData.rate);
-                            if (setFeedback) setFeedback(`✅ Pre-Pull fee added: ${rateData.rate}`);
                           } else {
                             const manualRate = prompt(`No pre-pull rate set for ${formData.customerName || 'this customer'}. Enter rate manually:`, '0');
                             if (manualRate && parseFloat(manualRate) > 0) {
@@ -3432,367 +3036,111 @@ const LoadForm = ({
                               addExtraChargeItem('Pre-Pull Fee', parseFloat(manualRate));
                             } else {
                               setFormData(prev => ({ ...prev, isPrePull: false }));
-                              if (setFeedback) setFeedback('⚠️ Pre-Pull rate required. Please set it in the customer profile.');
+                              setFeedback('⚠️ Pre-Pull rate required. Please set it in the customer profile.');
                             }
                           }
                         } else {
                           removeExtraChargeItem('Pre-Pull Fee');
-                          setFormData(prev => ({
-                            ...prev,
-                            prePullRate: 0,
-                            prePullAmount: 0,
-                            prePullChargeAdded: false
-                          }));
-                          if (setFeedback) setFeedback('✅ Pre-Pull fee removed');
+                          setFormData(prev => ({ ...prev, prePullRate: 0, prePullAmount: 0, prePullChargeAdded: false }));
                         }
-                      }}
-                      className="w-4 h-4 text-purple-600 border-purple-300 rounded focus:ring-purple-500 cursor-pointer"
-                    />
-                    <span className="text-[10px] font-black text-purple-700 uppercase tracking-wider">
-                      {formData.isPrePull ? '✅ Pre-Pull Required' : 'Mark for Pre-Pull'}
-                    </span>
+                      }} className="w-4 h-4 text-purple-600 rounded cursor-pointer" />
+                    <span className="text-[10px] font-black text-purple-700 uppercase">{formData.isPrePull ? '✅ Required' : 'Mark for Pre-Pull'}</span>
                   </label>
                 </div>
                 {formData.isPrePull && (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-2 duration-200">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 animate-in fade-in slide-in-from-top-2 duration-200">
                     <div className="space-y-1">
                       <label className="text-[10px] font-black text-purple-700/70 uppercase">Pre-Pull Date</label>
-                      <input
-                        type="date"
-                        name="prePullDate"
-                        value={formData.prePullDate || ''}
-                        onChange={handleChange}
-                        className="w-full px-4 py-3 bg-white border border-purple-200/50 rounded-2xl font-bold outline-none focus:ring-2 focus:ring-purple-200 transition-all text-purple-900"
-                      />
-                      <p className="text-[9px] font-medium text-purple-600/70 mt-1">
-                        Container must be pre-pulled by this date
-                      </p>
+                      <input type="date" name="prePullDate" value={formData.prePullDate || ''} onChange={handleChange} className="w-full px-4 py-3 bg-white border border-purple-200/50 rounded-2xl font-bold outline-none" />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-[10px] font-black text-purple-700/70 uppercase">Pre-Pull Status</label>
-                      <div className="bg-white p-3 rounded-2xl border border-purple-200/50 flex items-center gap-2">
-                        <div className={`w-2.5 h-2.5 rounded-full ${formData.prePullDate && new Date(formData.prePullDate) < new Date() ? 'bg-red-500' : 'bg-yellow-500'}`}></div>
-                        <span className="text-xs font-bold text-slate-700">
-                          {formData.prePullDate
-                            ? new Date(formData.prePullDate) < new Date()
-                              ? '⚠️ OVERDUE - Action Required!'
-                              : `⏳ Due by ${new Date(formData.prePullDate).toLocaleDateString()}`
-                            : '📅 No date set'}
-                        </span>
+                      <label className="text-[10px] font-black text-purple-700/70 uppercase">Pre-Pull Fee</label>
+                      <div className="bg-white p-3 rounded-2xl border border-purple-200/50 flex items-center justify-between">
+                        <span className="text-sm font-black text-purple-900">{currencySymbol}{formData.prePullAmount || formData.prePullRate || 0}</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const newRate = prompt(`Enter new pre-pull rate (current: ${formData.prePullRate || 0}):`, formData.prePullRate || 0);
+                            if (newRate && parseFloat(newRate) > 0) {
+                              const rate = parseFloat(newRate);
+                              setFormData(prev => ({ ...prev, prePullRate: rate, prePullAmount: rate }));
+                              removeExtraChargeItem('Pre-Pull Fee');
+                              addExtraChargeItem('Pre-Pull Fee', rate);
+                              setFeedback(`✅ Pre-Pull rate updated to ${rate}`);
+                            }
+                          }}
+                          className="text-[10px] font-bold text-blue-600 hover:underline"
+                        >
+                          Edit Rate
+                        </button>
                       </div>
                     </div>
-                    {formData.prePullRate > 0 && (
-                      <div className="md:col-span-2 bg-purple-50 p-3 rounded-xl border border-purple-200">
-                        <div className="flex justify-between items-center">
-                          <span className="text-xs font-bold text-purple-700">Pre-Pull Fee:</span>
-                          <span className="text-sm font-black text-purple-900">{currencySymbol}{formData.prePullAmount || formData.prePullRate}</span>
-                        </div>
-                        <div className="flex items-center gap-2 mt-1">
-                          <span className="text-[9px] text-purple-500">Rate: {currencySymbol}{formData.prePullRate}</span>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const newRate = prompt(`Enter new pre-pull rate (current: ${formData.prePullRate}):`, formData.prePullRate);
-                              if (newRate && parseFloat(newRate) > 0) {
-                                const rate = parseFloat(newRate);
-                                setFormData(prev => ({
-                                  ...prev,
-                                  prePullRate: rate,
-                                  prePullAmount: rate
-                                }));
-                                removeExtraChargeItem('Pre-Pull Fee');
-                                addExtraChargeItem('Pre-Pull Fee', rate);
-                                if (setFeedback) setFeedback(`✅ Pre-Pull rate updated to ${rate}`);
-                              }
-                            }}
-                            className="text-[9px] text-blue-500 hover:text-blue-700"
-                          >
-                            Edit Rate
-                          </button>
-                        </div>
-                      </div>
-                    )}
                   </div>
                 )}
               </div>
 
+              
               {/* Extra Charges */}
               <div className="space-y-4 bg-teal-50/30 p-6 rounded-[32px] border border-teal-100">
-                <div className="flex items-center gap-2">
-                  <DollarSign className="w-4 h-4 text-teal-600" />
-                  <h3 className="font-black text-xs uppercase tracking-widest text-teal-900">Extra Charges</h3>
-                </div>
+                <div className="flex items-center gap-2"><DollarSign className="w-4 h-4 text-teal-600" /><h3 className="font-black text-xs uppercase tracking-widest text-teal-900">Extra Charges</h3></div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <label className="flex items-center gap-3 cursor-pointer bg-white px-4 py-3 rounded-xl border border-teal-200 hover:bg-teal-50 transition-colors">
-                    <input
-                      type="checkbox"
-                      checked={formData.isStopOff || false}
-                      onChange={(e) => {
+                  <label className="flex items-center gap-3 cursor-pointer bg-white px-4 py-3 rounded-xl border border-teal-200">
+                    <input type="checkbox" checked={formData.isStopOff || false} onChange={(e) => {
                         setFormData(prev => ({ ...prev, isStopOff: e.target.checked }));
                         if (e.target.checked) {
                           const rateData = getCustomerRate(formData.customerName, 'stopOff');
-                          if (rateData && rateData.rate > 0) {
-                            addExtraChargeItem('Stop Off Fee', rateData.rate);
-                          } else {
-                            const manualRate = prompt(`No stop off rate set for ${formData.customerName || 'this customer'}. Enter rate manually:`, '0');
-                            if (manualRate && parseFloat(manualRate) > 0) {
-                              addExtraChargeItem('Stop Off Fee', parseFloat(manualRate));
-                            } else {
-                              setFormData(prev => ({ ...prev, isStopOff: false }));
-                              if (setFeedback) setFeedback('⚠️ Stop Off rate required. Please set it in the customer profile.');
-                            }
-                          }
-                        } else {
-                          removeExtraChargeItem('Stop Off Fee');
-                        }
-                      }}
-                      className="w-4 h-4 text-teal-600 border-teal-300 rounded focus:ring-teal-500 cursor-pointer"
-                    />
-                    <span className="text-[10px] font-black text-teal-700 uppercase tracking-wider">Stop Off</span>
-                    {formData.isStopOff && (
-                      <span className="text-[9px] font-bold text-teal-500 ml-auto">
-                        {(() => {
-                          const rateData = getCustomerRate(formData.customerName, 'stopOff');
-                          const rate = rateData?.rate || 0;
-                          const currency = rateData?.currency || 'CAD';
-                          return rate > 0 ? `(${currency === 'USD' ? 'US$' : 'C$'}${rate})` : '⚠️ No rate set';
-                        })()}
-                      </span>
-                    )}
+                          if (rateData && rateData.rate > 0) { addExtraChargeItem('Stop Off Fee', rateData.rate); }
+                        } else { removeExtraChargeItem('Stop Off Fee'); }
+                      }} className="w-4 h-4 text-teal-600 rounded cursor-pointer" />
+                    <span className="text-[10px] font-black text-teal-700 uppercase">Stop Off</span>
                   </label>
                   <div className="bg-white p-4 rounded-xl border border-teal-200">
                     <div className="flex items-center gap-3">
-                      <input
-                        type="checkbox"
-                        checked={formData.isYardStorage || false}
-                        onChange={(e) => {
+                      <input type="checkbox" checked={formData.isYardStorage || false} onChange={(e) => {
                           const checked = e.target.checked;
                           setFormData(prev => ({ ...prev, isYardStorage: checked }));
                           if (checked) {
                             const rateData = getCustomerRate(formData.customerName, 'yardStorage');
                             if (rateData && rateData.rate > 0) {
-                              const today = new Date().toISOString().split('T')[0];
-                              setFormData(prev => ({
-                                ...prev,
-                                yardStorageStartDate: today,
-                                yardStorageDailyRate: rateData.rate,
-                                yardStorageRate: rateData.rate,
-                                yardStorageDays: 1
-                              }));
+                              setFormData(prev => ({ ...prev, yardStorageStartDate: new Date().toISOString().split('T')[0], yardStorageDailyRate: rateData.rate, yardStorageRate: rateData.rate, yardStorageDays: 1 }));
                               addExtraChargeItem('Yard Storage', rateData.rate);
-                              if (setFeedback) setFeedback(`✅ Yard storage started today at ${rateData.rate}/day`);
-                            } else {
-                              const manualRate = prompt(`No yard storage rate set for ${formData.customerName || 'this customer'}. Enter rate per day:`, '0');
-                              if (manualRate && parseFloat(manualRate) > 0) {
-                                const today = new Date().toISOString().split('T')[0];
-                                setFormData(prev => ({
-                                  ...prev,
-                                  yardStorageStartDate: today,
-                                  yardStorageDailyRate: parseFloat(manualRate),
-                                  yardStorageRate: parseFloat(manualRate),
-                                  yardStorageDays: 1
-                                }));
-                                addExtraChargeItem('Yard Storage', parseFloat(manualRate));
-                              } else {
-                                setFormData(prev => ({ ...prev, isYardStorage: false }));
-                                if (setFeedback) setFeedback('⚠️ Yard storage rate required. Please set it in the customer profile.');
-                              }
                             }
                           } else {
                             removeExtraChargeItem('Yard Storage');
-                            setFormData(prev => ({
-                              ...prev,
-                              yardStorageDays: 0,
-                              yardStorageRate: 0,
-                              yardStorageAmount: 0,
-                              yardStorageStartDate: '',
-                              yardStorageEndDate: ''
-                            }));
+                            setFormData(prev => ({ ...prev, yardStorageDays: 0, yardStorageRate: 0, yardStorageAmount: 0, yardStorageStartDate: '' }));
                           }
-                        }}
-                        className="w-4 h-4 text-teal-600 border-teal-300 rounded focus:ring-teal-500 cursor-pointer"
-                      />
-                      <span className="text-[10px] font-black text-teal-700 uppercase tracking-wider">Yard Storage</span>
-                      {formData.isYardStorage && (
-                        <span className="text-[9px] font-bold text-teal-500 ml-auto">
-                          {(() => {
-                            const rateData = getCustomerRate(formData.customerName, 'yardStorage');
-                            const rate = rateData?.rate || formData.yardStorageDailyRate || 0;
-                            const currency = rateData?.currency || 'CAD';
-                            return rate > 0 ? `(${currency === 'USD' ? 'US$' : 'C$'}${rate}/day)` : '⚠️ No rate set';
-                          })()}
-                        </span>
-                      )}
+                        }} className="w-4 h-4 text-teal-600 rounded cursor-pointer" />
+                      <span className="text-[10px] font-black text-teal-700 uppercase">Yard Storage</span>
                     </div>
                     {formData.isYardStorage && (
                       <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
-                        <div className="bg-slate-50 p-2 rounded flex items-center gap-2">
-                          <span className="text-slate-400">Days: </span>
-                          <input
-                            type="number"
-                            min="1"
-                            value={formData.yardStorageDays || 1}
-                            onChange={(e) => {
-                              const days = parseInt(e.target.value) || 1;
-                              const rate = formData.yardStorageDailyRate || formData.yardStorageRate || 0;
-                              const amount = days * rate;
-                              setFormData(prev => ({
-                                ...prev,
-                                yardStorageDays: days,
-                                yardStorageAmount: amount
-                              }));
-                              removeExtraChargeItem('Yard Storage');
-                              if (amount > 0) {
-                                addExtraChargeItem('Yard Storage', amount);
-                              }
-                            }}
-                            className="w-12 px-1 py-0.5 border rounded text-center font-bold bg-white"
-                          />
-                        </div>
-                        <div className="bg-slate-50 p-2 rounded">
-                          <span className="text-slate-400">Rate: </span>
-                          <span className="font-bold">{currencySymbol}{formData.yardStorageRate || 0}/day</span>
-                        </div>
-                        {formData.yardStorageStartDate && (
-                          <div className="bg-slate-50 p-2 rounded col-span-2">
-                            <span className="text-slate-400">Started: </span>
-                            <span className="font-bold">{new Date(formData.yardStorageStartDate).toLocaleDateString()}</span>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const newDate = prompt('Enter new start date (YYYY-MM-DD):', formData.yardStorageStartDate);
-                                if (newDate) {
-                                  setFormData(prev => ({ ...prev, yardStorageStartDate: newDate }));
-                                  setTimeout(calculateExtraChargeDays, 100);
-                                }
-                              }}
-                              className="ml-2 text-blue-500 hover:text-blue-700 text-[9px]"
-                            >
-                              Edit
-                            </button>
-                          </div>
-                        )}
-                        <div className="col-span-2 bg-teal-50 p-2 rounded text-center font-bold text-teal-700">
-                          Total: {currencySymbol}{formData.yardStorageAmount || 0}
-                        </div>
+                        <div className="bg-slate-50 p-2 rounded"><span className="text-slate-400">Days: </span><input type="number" min="1" value={formData.yardStorageDays || 1} onChange={(e) => { const days = parseInt(e.target.value) || 1; const amount = days * (formData.yardStorageDailyRate || 0); setFormData(prev => ({ ...prev, yardStorageDays: days, yardStorageAmount: amount })); removeExtraChargeItem('Yard Storage'); if (amount > 0) addExtraChargeItem('Yard Storage', amount); }} className="w-12 px-1 py-0.5 border rounded text-center font-bold" /></div>
+                        <div className="bg-slate-50 p-2 rounded"><span className="text-slate-400">Total: </span><span className="font-bold">{currencySymbol}{formData.yardStorageAmount || 0}</span></div>
                       </div>
                     )}
                   </div>
                   <div className="bg-white p-4 rounded-xl border border-teal-200 md:col-span-2">
                     <div className="flex items-center gap-3">
-                      <input
-                        type="checkbox"
-                        checked={formData.isChassis || false}
-                        onChange={(e) => {
+                      <input type="checkbox" checked={formData.isChassis || false} onChange={(e) => {
                           const checked = e.target.checked;
                           setFormData(prev => ({ ...prev, isChassis: checked }));
                           if (checked) {
                             const rateData = getCustomerRate(formData.customerName, 'chassis');
                             if (rateData && rateData.rate > 0) {
-                              const today = new Date().toISOString().split('T')[0];
-                              setFormData(prev => ({
-                                ...prev,
-                                chassisStartDate: today,
-                                chassisDailyRate: rateData.rate,
-                                chassisRate: rateData.rate,
-                                chassisDays: 1
-                              }));
+                              setFormData(prev => ({ ...prev, chassisStartDate: new Date().toISOString().split('T')[0], chassisDailyRate: rateData.rate, chassisRate: rateData.rate, chassisDays: 1 }));
                               addExtraChargeItem('Chassis Rental', rateData.rate);
-                              if (setFeedback) setFeedback(`✅ Chassis rental started today at ${rateData.rate}/day`);
-                            } else {
-                              const manualRate = prompt(`No chassis rate set for ${formData.customerName || 'this customer'}. Enter rate per day:`, '0');
-                              if (manualRate && parseFloat(manualRate) > 0) {
-                                const today = new Date().toISOString().split('T')[0];
-                                setFormData(prev => ({
-                                  ...prev,
-                                  chassisStartDate: today,
-                                  chassisDailyRate: parseFloat(manualRate),
-                                  chassisRate: parseFloat(manualRate),
-                                  chassisDays: 1
-                                }));
-                                addExtraChargeItem('Chassis Rental', parseFloat(manualRate));
-                              } else {
-                                setFormData(prev => ({ ...prev, isChassis: false }));
-                                if (setFeedback) setFeedback('⚠️ Chassis rate required. Please set it in the customer profile.');
-                              }
                             }
                           } else {
                             removeExtraChargeItem('Chassis Rental');
-                            setFormData(prev => ({
-                              ...prev,
-                              chassisDays: 0,
-                              chassisRate: 0,
-                              chassisAmount: 0,
-                              chassisStartDate: '',
-                              chassisEndDate: ''
-                            }));
+                            setFormData(prev => ({ ...prev, chassisDays: 0, chassisRate: 0, chassisAmount: 0, chassisStartDate: '' }));
                           }
-                        }}
-                        className="w-4 h-4 text-teal-600 border-teal-300 rounded focus:ring-teal-500 cursor-pointer"
-                      />
-                      <span className="text-[10px] font-black text-teal-700 uppercase tracking-wider">Chassis Rental</span>
-                      {formData.isChassis && (
-                        <span className="text-[9px] font-bold text-teal-500 ml-auto">
-                          {(() => {
-                            const rateData = getCustomerRate(formData.customerName, 'chassis');
-                            const rate = rateData?.rate || formData.chassisDailyRate || 0;
-                            const currency = rateData?.currency || 'CAD';
-                            return rate > 0 ? `(${currency === 'USD' ? 'US$' : 'C$'}${rate}/day)` : '⚠️ No rate set';
-                          })()}
-                        </span>
-                      )}
+                        }} className="w-4 h-4 text-teal-600 rounded cursor-pointer" />
+                      <span className="text-[10px] font-black text-teal-700 uppercase">Chassis Rental</span>
                     </div>
                     {formData.isChassis && (
                       <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
-                        <div className="bg-slate-50 p-2 rounded flex items-center gap-2">
-                          <span className="text-slate-400">Days: </span>
-                          <input
-                            type="number"
-                            min="1"
-                            value={formData.chassisDays || 1}
-                            onChange={(e) => {
-                              const days = parseInt(e.target.value) || 1;
-                              const rate = formData.chassisDailyRate || formData.chassisRate || 0;
-                              const amount = days * rate;
-                              setFormData(prev => ({
-                                ...prev,
-                                chassisDays: days,
-                                chassisAmount: amount
-                              }));
-                              removeExtraChargeItem('Chassis Rental');
-                              if (amount > 0) {
-                                addExtraChargeItem('Chassis Rental', amount);
-                              }
-                            }}
-                            className="w-12 px-1 py-0.5 border rounded text-center font-bold bg-white"
-                          />
-                        </div>
-                        <div className="bg-slate-50 p-2 rounded">
-                          <span className="text-slate-400">Rate: </span>
-                          <span className="font-bold">{currencySymbol}{formData.chassisRate || 0}/day</span>
-                        </div>
-                        {formData.chassisStartDate && (
-                          <div className="bg-slate-50 p-2 rounded col-span-2">
-                            <span className="text-slate-400">Started: </span>
-                            <span className="font-bold">{new Date(formData.chassisStartDate).toLocaleDateString()}</span>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const newDate = prompt('Enter new start date (YYYY-MM-DD):', formData.chassisStartDate);
-                                if (newDate) {
-                                  setFormData(prev => ({ ...prev, chassisStartDate: newDate }));
-                                  setTimeout(calculateExtraChargeDays, 100);
-                                }
-                              }}
-                              className="ml-2 text-blue-500 hover:text-blue-700 text-[9px]"
-                            >
-                              Edit
-                            </button>
-                          </div>
-                        )}
-                        <div className="col-span-2 bg-teal-50 p-2 rounded text-center font-bold text-teal-700">
-                          Total: {currencySymbol}{formData.chassisAmount || 0}
-                        </div>
+                        <div className="bg-slate-50 p-2 rounded"><span className="text-slate-400">Days: </span><input type="number" min="1" value={formData.chassisDays || 1} onChange={(e) => { const days = parseInt(e.target.value) || 1; const amount = days * (formData.chassisDailyRate || 0); setFormData(prev => ({ ...prev, chassisDays: days, chassisAmount: amount })); removeExtraChargeItem('Chassis Rental'); if (amount > 0) addExtraChargeItem('Chassis Rental', amount); }} className="w-12 px-1 py-0.5 border rounded text-center font-bold" /></div>
+                        <div className="bg-slate-50 p-2 rounded"><span className="text-slate-400">Total: </span><span className="font-bold">{currencySymbol}{formData.chassisAmount || 0}</span></div>
                       </div>
                     )}
                   </div>
@@ -3802,959 +3150,354 @@ const LoadForm = ({
               {/* Financials */}
               <div className="bg-slate-50 p-8 rounded-[32px] border border-slate-100 space-y-8">
                 <div className="flex justify-between items-center border-b border-slate-200 pb-4">
-                  <h3 className="font-black text-sm uppercase tracking-widest flex items-center gap-2 text-slate-800">
-                    <Wallet className="w-5 h-5 text-green-600"/> Financials (Rate & Cost)
-                  </h3>
+                  <h3 className="font-black text-sm uppercase tracking-widest flex items-center gap-2 text-slate-800"><Wallet className="w-5 h-5 text-green-600"/> Financials (Rate & Cost)</h3>
                   <div className="text-right flex items-center gap-6">
-                    <div>
-                      <div className="text-[10px] font-bold text-slate-400 uppercase">Total Revenue</div>
-                      <div className="text-sm font-black text-slate-800">{currencySymbol}{calculateTotal(formData)}</div>
-                    </div>
-                    <div>
-                      <div className="text-[10px] font-bold text-slate-400 uppercase">Total Cost</div>
-                      <div className="text-sm font-black text-red-500">{currencySymbol}{calculateCost(formData)}</div>
-                    </div>
-                    <div className="bg-green-100 px-4 py-2 rounded-xl">
-                      <div className="text-[10px] font-black text-green-600 uppercase">Net Profit</div>
-                      <div className="text-xl font-black text-green-700 tracking-tighter">{currencySymbol}{calculateProfit(formData)}</div>
-                    </div>
+                    <div><div className="text-[10px] font-bold text-slate-400 uppercase">Total Revenue</div><div className="text-sm font-black text-slate-800">{currencySymbol}{calculateTotal(formData)}</div></div>
+                    <div><div className="text-[10px] font-bold text-slate-400 uppercase">Total Cost</div><div className="text-sm font-black text-red-500">{currencySymbol}{calculateCost(formData)}</div></div>
+                    <div className="bg-green-100 px-4 py-2 rounded-xl"><div className="text-[10px] font-black text-green-600 uppercase">Net Profit</div><div className="text-xl font-black text-green-700 tracking-tighter">{currencySymbol}{calculateProfit(formData)}</div></div>
                   </div>
                 </div>
-                <div className="space-y-8">
-                  <div>
-                    <div className="flex justify-between items-end mb-3">
-                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">1. Revenue Breakdown (Charged to Customer)</label>
-                      <button
-                        type="button"
-                        onClick={addRevenueItem}
-                        className="text-[10px] font-black text-blue-600 uppercase hover:underline transition-all disabled:opacity-50"
-                        disabled={isFinancialLocked}
-                      >
-                        + Add Item
-                      </button>
-                    </div>
-                    <div className="space-y-3">
-                      {(formData.revenueItems || []).map((item) => (
-                        <div key={item.id} className="flex flex-col md:flex-row gap-3 items-start md:items-center">
-                          <div className="flex-1 w-full">
-                            <input
-                              disabled={isFinancialLocked}
-                              value={item.item}
-                              onChange={e => handleLineItemChange('revenue', item.id, 'item', e.target.value)}
-                              placeholder="Item Description"
-                              className="w-full px-4 py-2.5 bg-white border border-green-200 rounded-xl font-bold text-sm outline-none disabled:opacity-50 disabled:bg-slate-100"
-                              list="basePriceLocations"
-                            />
-                            <datalist id="basePriceLocations">
-                              {savedBasePrices && savedBasePrices.map((bp) => (
-                                <option key={bp.id} value={bp.location}>
-                                  {bp.location} {bp.price ? `(${bp.currency === 'USD' ? 'US$' : 'C$'}${bp.price})` : '(Price not set)'}
-                                </option>
-                              ))}
-                            </datalist>
-                          </div>
-                          <div className="w-full md:w-24 shrink-0">
-                            <input
-                              disabled={isFinancialLocked}
-                              type="number"
-                              step="0.01"
-                              value={item.qty}
-                              onChange={e => handleLineItemChange('revenue', item.id, 'qty', e.target.value)}
-                              placeholder="Qty"
-                              className="w-full px-4 py-2.5 bg-white border border-green-200 rounded-xl font-bold text-sm outline-none disabled:opacity-50 disabled:bg-slate-100 text-center"
-                            />
-                          </div>
-                          <div className="w-full md:w-32 shrink-0">
-                            <input
-                              disabled={isFinancialLocked}
-                              type="number"
-                              step="0.01"
-                              value={item.rate}
-                              onChange={e => handleLineItemChange('revenue', item.id, 'rate', e.target.value)}
-                              placeholder={`Rate (${currencySymbol})`}
-                              className="w-full px-4 py-2.5 bg-white border border-green-200 rounded-xl font-bold text-sm outline-none disabled:opacity-50 disabled:bg-slate-100 text-right"
-                            />
-                          </div>
-                          <div className="w-full md:w-32 shrink-0">
-                            <input
-                              disabled={isFinancialLocked}
-                              type="number"
-                              step="0.01"
-                              value={item.amount}
-                              onChange={e => handleLineItemChange('revenue', item.id, 'amount', e.target.value)}
-                              placeholder={`Amount (${currencySymbol})`}
-                              className="w-full px-4 py-2.5 bg-white border border-green-300 rounded-xl font-black text-green-700 text-sm outline-none disabled:opacity-50 disabled:bg-slate-100 text-right"
-                            />
-                          </div>
-                          <button
-                            type="button"
-                            disabled={isFinancialLocked}
-                            onClick={() => removeRevenueItem(item.id)}
-                            className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-xl disabled:opacity-50"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      ))}
-                      {(formData.revenueItems?.length === 0) && (
-                        <div className="text-xs text-slate-400 italic font-bold py-2">No revenue items added.</div>
-                      )}
-                    </div>
-                  </div>
-                  <div className="pt-6 border-t border-slate-100">
-                    <div className="flex justify-between items-end mb-3">
-                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">2. Cost Breakdown (Manual Expenses)</label>
-                      <button
-                        type="button"
-                        onClick={addExpenseItem}
-                        className="text-[10px] font-black text-red-600 uppercase hover:underline transition-all disabled:opacity-50"
-                        disabled={isFinancialLocked}
-                      >
-                        + Add Expense
-                      </button>
-                    </div>
-                    <div className="space-y-3">
-                      {(formData.expenseItems || []).map((item) => (
-                        <div key={item.id} className="flex flex-col md:flex-row gap-3 items-start md:items-center">
-                          <div className="flex-1 w-full">
-                            <input
-                              disabled={isFinancialLocked}
-                              value={item.item}
-                              onChange={e => handleLineItemChange('expense', item.id, 'item', e.target.value)}
-                              placeholder="Expense Description"
-                              className="w-full px-4 py-2.5 bg-white border border-red-200 rounded-xl font-bold text-sm outline-none disabled:opacity-50 disabled:bg-slate-100"
-                            />
-                          </div>
-                          <div className="w-full md:w-24 shrink-0">
-                            <input
-                              disabled={isFinancialLocked}
-                              type="number"
-                              step="0.01"
-                              value={item.qty}
-                              onChange={e => handleLineItemChange('expense', item.id, 'qty', e.target.value)}
-                              placeholder="Qty"
-                              className="w-full px-4 py-2.5 bg-white border border-red-200 rounded-xl font-bold text-sm outline-none disabled:opacity-50 disabled:bg-slate-100 text-center"
-                            />
-                          </div>
-                          <div className="w-full md:w-32 shrink-0">
-                            <input
-                              disabled={isFinancialLocked}
-                              type="number"
-                              step="0.01"
-                              value={item.rate}
-                              onChange={e => handleLineItemChange('expense', item.id, 'rate', e.target.value)}
-                              placeholder={`Rate (${currencySymbol})`}
-                              className="w-full px-4 py-2.5 bg-white border border-red-200 rounded-xl font-bold text-sm outline-none disabled:opacity-50 disabled:bg-slate-100 text-right"
-                            />
-                          </div>
-                          <div className="w-full md:w-32 shrink-0">
-                            <input
-                              disabled={isFinancialLocked}
-                              type="number"
-                              step="0.01"
-                              value={item.amount}
-                              onChange={e => handleLineItemChange('expense', item.id, 'amount', e.target.value)}
-                              placeholder={`Amount (${currencySymbol})`}
-                              className="w-full px-4 py-2.5 bg-white border border-red-300 rounded-xl font-black text-red-700 text-sm outline-none disabled:opacity-50 disabled:bg-slate-100 text-right"
-                            />
-                          </div>
-                          <button
-                            type="button"
-                            disabled={isFinancialLocked}
-                            onClick={() => removeExpenseItem(item.id)}
-                            className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-xl disabled:opacity-50"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      ))}
-                      {(formData.expenseItems?.length === 0) && (
-                        <div className="text-xs text-slate-400 italic font-bold py-2">No extra manual expenses added. Trip legs cost is tracked separately.</div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-                            {/* Trip Legs */}
-              <div className="space-y-6">
-                <div className="flex justify-between items-center flex-wrap gap-2">
-                  <h3 className="font-black text-xs uppercase tracking-widest text-slate-700">Trip Legs & Dispatching</h3>
-                  <div className="flex items-center gap-2">
-                    <div className="relative template-dropdown-container" ref={templateDropdownRef}>
-                      <button
-                        type="button"
-                        onClick={() => setShowTemplateDropdown(!showTemplateDropdown)}
-                        className="px-4 py-2 bg-indigo-50 border border-indigo-200 rounded-xl text-xs font-bold text-indigo-700 hover:bg-indigo-100 transition-all flex items-center gap-2 shadow-sm"
-                      >
-                        <FileText className="w-4 h-4" />
-                        {selectedTemplate ? PRE_PULL_TEMPLATES.find(t => t.id === selectedTemplate)?.name || 'Templates' : '📋 Templates'}
-                        <ChevronDown className={`w-4 h-4 transition-transform ${showTemplateDropdown ? 'rotate-180' : ''}`} />
-                      </button>
-                      {showTemplateDropdown && (
-                        <div className="absolute right-0 top-full mt-2 w-80 bg-white border border-slate-200 rounded-xl shadow-xl z-50 max-h-80 overflow-y-auto">
-                          <div className="p-2 border-b border-slate-100 bg-slate-50">
-                            <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Auto-Create Legs</div>
-                          </div>
-                          {PRE_PULL_TEMPLATES.map(template => (
-                            <button
-                              key={template.id}
-                              type="button"
-                              onClick={() => applyTemplate(template.id)}
-                              className="w-full px-4 py-3 text-left hover:bg-indigo-50 transition-colors flex flex-col gap-0.5 border-b border-slate-50 last:border-0"
-                            >
-                              <div className="text-xs font-bold text-slate-700">{template.name}</div>
-                              <div className="text-[10px] text-slate-400">{template.description}</div>
-                              <div className="text-[9px] text-indigo-500 font-medium mt-0.5">
-                                {template.legs.length} leg{template.legs.length > 1 ? 's' : ''}
-                              </div>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={calculateAllLegs}
-                      className="text-xs font-black text-green-600 hover:underline transition-all flex items-center gap-1 px-2 py-1 bg-green-50 rounded-lg border border-green-200"
-                    >
-                      <RefreshCw className="w-3 h-3" /> Calculate All
-                    </button>
-                    <button
-                      type="button"
-                      onClick={addLeg}
-                      className="text-xs font-black text-blue-600 hover:underline transition-all"
-                    >
-                      + Add Trip Leg
-                    </button>
-                  </div>
-                </div>
-
-                {(!formData.legs || formData.legs.length === 0) && (
-                  <div className="bg-amber-50 border-2 border-dashed border-amber-300 rounded-2xl p-8 text-center">
-                    <div className="flex flex-col items-center gap-3">
-                      <Truck className="w-12 h-12 text-amber-400" />
-                      <div className="font-black text-amber-800">No Trip Legs Added</div>
-                      <div className="text-sm text-amber-600 font-medium">Click <strong>"+ Add Trip Leg"</strong> or use <strong>"Templates"</strong> to create legs</div>
-                      <button
-                        type="button"
-                        onClick={addLeg}
-                        className="mt-2 px-6 py-2 bg-amber-600 text-white rounded-xl font-bold text-sm hover:bg-amber-700 transition-all shadow-lg shadow-amber-200"
-                      >
-                        + Add Your First Leg
-                      </button>
-                    </div>
-                  </div>
-                )}
-
                 <div className="space-y-4">
-                  {(formData.legs || []).map((leg, index) => {
-                    const isExpanded = expandedLegId === leg.id;
-                    return (
-                      <div key={leg.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden transition-all duration-200">
-                        
-                        {/* LEG HEADER - Always Visible */}
-                        <div 
-                          className="flex flex-wrap items-center justify-between gap-4 p-4 bg-white hover:bg-slate-50 transition-colors cursor-pointer" 
-                          onClick={() => setExpandedLegId(isExpanded ? null : leg.id)}
-                        >
-                          <div className="flex items-center gap-4">
-                            {/* Reorder Arrows */}
-                            <div className="flex flex-col gap-0.5">
-                              <button type="button" onClick={(e) => { e.stopPropagation(); moveLegUp(index); }} disabled={index === 0} className="p-0.5 text-slate-400 hover:text-slate-700 disabled:opacity-30">
-                                <ChevronUp className="w-3.5 h-3.5" />
-                              </button>
-                              <button type="button" onClick={(e) => { e.stopPropagation(); moveLegDown(index); }} disabled={index === formData.legs.length - 1} className="p-0.5 text-slate-400 hover:text-slate-700 disabled:opacity-30">
-                                <ChevronDown className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-
-                            {/* Action Icons */}
-                            <div className="flex items-center gap-2">
-                              <button type="button" className={`p-2 rounded-full transition-colors ${isExpanded ? 'bg-emerald-100 text-emerald-700' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'}`}>
-                                <Edit3 className="w-4 h-4" />
-                              </button>
-                              <button type="button" onClick={(e) => { e.stopPropagation(); copyDispatch(formData, leg, setFeedback); }} className="p-2 bg-blue-50 text-blue-600 rounded-full hover:bg-blue-100 transition-colors">
-                                <Copy className="w-4 h-4" />
-                              </button>
-                            </div>
-
-                            {/* Date & Time */}
-                            <div className="flex flex-col">
-                              <span className="text-sm font-bold text-slate-700">
-                                {leg.legDate ? new Date(leg.legDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Select Date'}
-                              </span>
-                              <span className="text-xs font-medium text-slate-500">
-                                {leg.arrivalTime || '00:00'} - {leg.departureTime || '00:00'}
-                              </span>
-                            </div>
-
-                            {/* Status Badge */}
-                            <span className={`px-2.5 py-1 text-[10px] font-black uppercase tracking-wider rounded-full ${
-                              leg.status === 'Dispatched' ? 'bg-blue-100 text-blue-700' :
-                              leg.status === 'Completed' ? 'bg-green-100 text-green-700' :
-                              leg.status === 'Planned' ? 'bg-yellow-100 text-yellow-700' :
-                              'bg-slate-100 text-slate-600'
-                            }`}>
-                              {leg.status || 'Planned'}
-                            </span>
-
-                            {/* Driver */}
-                            <div className="flex items-center gap-2 text-sm">
-                              <Truck className="w-4 h-4 text-slate-400" />
-                              <span className="text-slate-600">Driver:</span>
-                              <span className="font-bold text-slate-800">{leg.driverName || 'Unassigned'}</span>
-                            </div>
-                          </div>
-
-                          {/* Delete Button */}
-                          <button type="button" onClick={(e) => { e.stopPropagation(); if(window.confirm('Remove this leg?')) removeLeg(leg.id); }} className="p-2 bg-red-50 text-red-500 rounded-full hover:bg-red-100 transition-colors">
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-
-                        {/* SUMMARY ROW - Always Visible */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 px-4 pb-4 border-t border-slate-100">
-                          <div className="pt-3">
-                            <span className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">Pick</span>
-                            <div className="text-sm font-bold text-slate-800 mt-1 truncate">
-                              {leg.from ? (
-                                <>
-                                  <span className="text-slate-500 font-medium">{leg.from.split(' - ')[0]}: </span>
-                                  {leg.from.split(' - ')[1] || leg.from}
-                                </>
-                              ) : (
-                                <span className="text-slate-400 italic">Not set</span>
-                              )}
-                            </div>
-                          </div>
-                          <div className="pt-3">
-                            <span className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">Drop</span>
-                            <div className="text-sm font-bold text-slate-800 mt-1 truncate">
-                              {leg.to ? (
-                                <>
-                                  <span className="text-slate-500 font-medium">{leg.to.split(' - ')[0]}: </span>
-                                  {leg.to.split(' - ')[1] || leg.to}
-                                </>
-                              ) : (
-                                <span className="text-slate-400 italic">Not set</span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* EXPANDED DETAILS - Only visible when editing */}
-                        {isExpanded && (
-                          <div className="p-6 bg-slate-50 border-t border-slate-200 space-y-6 animate-in slide-in-from-top-2 duration-200">
-                            
-                            {/* Row 1: Date, Time, Status */}
-                            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                              <div>
-                                <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Date</label>
-                                <input type="date" value={leg.legDate || ''} onChange={e => updateLeg(leg.id, 'legDate', e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm font-bold outline-none bg-white focus:ring-2 focus:ring-blue-200" />
-                              </div>
-                              <div>
-                                <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Time (In)</label>
-                                <input type="time" value={leg.arrivalTime || ''} onChange={e => updateLeg(leg.id, 'arrivalTime', e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm font-bold outline-none bg-white focus:ring-2 focus:ring-blue-200" />
-                              </div>
-                              <div>
-                                <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Time (Out)</label>
-                                <input type="time" value={leg.departureTime || ''} onChange={e => updateLeg(leg.id, 'departureTime', e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm font-bold outline-none bg-white focus:ring-2 focus:ring-blue-200" />
-                              </div>
-                              <div>
-                                <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Status</label>
-                                <select value={leg.status} onChange={e => updateLeg(leg.id, 'status', e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm font-bold outline-none bg-white focus:ring-2 focus:ring-blue-200">
-                                  <option value="Planned">Planned</option>
-                                  <option value="Dispatched">Dispatched</option>
-                                  <option value="Completed">Completed</option>
-                                </select>
-                              </div>
-                            </div>
-
-                            {/* Row 2: Driver, Leg Type */}
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              <div>
-                                <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Driver</label>
-                                <select value={leg.driverName} onChange={e => updateLeg(leg.id, 'driverName', e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm font-bold outline-none bg-white focus:ring-2 focus:ring-blue-200">
-                                  <option value="">Select Driver...</option>
-                                  {savedDrivers.map(d => <option key={d.id} value={d.name}>{d.name} (Truck: {d.truckNo})</option>)}
-                                </select>
-                              </div>
-                              <div>
-                                <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Leg Type</label>
-                                <select value={leg.legType || 'delivery'} onChange={e => updateLeg(leg.id, 'legType', e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm font-bold outline-none bg-white focus:ring-2 focus:ring-blue-200">
-                                  <option value="delivery">📦 Delivery</option>
-                                  <option value="termination">🏁 Termination</option>
-                                </select>
-                              </div>
-                            </div>
-
-                            {/* Row 3: Pickup, Destination */}
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              <div>
-                                <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Pickup Location</label>
-                                <input type="text" value={leg.from} onChange={e => handleAddressChange(leg.id, 'from', e.target.value)} placeholder="Search location..." className="w-full px-3 py-2 border rounded-xl text-sm font-bold outline-none bg-white focus:ring-2 focus:ring-blue-200" list={'loclist-' + leg.id} />
-                                <datalist id={'loclist-' + leg.id}>{savedDestinations.map((d, i) => <option key={i} value={d.name + ' - ' + d.address}></option>)}</datalist>
-                              </div>
-                              <div>
-                                <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Destination Location</label>
-                                <input type="text" value={leg.to} onChange={e => handleAddressChange(leg.id, 'to', e.target.value)} placeholder="Search location..." className="w-full px-3 py-2 border rounded-xl text-sm font-bold outline-none bg-white focus:ring-2 focus:ring-blue-200" list={'loclist-to-' + leg.id} />
-                                <datalist id={'loclist-to-' + leg.id}>{savedDestinations.map((d, i) => <option key={i} value={d.name + ' - ' + d.address}></option>)}</datalist>
-                              </div>
-                            </div>
-
-                            {/* Row 4: Financials */}
-                            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-                              <div>
-                                <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Driver Pay</label>
-                                <div className="relative">
-                                  <input type="number" value={leg.driverPay || ''} onChange={e => updateLeg(leg.id, 'driverPay', e.target.value)} className="w-full pl-3 pr-8 py-2 border rounded-xl text-sm font-bold outline-none bg-white focus:ring-2 focus:ring-blue-200" />
-                                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-400">{leg.payType === 'hourly' ? '/hr' : '/leg'}</span>
-                                </div>
-                              </div>
-                              <div>
-                                <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Fuel Cost</label>
-                                <input type="number" value={leg.fuelCost || ''} onChange={e => updateLeg(leg.id, 'fuelCost', e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm font-bold outline-none bg-white focus:ring-2 focus:ring-blue-200" />
-                              </div>
-                              <div>
-                                <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Detention</label>
-                                <input type="number" value={leg.detentionPay || ''} onChange={e => updateLeg(leg.id, 'detentionPay', e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm font-bold outline-none bg-white focus:ring-2 focus:ring-blue-200" />
-                              </div>
-                              <div>
-                                <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Distance (km)</label>
-                                <input type="number" value={leg.totalDistance || ''} onChange={e => updateLeg(leg.id, 'totalDistance', e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm font-bold outline-none bg-white focus:ring-2 focus:ring-blue-200" />
-                              </div>
-                              <div>
-                                <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Hours</label>
-                                <input type="number" value={leg.totalHours || ''} onChange={e => updateLeg(leg.id, 'totalHours', e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm font-bold outline-none bg-white focus:ring-2 focus:ring-blue-200" />
-                              </div>
-                            </div>
-
-                            {/* Row 5: Notes & Actions */}
-                            <div>
-                              <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Notes</label>
-                              <textarea value={leg.notes || ''} onChange={e => updateLeg(leg.id, 'notes', e.target.value)} rows="2" className="w-full px-3 py-2 border rounded-xl text-sm outline-none bg-white focus:ring-2 focus:ring-blue-200" placeholder="Add leg-specific notes..."></textarea>
-                            </div>
-                            <div className="flex justify-between items-center pt-2 border-t border-slate-200">
-                              <button type="button" onClick={() => copyDispatch(formData, leg, setFeedback)} className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-700 rounded-xl text-xs font-bold hover:bg-blue-100 transition-colors">
-                                <Copy className="w-4 h-4" /> Copy Dispatch
-                              </button>
-                              <div className="text-xs text-slate-400 font-medium">
-                                Leg {index + 1} of {formData.legs.length}
-                              </div>
-                            </div>
-
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Notes & Audit */}
-              <div className="space-y-4">
-                <div className="flex justify-between items-center">
-                  <div className="flex items-center gap-2">
-                    <MessageSquare className="w-4 h-4 text-purple-600" />
-                    <h3 className="font-black text-xs uppercase tracking-widest">Notes & Instructions</h3>
+                  <div className="flex justify-between items-end mb-3">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Revenue Breakdown (Charged to Customer)</label>
+                    <button type="button" onClick={addRevenueItem} className="text-[10px] font-black text-blue-600 uppercase hover:underline" disabled={isFinancialLocked}>+ Add Item</button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={handleSmartNotes}
-                    disabled={generatingNotes}
-                    className="flex items-center gap-2 px-4 py-2 bg-purple-100 text-purple-700 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-purple-200 transition-colors"
-                  >
-                    {generatingNotes ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
-                    {generatingNotes ? "Generating..." : "Generate Smart Notes ✨"}
-                  </button>
-                </div>
-                <textarea
-                  name="notes"
-                  value={formData.notes}
-                  onChange={handleChange}
-                  className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-medium text-sm min-h-[100px] outline-none focus:ring-2 focus:ring-purple-100 transition-all"
-                  placeholder="Driver instructions, handling notes, or safety warnings..."
-                />
-              </div>
-
-              {formData.auditLog && Array.isArray(formData.auditLog) && formData.auditLog.length > 0 && (
-                <div className="bg-slate-50 p-6 rounded-[32px] border border-slate-100 space-y-4">
-                  <h3 className="font-black text-xs uppercase tracking-widest flex items-center gap-2 text-slate-800">
-                    <History className="w-4 h-4 text-slate-600"/> Audit Trail & History
-                  </h3>
-                  <div className="space-y-3 max-h-48 overflow-y-auto pr-2">
-                    {[...formData.auditLog].reverse().map((log, i) => (
-                      <div key={i} className="text-xs bg-white p-4 border border-slate-200 rounded-2xl shadow-sm">
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="font-bold text-slate-700 flex items-center gap-2">
-                            <span className="bg-slate-100 px-2 py-0.5 rounded text-[10px] uppercase text-slate-500">
-                              {log?.role || 'Unknown'}
-                            </span>
-                            {log?.user || 'Unknown'}
-                            <span className="text-slate-400 font-normal ml-1">({log?.action || 'Update'})</span>
-                          </div>
-                          <div className="text-slate-400 font-bold text-[10px]">
-                            {log?.timestamp ? new Date(log.timestamp).toLocaleString() : ''}
-                          </div>
-                        </div>
-                        {log.changes?.length > 0 && (
-                          <ul className="list-disc pl-5 space-y-1 text-slate-600 font-medium">
-                            {log.changes.map((c, j) => (
-                              <li key={j}>
-                                <span className="font-bold text-slate-800">{c.field}:</span>
-                                <span className="text-red-500 line-through mr-1">{c.from || 'empty'}</span> →
-                                <span className="text-green-600 ml-1">{c.to || 'empty'}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        )}
+                  <div className="space-y-3">
+                    {(formData.revenueItems || []).map((item) => (
+                      <div key={item.id} className="flex flex-col md:flex-row gap-3 items-start md:items-center">
+                        <div className="flex-1 w-full"><input disabled={isFinancialLocked} value={item.item} onChange={e => handleLineItemChange('revenue', item.id, 'item', e.target.value)} placeholder="Item Description" className="w-full px-4 py-2.5 bg-white border border-green-200 rounded-xl font-bold text-sm outline-none" list="basePriceLocations" /></div>
+                        <div className="w-full md:w-24 shrink-0"><input disabled={isFinancialLocked} type="number" step="0.01" value={item.qty} onChange={e => handleLineItemChange('revenue', item.id, 'qty', e.target.value)} placeholder="Qty" className="w-full px-4 py-2.5 bg-white border border-green-200 rounded-xl font-bold text-sm outline-none text-center" /></div>
+                        <div className="w-full md:w-32 shrink-0"><input disabled={isFinancialLocked} type="number" step="0.01" value={item.rate} onChange={e => handleLineItemChange('revenue', item.id, 'rate', e.target.value)} placeholder={`Rate (${currencySymbol})`} className="w-full px-4 py-2.5 bg-white border border-green-200 rounded-xl font-bold text-sm outline-none text-right" /></div>
+                        <div className="w-full md:w-32 shrink-0"><input disabled={isFinancialLocked} type="number" step="0.01" value={item.amount} onChange={e => handleLineItemChange('revenue', item.id, 'amount', e.target.value)} placeholder={`Amount (${currencySymbol})`} className="w-full px-4 py-2.5 bg-white border border-green-300 rounded-xl font-black text-green-700 text-sm outline-none text-right" /></div>
+                        <button type="button" disabled={isFinancialLocked} onClick={() => removeRevenueItem(item.id)} className="p-2 text-slate-300 hover:text-red-500 rounded-xl"><Trash2 className="w-4 h-4" /></button>
                       </div>
                     ))}
                   </div>
                 </div>
-              )}
-            </>
+              </div>
+            </div>
           )}
 
+          {/* ===== PAGE 5: DOCUMENTS & NOTES ===== */}
+          {activeStep === 'step5' && (
+            <div className="animate-in fade-in space-y-8">
+              <div className="space-y-4 bg-slate-50 p-6 rounded-[32px] border border-slate-100">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2"><FileText className="w-4 h-4 text-slate-600" /><h3 className="font-black text-xs uppercase tracking-widest">Documentation & Attachments</h3></div>
+                  <span className="text-[10px] font-bold text-slate-400 bg-white px-2 py-1 rounded-lg border border-slate-200">{(formData.documents || []).length} Files</span>
+                </div>
+                {(formData.documents || []).length > 0 && (
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                    {formData.documents.map((doc, idx) => {
+                      const isImage = doc.type?.startsWith('image/');
+                      return (
+                        <div key={idx} className="bg-white p-4 rounded-xl border border-slate-200 flex flex-col items-center justify-center gap-2 relative group">
+                          <button type="button" onClick={() => removeDocument(doc.url)} className="absolute top-2 right-2 p-1 bg-red-50 text-red-500 rounded-md opacity-0 group-hover:opacity-100"><X className="w-3.5 h-3.5" /></button>
+                          <div className="cursor-pointer" onClick={() => window.open(doc.url, '_blank')}>
+                            {isImage ? <div className="w-12 h-12 bg-blue-50 rounded-lg flex items-center justify-center text-blue-500"><Camera className="w-6 h-6" /></div> : <div className="w-12 h-12 bg-red-50 rounded-lg flex items-center justify-center text-red-500"><FileText className="w-6 h-6" /></div>}
+                          </div>
+                          <div className="text-center w-full"><p className="text-[10px] font-bold text-slate-700 truncate px-1">{doc.name}</p></div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                                <div className="border-2 border-dashed border-slate-300 rounded-2xl bg-white p-8 text-center relative">
+                  <input type="file" multiple accept=".pdf,image/*,.xlsx,.csv" className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onChange={(e) => handleFileUpload(e, 'documents')} disabled={uploadingFile} />
+                  <div className="flex flex-col items-center justify-center gap-3 pointer-events-none">
+                    {uploadingFile ? <Loader2 className="w-8 h-8 text-blue-600 animate-spin" /> : <Upload className="w-8 h-8 text-slate-400" />}
+                    <div><p className="text-sm font-bold text-slate-700">{uploadingFile ? "Uploading..." : "Drop files here or click to upload"}</p></div>
+                  </div>
+                </div>
+              </div>
+
+              {/* ✅ NEW: POD SECTION */}
+              <div className="space-y-4 bg-emerald-50/30 p-6 rounded-[32px] border border-emerald-100">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <ClipboardCheck className="w-4 h-4 text-emerald-600" />
+                    <h3 className="font-black text-xs uppercase tracking-widest text-emerald-900">Proof of Delivery (POD)</h3>
+                  </div>
+                </div>
+                
+                {formData.signedPodDoc ? (
+                  <div className="bg-white p-4 rounded-xl border border-emerald-200 flex items-center justify-between">
+                     <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-emerald-50 rounded-lg flex items-center justify-center text-emerald-600">
+                          <FileText className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-bold text-slate-700">{formData.signedPodDoc.name || 'POD Document'}</p>
+                          <a href={formData.signedPodDoc.url} target="_blank" rel="noreferrer" className="text-[10px] text-blue-500 font-medium hover:underline">View Document</a>
+                        </div>
+                     </div>
+                     <button type="button" onClick={() => setFormData(prev => ({ ...prev, signedPodDoc: null }))} className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors">
+                        <Trash2 className="w-4 h-4" />
+                     </button>
+                  </div>
+                ) : (
+                  <div className="border-2 border-dashed border-emerald-300 rounded-2xl bg-white p-8 text-center relative hover:bg-emerald-50/50 transition-colors">
+                    <input type="file" accept=".pdf,image/*" className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onChange={(e) => handleFileUpload(e, 'signedPodDoc')} disabled={uploadingFile} />
+                    <div className="flex flex-col items-center justify-center gap-3 pointer-events-none">
+                      {uploadingFile ? <Loader2 className="w-8 h-8 text-emerald-600 animate-spin" /> : <ClipboardCheck className="w-8 h-8 text-emerald-400" />}
+                      <div>
+                        <p className="text-sm font-bold text-slate-700">{uploadingFile ? "Uploading..." : "Drop POD here or click to upload"}</p>
+                        <p className="text-[10px] text-slate-400 font-medium mt-1">Supports PDF and Images</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-4">
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center gap-2"><MessageSquare className="w-4 h-4 text-purple-600" /><h3 className="font-black text-xs uppercase tracking-widest">Notes & Instructions</h3></div>
+                  <button type="button" onClick={handleSmartNotes} disabled={generatingNotes} className="flex items-center gap-2 px-4 py-2 bg-purple-100 text-purple-700 rounded-xl text-[10px] font-black uppercase hover:bg-purple-200">
+                    {generatingNotes ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />} Generate Notes
+                  </button>
+                </div>
+                <textarea name="notes" value={formData.notes} onChange={handleChange} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-medium text-sm min-h-[120px] outline-none" placeholder="Driver instructions..." />
+              </div>
+            </div>
+          )}
+
+          {/* ===== PAGE 6: LIFECYCLE ===== */}
           {activeStep === 'lifecycle' && (
-            <>
-              {/* ===== CONTAINER LIFECYCLE BLOCK ===== */}
+            <div className="animate-in fade-in">
               <div className="space-y-6 bg-gradient-to-br from-slate-50 to-gray-50 p-8 rounded-[32px] border-2 border-slate-300 shadow-inner">
-                {/* Section Header */}
                 <div className="flex items-center justify-between border-b border-slate-200 pb-4 flex-wrap gap-3">
                   <div className="flex items-center gap-3">
-                    <div className="bg-purple-600 p-2.5 rounded-xl text-white">
-                      <Target className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <h3 className="font-black text-sm uppercase tracking-widest text-slate-800">Container Lifecycle</h3>
-                      <p className="text-[10px] font-bold text-purple-600">Updates Container Board automatically</p>
-                    </div>
+                    <div className="bg-purple-600 p-2.5 rounded-xl text-white"><Target className="w-5 h-5" /></div>
+                    <div><h3 className="font-black text-sm uppercase tracking-widest text-slate-800">Container Lifecycle</h3><p className="text-[10px] font-bold text-purple-600">Updates Board automatically</p></div>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-[10px] font-bold text-slate-400">CURRENT:</span>
-                    {!formData.etaDate ? (
-                      <span className="px-4 py-2 bg-pink-500 text-white rounded-xl text-xs font-black shadow-lg">🟣 PENDING ETA</span>
-                    ) : formData.isTerminated ? (
-                      <span className="px-4 py-2 bg-gray-900 text-white rounded-xl text-xs font-black shadow-lg">⚫ TERMINATED</span>
-                    ) : formData.isReadyForPickup ? (
-                      <span className="px-4 py-2 bg-red-600 text-white rounded-xl text-xs font-black shadow-lg">🔴 READY PICKUP</span>
-                    ) : formData.isDroppedAtCustomer ? (
-                      <span className="px-4 py-2 bg-yellow-500 text-white rounded-xl text-xs font-black shadow-lg">🟡 AT CUSTOMER</span>
-                    ) : formData.lfdDate ? (
-                      <span className="px-4 py-2 bg-emerald-800 text-white rounded-xl text-xs font-black shadow-lg">🟢 LFD SET</span>
-                    ) : formData.isInYard ? (
-                      <span className="px-4 py-2 bg-blue-500 text-white rounded-xl text-xs font-black shadow-lg">🔵 IN YARD</span>
-                    ) : formData.isGrounded ? (
-                      <span className="px-4 py-2 bg-green-600 text-white rounded-xl text-xs font-black shadow-lg">🟢 GROUNDED</span>
-                    ) : formData.etaDate ? (
-                      <span className="px-4 py-2 bg-orange-500 text-white rounded-xl text-xs font-black shadow-lg">🟠 ETA RECEIVED</span>
-                    ) : (
-                      <span className="px-4 py-2 bg-slate-400 text-white rounded-xl text-xs font-black">⚪ NEW</span>
-                    )}
+                    {!formData.etaDate ? (<span className="px-4 py-2 bg-pink-500 text-white rounded-xl text-xs font-black shadow-lg">🟣 PENDING ETA</span>) : formData.isTerminated ? (<span className="px-4 py-2 bg-gray-900 text-white rounded-xl text-xs font-black shadow-lg">⚫ TERMINATED</span>) : formData.isReadyForPickup ? (<span className="px-4 py-2 bg-red-600 text-white rounded-xl text-xs font-black shadow-lg">🔴 READY PICKUP</span>) : formData.isDroppedAtCustomer ? (<span className="px-4 py-2 bg-yellow-500 text-white rounded-xl text-xs font-black shadow-lg">🟡 AT CUSTOMER</span>) : formData.lfdDate ? (<span className="px-4 py-2 bg-emerald-800 text-white rounded-xl text-xs font-black shadow-lg">🟢 LFD SET</span>) : formData.isInYard ? (<span className="px-4 py-2 bg-blue-500 text-white rounded-xl text-xs font-black shadow-lg">🔵 IN YARD</span>) : formData.isGrounded ? (<span className="px-4 py-2 bg-green-600 text-white rounded-xl text-xs font-black shadow-lg">🟢 GROUNDED</span>) : formData.etaDate ? (<span className="px-4 py-2 bg-orange-500 text-white rounded-xl text-xs font-black shadow-lg">🟠 ETA RECEIVED</span>) : (<span className="px-4 py-2 bg-slate-400 text-white rounded-xl text-xs font-black">⚪ NEW</span>)}
                   </div>
                 </div>
 
-                {/* Step 1: ETA Date */}
+                                {/* Step 1: ETA */}
                 <div className={`p-5 rounded-2xl border-2 transition-all ${!formData.etaDate ? 'bg-pink-50 border-pink-400 shadow-md' : 'bg-green-50/30 border-green-200'}`}>
                   <div className="flex items-center gap-2 mb-3">
                     <span className="w-8 h-8 rounded-full bg-pink-500 text-white flex items-center justify-center text-sm font-black">1</span>
-                    <div>
-                      <h4 className="font-black text-sm text-slate-800">ETA Date {!formData.etaDate && <span className="text-pink-600 text-xs">- REQUIRED</span>}</h4>
-                      <p className="text-[10px] text-slate-500">Estimated Time of Arrival at terminal</p>
-                    </div>
+                    <div><h4 className="font-black text-sm text-slate-800">ETA Date & Time {!formData.etaDate && <span className="text-pink-600 text-xs">- REQUIRED</span>}</h4></div>
                   </div>
-                  <div className="flex gap-3 items-end flex-wrap">
-                    <div className="flex-1 min-w-[200px]">
-                      <input
-                        type="date"
-                        name="etaDate"
-                        value={formData.etaDate || ''}
-                        onChange={handleChange}
-                        className={`w-full px-4 py-3 rounded-xl font-bold text-sm outline-none transition-all ${
-                          !formData.etaDate ? 'bg-white border-2 border-pink-400 focus:ring-2 focus:ring-pink-300' : 'bg-white border border-slate-200'
-                        }`}
-                      />
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-[10px] font-black text-slate-500 uppercase mb-1 block">ETA Date</label>
+                      <input type="date" name="etaDate" value={formData.etaDate || ''} onChange={handleChange} className={`w-full px-4 py-3 rounded-xl font-bold text-sm outline-none ${!formData.etaDate ? 'bg-white border-2 border-pink-400' : 'bg-white border border-slate-200'}`} />
                     </div>
-                    {!formData.etaDate ? (
-                      <span className="text-[10px] font-bold text-pink-600 bg-pink-100 px-3 py-2 rounded-lg whitespace-nowrap">⚠️ Shows in Pending ETA</span>
-                    ) : (
-                      <span className="text-[10px] font-bold text-green-600 bg-green-100 px-3 py-2 rounded-lg whitespace-nowrap">✅ Orange on Board</span>
-                    )}
+                    <div>
+                      <label className="text-[10px] font-black text-slate-500 uppercase mb-1 block">ETA Time</label>
+                      <input type="time" name="etaTime" value={formData.etaTime || ''} onChange={handleChange} className={`w-full px-4 py-3 rounded-xl font-bold text-sm outline-none ${!formData.etaDate ? 'bg-white border-2 border-pink-400' : 'bg-white border border-slate-200'}`} />
+                    </div>
                   </div>
                 </div>
 
-                {/* Step 2: Container Grounded */}
+                {/* Step 2: Grounded */}
                 <div className={`p-5 rounded-2xl border-2 transition-all ${formData.isGrounded ? 'bg-green-50 border-green-400 shadow-md' : 'bg-white border-slate-200'}`}>
                   <div className="flex items-center justify-between flex-wrap gap-3">
-                    <div className="flex items-center gap-3">
-                      <span className="w-8 h-8 rounded-full bg-green-600 text-white flex items-center justify-center text-sm font-black">2</span>
-                      <div>
-                        <h4 className="font-black text-sm text-slate-800">Container Grounded</h4>
-                        <p className="text-[10px] text-slate-500">Container has arrived at terminal</p>
-                      </div>
-                    </div>
-                    <label className={`flex items-center gap-2 cursor-pointer px-5 py-3 rounded-xl border-2 transition-all ${
-                      formData.isGrounded ? 'bg-green-600 text-white border-green-600' : 'bg-white border-slate-300 hover:border-green-400'
-                    }`}>
-                      <input
-                        type="checkbox"
-                        checked={formData.isGrounded || false}
-                        onChange={(e) => setFormData(prev => ({ ...prev, isGrounded: e.target.checked }))}
-                        className="w-4 h-4 rounded"
-                      />
-                      <span className="text-xs font-black uppercase">
-                        {formData.isGrounded ? '✅ Grounded' : 'Mark Grounded'}
-                      </span>
-                    </label>
+                    <div className="flex items-center gap-3"><span className="w-8 h-8 rounded-full bg-green-600 text-white flex items-center justify-center text-sm font-black">2</span><div><h4 className="font-black text-sm text-slate-800">Container Grounded</h4></div></div>
+                    <label className={`flex items-center gap-2 cursor-pointer px-5 py-3 rounded-xl border-2 ${formData.isGrounded ? 'bg-green-600 text-white border-green-600' : 'bg-white border-slate-300'}`}><input type="checkbox" checked={formData.isGrounded || false} onChange={(e) => setFormData(prev => ({ ...prev, isGrounded: e.target.checked }))} className="w-4 h-4 rounded" /><span className="text-xs font-black uppercase">Mark Grounded</span></label>
                   </div>
                 </div>
 
-                {/* Step 2.5: Container in Yard */}
-                <div className={`p-5 rounded-2xl border-2 transition-all ${
-                  formData.isInYard
-                    ? 'bg-blue-50 border-blue-400 shadow-md'
-                    : 'bg-white border-slate-200'
-                }`}>
+                {/* Step 2.5: In Yard */}
+                <div className={`p-5 rounded-2xl border-2 transition-all ${formData.isInYard ? 'bg-blue-50 border-blue-400 shadow-md' : 'bg-white border-slate-200'}`}>
                   <div className="flex items-center justify-between flex-wrap gap-3">
-                    <div className="flex items-center gap-3">
-                      <span className="w-8 h-8 rounded-full bg-blue-500 text-white flex items-center justify-center text-sm font-black">2.5</span>
-                      <div>
-                        <h4 className="font-black text-sm text-slate-800">Container in Yard</h4>
-                        <p className="text-[10px] text-slate-500">Container moved to yard for operations/storage</p>
-                      </div>
-                    </div>
-                    <label className={`flex items-center gap-2 cursor-pointer px-5 py-3 rounded-xl border-2 transition-all ${
-                      formData.isInYard
-                        ? 'bg-blue-500 text-white border-blue-500'
-                        : 'bg-white border-slate-300 hover:border-blue-400'
-                    }`}>
-                      <input
-                        type="checkbox"
-                        checked={formData.isInYard || false}
-                        onChange={(e) => setFormData(prev => ({
-                          ...prev,
-                          isInYard: e.target.checked
-                        }))}
-                        className="w-4 h-4 rounded"
-                      />
-                      <span className="text-xs font-black uppercase">
-                        {formData.isInYard ? '✅ In Yard' : 'Mark In Yard'}
-                      </span>
-                    </label>
+                    <div className="flex items-center gap-3"><span className="w-8 h-8 rounded-full bg-blue-500 text-white flex items-center justify-center text-sm font-black">2.5</span><div><h4 className="font-black text-sm text-slate-800">Container in Yard</h4></div></div>
+                    <label className={`flex items-center gap-2 cursor-pointer px-5 py-3 rounded-xl border-2 ${formData.isInYard ? 'bg-blue-500 text-white border-blue-500' : 'bg-white border-slate-300'}`}><input type="checkbox" checked={formData.isInYard || false} onChange={(e) => setFormData(prev => ({ ...prev, isInYard: e.target.checked }))} className="w-4 h-4 rounded" /><span className="text-xs font-black uppercase">Mark In Yard</span></label>
                   </div>
-                  {formData.isInYard && (
-                    <p className="text-[10px] font-bold text-blue-600 mt-2 ml-11">🔵 Blue on Board • Under "In Yard" filter</p>
-                  )}
                 </div>
 
-                {/* Step 2.5a: Pre‑pulled & In Yard */}
-                <div className={`p-5 rounded-2xl border-2 transition-all ${
-                  formData.isInYardPrePull
-                    ? 'bg-emerald-50 border-emerald-400 shadow-md'
-                    : 'bg-white border-slate-200'
-                }`}>
+                {/* Step 2.5a: Pre-pulled */}
+                <div className={`p-5 rounded-2xl border-2 transition-all ${formData.isInYardPrePull ? 'bg-emerald-50 border-emerald-400 shadow-md' : 'bg-white border-slate-200'}`}>
                   <div className="flex items-center justify-between flex-wrap gap-3">
-                    <div className="flex items-center gap-3">
-                      <span className="w-8 h-8 rounded-full bg-emerald-500 text-white flex items-center justify-center text-sm font-black">2.5a</span>
-                      <div>
-                        <h4 className="font-black text-sm text-slate-800">Pre‑pulled & In Yard</h4>
-                        <p className="text-[10px] text-slate-500">Container pre‑pulled, in yard ready for delivery</p>
-                      </div>
-                    </div>
-                    <label className={`flex items-center gap-2 cursor-pointer px-5 py-3 rounded-xl border-2 transition-all ${
-                      formData.isInYardPrePull
-                        ? 'bg-emerald-600 text-white border-emerald-600'
-                        : 'bg-white border-slate-300 hover:border-emerald-400'
-                    }`}>
-                      <input
-                        type="checkbox"
-                        checked={formData.isInYardPrePull || false}
-                        onChange={(e) => setFormData(prev => ({
-                          ...prev,
-                          isInYardPrePull: e.target.checked
-                        }))}
-                        className="w-4 h-4 rounded"
-                      />
-                      <span className="text-xs font-black uppercase">
-                        {formData.isInYardPrePull ? '✅ Pre‑pulled' : 'Mark Pre‑pulled'}
-                      </span>
-                    </label>
+                    <div className="flex items-center gap-3"><span className="w-8 h-8 rounded-full bg-emerald-500 text-white flex items-center justify-center text-sm font-black">2.5a</span><div><h4 className="font-black text-sm text-slate-800">Pre‑pulled & In Yard</h4></div></div>
+                    <label className={`flex items-center gap-2 cursor-pointer px-5 py-3 rounded-xl border-2 ${formData.isInYardPrePull ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white border-slate-300'}`}><input type="checkbox" checked={formData.isInYardPrePull || false} onChange={(e) => setFormData(prev => ({ ...prev, isInYardPrePull: e.target.checked }))} className="w-4 h-4 rounded" /><span className="text-xs font-black uppercase">Mark Pre‑pulled</span></label>
                   </div>
                 </div>
 
-                {/* Step 2.5b: Returned to Yard (For Termination) */}
-                <div className={`p-5 rounded-2xl border-2 transition-all ${
-                  formData.isInYardReturn
-                    ? 'bg-amber-50 border-amber-400 shadow-md'
-                    : 'bg-white border-slate-200'
-                }`}>
+                {/* Step 2.5b: Returned to Yard */}
+                <div className={`p-5 rounded-2xl border-2 transition-all ${formData.isInYardReturn ? 'bg-amber-50 border-amber-400 shadow-md' : 'bg-white border-slate-200'}`}>
                   <div className="flex items-center justify-between flex-wrap gap-3">
-                    <div className="flex items-center gap-3">
-                      <span className="w-8 h-8 rounded-full bg-amber-600 text-white flex items-center justify-center text-sm font-black">2.5b</span>
-                      <div>
-                        <h4 className="font-black text-sm text-slate-800">Returned to Yard (For Termination)</h4>
-                        <p className="text-[10px] text-slate-500">Container brought back to yard for termination</p>
-                      </div>
-                    </div>
-                    <label className={`flex items-center gap-2 cursor-pointer px-5 py-3 rounded-xl border-2 transition-all ${
-                      formData.isInYardReturn
-                        ? 'bg-amber-600 text-white border-amber-600'
-                        : 'bg-white border-slate-300 hover:border-amber-400'
-                    }`}>
-                      <input
-                        type="checkbox"
-                        checked={formData.isInYardReturn || false}
-                        onChange={(e) => setFormData(prev => ({
-                          ...prev,
-                          isInYardReturn: e.target.checked
-                        }))}
-                        className="w-4 h-4 rounded"
-                      />
-                      <span className="text-xs font-black uppercase">
-                        {formData.isInYardReturn ? '✅ Returned' : 'Mark Returned'}
-                      </span>
-                    </label>
+                    <div className="flex items-center gap-3"><span className="w-8 h-8 rounded-full bg-amber-600 text-white flex items-center justify-center text-sm font-black">2.5b</span><div><h4 className="font-black text-sm text-slate-800">Returned to Yard</h4></div></div>
+                    <label className={`flex items-center gap-2 cursor-pointer px-5 py-3 rounded-xl border-2 ${formData.isInYardReturn ? 'bg-amber-600 text-white border-amber-600' : 'bg-white border-slate-300'}`}><input type="checkbox" checked={formData.isInYardReturn || false} onChange={(e) => setFormData(prev => ({ ...prev, isInYardReturn: e.target.checked }))} className="w-4 h-4 rounded" /><span className="text-xs font-black uppercase">Mark Returned</span></label>
                   </div>
                 </div>
 
-                {/* Step 3: LFD Date */}
+                {/* Step 3: LFD */}
                 <div className={`p-5 rounded-2xl border-2 transition-all ${formData.lfdDate ? 'bg-emerald-50 border-emerald-400 shadow-md' : 'bg-white border-slate-200'}`}>
-                  <div className="flex items-center gap-2 mb-3">
-                    <span className="w-8 h-8 rounded-full bg-emerald-700 text-white flex items-center justify-center text-sm font-black">3</span>
-                    <div>
-                      <h4 className="font-black text-sm text-slate-800">Last Free Day (LFD)</h4>
-                      <p className="text-[10px] text-slate-500">Set the last free day before storage charges apply</p>
-                    </div>
-                  </div>
-                  <div className="flex gap-3 items-end flex-wrap">
-                    <div className="flex-1 min-w-[200px]">
-                      <input
-                        type="date"
-                        name="lfdDate"
-                        value={formData.lfdDate || ''}
-                        onChange={handleChange}
-                        className={`w-full px-4 py-3 rounded-xl font-bold text-sm outline-none transition-all ${
-                          formData.lfdDate && formData.lfdDate < new Date().toISOString().split('T')[0]
-                            ? 'bg-red-50 border-2 border-red-400'
-                            : formData.lfdDate
-                            ? 'bg-white border-2 border-emerald-400'
-                            : 'bg-white border border-slate-200'
-                        }`}
-                      />
-                    </div>
-                    {formData.lfdDate && formData.lfdDate < new Date().toISOString().split('T')[0] ? (
-                      <span className="text-[10px] font-bold text-red-600 bg-red-100 px-3 py-2 rounded-lg whitespace-nowrap">🔴 LFD OVERDUE!</span>
-                    ) : formData.lfdDate ? (
-                      <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-3 py-2 rounded-lg whitespace-nowrap">
-                        ✅ {Math.ceil((new Date(formData.lfdDate) - new Date()) / (1000 * 60 * 60 * 24))} days left
-                      </span>
-                    ) : null}
-                  </div>
-                  <div className="flex gap-3 mt-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const today = new Date().toISOString().split('T')[0];
-                        setFormData(prev => ({ ...prev, lfdDate: today }));
-                      }}
-                      className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-lg hover:bg-emerald-100 border border-emerald-200"
-                    >
-                      📅 Set LFD Today
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const threeDays = new Date(Date.now() + 3 * 86400000).toISOString().split('T')[0];
-                        setFormData(prev => ({ ...prev, lfdDate: threeDays }));
-                      }}
-                      className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-lg hover:bg-emerald-100 border border-emerald-200"
-                    >
-                      📅 Set LFD +3 Days
-                    </button>
-                  </div>
+                  <div className="flex items-center gap-2 mb-3"><span className="w-8 h-8 rounded-full bg-emerald-700 text-white flex items-center justify-center text-sm font-black">3</span><div><h4 className="font-black text-sm text-slate-800">Last Free Day (LFD)</h4></div></div>
+                  <input type="date" name="lfdDate" value={formData.lfdDate || ''} onChange={handleChange} className={`w-full px-4 py-3 rounded-xl font-bold text-sm outline-none ${formData.lfdDate ? 'bg-white border-2 border-emerald-400' : 'bg-white border border-slate-200'}`} />
                 </div>
 
                 {/* Step 4: Dropped at Customer */}
                 <div className={`p-5 rounded-2xl border-2 transition-all ${formData.isDroppedAtCustomer ? 'bg-yellow-50 border-yellow-400 shadow-md' : 'bg-white border-slate-200'}`}>
                   <div className="flex items-center justify-between flex-wrap gap-3">
-                    <div className="flex items-center gap-3">
-                      <span className="w-8 h-8 rounded-full bg-yellow-500 text-white flex items-center justify-center text-sm font-black">4</span>
-                      <div>
-                        <h4 className="font-black text-sm text-slate-800">Dropped at Customer</h4>
-                        <p className="text-[10px] text-slate-500">Container delivered to customer location</p>
-                      </div>
-                    </div>
-                    <label className={`flex items-center gap-2 cursor-pointer px-5 py-3 rounded-xl border-2 transition-all ${
-                      formData.isDroppedAtCustomer ? 'bg-yellow-500 text-white border-yellow-500' : 'bg-white border-slate-300 hover:border-yellow-400'
-                    }`}>
-                      <input
-                        type="checkbox"
-                        checked={formData.isDroppedAtCustomer || false}
-                        onChange={(e) => {
-                          const checked = e.target.checked;
-                          setFormData(prev => ({
-                            ...prev,
-                            isDroppedAtCustomer: checked,
-                            deliveryDate: checked ? new Date().toISOString().split('T')[0] : prev.deliveryDate
-                          }));
-                        }}
-                        className="w-4 h-4 rounded"
-                      />
-                      <span className="text-xs font-black uppercase">
-                        {formData.isDroppedAtCustomer ? '✅ Dropped' : 'Mark Dropped'}
-                      </span>
-                    </label>
+                    <div className="flex items-center gap-3"><span className="w-8 h-8 rounded-full bg-yellow-500 text-white flex items-center justify-center text-sm font-black">4</span><div><h4 className="font-black text-sm text-slate-800">Dropped at Customer</h4></div></div>
+                    <label className={`flex items-center gap-2 cursor-pointer px-5 py-3 rounded-xl border-2 ${formData.isDroppedAtCustomer ? 'bg-yellow-500 text-white border-yellow-500' : 'bg-white border-slate-300'}`}><input type="checkbox" checked={formData.isDroppedAtCustomer || false} onChange={(e) => {
+  const checked = e.target.checked;
+  setFormData(prev => ({
+    ...prev,
+    isDroppedAtCustomer: checked,
+    deliveryDate: checked ? (prev.deliveryDate || new Date().toISOString().split('T')[0]) : prev.deliveryDate
+  }));
+}} className="w-4 h-4 rounded" /><span className="text-xs font-black uppercase">Mark Dropped</span></label>
                   </div>
                 </div>
 
                 {/* Step 5: Ready for Pickup */}
                 <div className={`p-5 rounded-2xl border-2 transition-all ${formData.isReadyForPickup ? 'bg-red-50 border-red-400 shadow-md' : 'bg-white border-slate-200'}`}>
-                  <div className="flex flex-col gap-3">
-                    <div className="flex items-center justify-between flex-wrap gap-3">
-                      <div className="flex items-center gap-3">
-                        <span className="w-8 h-8 rounded-full bg-red-600 text-white flex items-center justify-center text-sm font-black">5</span>
-                        <div>
-                          <h4 className="font-black text-sm text-slate-800">Ready for Pickup</h4>
-                          <p className="text-[10px] text-slate-500">Customer confirmed ready for pickup</p>
-                        </div>
-                      </div>
-                      <label className={`flex items-center gap-2 cursor-pointer px-5 py-3 rounded-xl border-2 transition-all ${
-                        formData.isReadyForPickup ? 'bg-red-600 text-white border-red-600' : 'bg-white border-slate-300 hover:border-red-400'
-                      }`}>
-                        <input
-                          type="checkbox"
-                          checked={formData.isReadyForPickup || false}
-                          onChange={(e) => {
-                            const checked = e.target.checked;
-                            setFormData(prev => ({
-                              ...prev,
-                              isReadyForPickup: checked,
-                              readyForPickupDate: checked ? (prev.readyForPickupDate || new Date().toISOString().split('T')[0]) : prev.readyForPickupDate
-                            }));
-                          }}
-                          className="w-4 h-4 rounded"
-                        />
-                        <span className="text-xs font-black uppercase">
-                          {formData.isReadyForPickup ? '✅ Ready' : 'Mark Ready'}
-                        </span>
-                      </label>
-                    </div>
-
-                    {formData.isReadyForPickup && (
-                      <div className="flex items-center gap-3 mt-2 ml-11">
-                        <label className="text-[10px] font-black text-slate-500 uppercase">Ready Date</label>
-                        <input
-                          type="date"
-                          value={formData.readyForPickupDate || ''}
-                          onChange={(e) => setFormData(prev => ({ ...prev, readyForPickupDate: e.target.value }))}
-                          className="px-4 py-2 border border-slate-200 rounded-xl text-sm font-bold bg-white outline-none focus:ring-2 focus:ring-red-300"
-                        />
-                        <span className="text-[10px] text-slate-400 font-medium">
-                          (Container will appear on the board for this date)
-                        </span>
-                      </div>
-                    )}
+                  <div className="flex items-center justify-between flex-wrap gap-3">
+                    <div className="flex items-center gap-3"><span className="w-8 h-8 rounded-full bg-red-600 text-white flex items-center justify-center text-sm font-black">5</span><div><h4 className="font-black text-sm text-slate-800">Ready for Pickup</h4></div></div>
+                    <label className={`flex items-center gap-2 cursor-pointer px-5 py-3 rounded-xl border-2 ${formData.isReadyForPickup ? 'bg-red-600 text-white border-red-600' : 'bg-white border-slate-300'}`}><input type="checkbox" checked={formData.isReadyForPickup || false} onChange={(e) => setFormData(prev => ({ ...prev, isReadyForPickup: e.target.checked }))} className="w-4 h-4 rounded" /><span className="text-xs font-black uppercase">Mark Ready</span></label>
                   </div>
                 </div>
 
-                {/* Step 6: Container Terminated */}
+                {/* Step 6: Terminated */}
                 <div className={`p-5 rounded-2xl border-2 transition-all ${formData.isTerminated ? 'bg-gray-900 border-gray-700 shadow-md' : 'bg-white border-slate-200'}`}>
                   <div className="flex items-center justify-between flex-wrap gap-3">
-                    <div className="flex items-center gap-3">
-                      <span className="w-8 h-8 rounded-full bg-gray-900 text-white flex items-center justify-center text-sm font-black">6</span>
-                      <div>
-                        <h4 className={`font-black text-sm ${formData.isTerminated ? 'text-white' : 'text-slate-800'}`}>Container Terminated</h4>
-                        <p className={`text-[10px] ${formData.isTerminated ? 'text-gray-400' : 'text-slate-500'}`}>Container returned - Ready for billing</p>
-                      </div>
-                    </div>
-                    <label className={`flex items-center gap-2 cursor-pointer px-5 py-3 rounded-xl border-2 transition-all ${
-                      formData.isTerminated ? 'bg-gray-700 text-white border-gray-600' : 'bg-white border-slate-300 hover:border-gray-500'
-                    }`}>
-                      <input
-                        type="checkbox"
-                        checked={formData.isTerminated || false}
-                        onChange={(e) => {
-                          const checked = e.target.checked;
-                          setFormData(prev => ({
-                            ...prev,
-                            isTerminated: checked,
-                            emptyDate: checked ? new Date().toISOString().split('T')[0] : prev.emptyDate
-                          }));
-                        }}
-                        className="w-4 h-4 rounded"
-                      />
-                      <span className="text-xs font-black uppercase">
-                        {formData.isTerminated ? '✅ Terminated' : 'Mark Terminated'}
-                      </span>
-                    </label>
+                    <div className="flex items-center gap-3"><span className="w-8 h-8 rounded-full bg-gray-900 text-white flex items-center justify-center text-sm font-black">6</span><div><h4 className={`font-black text-sm ${formData.isTerminated ? 'text-white' : 'text-slate-800'}`}>Container Terminated</h4></div></div>
+                    <label className={`flex items-center gap-2 cursor-pointer px-5 py-3 rounded-xl border-2 ${formData.isTerminated ? 'bg-gray-700 text-white border-gray-600' : 'bg-white border-slate-300'}`}><input type="checkbox" checked={formData.isTerminated || false} onChange={(e) => setFormData(prev => ({ ...prev, isTerminated: e.target.checked }))} className="w-4 h-4 rounded" /><span className="text-xs font-black uppercase">Mark Terminated</span></label>
                   </div>
                 </div>
 
                 {/* Step 7: Send to Billing */}
                 <div className={`p-5 rounded-2xl border-2 transition-all ${formData.isBillingComplete ? 'bg-gray-100 border-gray-400' : 'bg-white border-slate-200'}`}>
                   <div className="flex items-center justify-between flex-wrap gap-3">
+                    <div className="flex items-center gap-3"><span className="w-8 h-8 rounded-full bg-gray-500 text-white flex items-center justify-center text-sm font-black">7</span><div><h4 className="font-black text-sm text-slate-800">Send to Billing</h4></div></div>
+                    <button type="button" onClick={() => { if (window.confirm('Send to billing?')) setFormData(prev => ({ ...prev, isBillingComplete: true, status: 'Ready for Billing' })); }} disabled={!formData.isTerminated || formData.isBillingComplete} className={`px-5 py-3 rounded-xl text-xs font-black uppercase transition-all ${formData.isBillingComplete ? 'bg-gray-300 text-gray-500' : !formData.isTerminated ? 'bg-gray-200 text-gray-400' : 'bg-gray-600 text-white hover:bg-gray-700'}`}>{formData.isBillingComplete ? '✅ Billed' : !formData.isTerminated ? '🔒 Terminate First' : 'Send to Billing →'}</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+                    {/* ===== LEG EDIT MODAL ===== */}
+          {editingLegId && (() => {
+            const legToEdit = formData.legs.find(l => l.id === editingLegId);
+            if (!legToEdit) return null;
+            return (
+              <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+                <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setEditingLegId(null)}></div>
+                <div className="bg-white w-full max-w-3xl rounded-[32px] shadow-2xl relative z-10 overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200">
+                  <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
                     <div className="flex items-center gap-3">
-                      <span className="w-8 h-8 rounded-full bg-gray-500 text-white flex items-center justify-center text-sm font-black">7</span>
+                      <div className="bg-blue-600 p-2 rounded-xl text-white"><Truck className="w-5 h-5" /></div>
+                      <div><h2 className="font-black text-slate-900 text-lg">Edit Trip Leg</h2><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Leg {formData.legs.findIndex(l => l.id === editingLegId) + 1}</p></div>
+                    </div>
+                    <button type="button" onClick={() => setEditingLegId(null)} className="p-2 hover:bg-slate-200 rounded-lg transition-colors"><X className="w-5 h-5" /></button>
+                  </div>
+                  
+                  <div className="p-6 overflow-y-auto space-y-6">
+                    {/* Status & Driver */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div><label className="text-[10px] font-black text-slate-500 uppercase block mb-1">Date</label><input type="date" value={legToEdit.legDate || ''} onChange={e => updateLeg(legToEdit.id, 'legDate', e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm font-bold bg-white outline-none focus:ring-2 focus:ring-blue-200" /></div>
+                      <div><label className="text-[10px] font-black text-slate-500 uppercase block mb-1">Time (In)</label><input type="time" value={legToEdit.arrivalTime || ''} onChange={e => updateLeg(legToEdit.id, 'arrivalTime', e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm font-bold bg-white outline-none focus:ring-2 focus:ring-blue-200" /></div>
+                      <div><label className="text-[10px] font-black text-slate-500 uppercase block mb-1">Time (Out)</label><input type="time" value={legToEdit.departureTime || ''} onChange={e => updateLeg(legToEdit.id, 'departureTime', e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm font-bold bg-white outline-none focus:ring-2 focus:ring-blue-200" /></div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div><label className="text-[10px] font-black text-slate-500 uppercase block mb-1">Status</label><select value={legToEdit.status} onChange={e => updateLeg(legToEdit.id, 'status', e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm font-bold bg-white outline-none focus:ring-2 focus:ring-blue-200"><option value="Planned">Planned</option><option value="Dispatched">Dispatched</option><option value="Completed">Completed</option></select></div>
+                      <div><label className="text-[10px] font-black text-slate-500 uppercase block mb-1">Driver</label><select value={legToEdit.driverName} onChange={e => updateLeg(legToEdit.id, 'driverName', e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm font-bold bg-white outline-none focus:ring-2 focus:ring-blue-200"><option value="">Select Driver...</option>{savedDrivers.map(d => <option key={d.id} value={d.name}>{d.name} (Truck: {d.truckNo})</option>)}</select></div>
+                      <div><label className="text-[10px] font-black text-slate-500 uppercase block mb-1">Leg Type</label><select value={legToEdit.legType || 'delivery'} onChange={e => updateLeg(legToEdit.id, 'legType', e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm font-bold bg-white outline-none focus:ring-2 focus:ring-blue-200"><option value="delivery">📦 Delivery</option><option value="pickup">🏗️ Pickup</option><option value="prepull">⏳ Pre-pull</option><option value="termination">🏁 Termination</option></select></div>
+                    </div>
+
+                                        {/* Locations */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-200">
                       <div>
-                        <h4 className="font-black text-sm text-slate-800">Send to Billing</h4>
-                        <p className="text-[10px] text-slate-500">Billing completed - Move to completed</p>
+                        <label className="text-[10px] font-black text-emerald-600 uppercase block mb-1">Pickup Location</label>
+                        <input type="text" value={legToEdit.from} onChange={e => handleAddressChange(legToEdit.id, 'from', e.target.value)} placeholder="Search location or terminal..." className="w-full px-3 py-2 border border-emerald-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-emerald-200" list={'loclist-' + legToEdit.id} />
+                        <datalist id={'loclist-' + legToEdit.id}>
+                          {savedDestinations.map((d, i) => <option key={'dest-pick-' + i} value={d.name + ' - ' + d.address}></option>)}
+                          {companyTerminals && companyTerminals.map((t, i) => <option key={'term-pick-' + i} value={t.name + (t.code ? ` (${t.code})` : '') + ' - ' + t.address}></option>)}
+                        </datalist>
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-black text-rose-600 uppercase block mb-1">Drop Location</label>
+                        <input type="text" value={legToEdit.to} onChange={e => handleAddressChange(legToEdit.id, 'to', e.target.value)} placeholder="Search location or terminal..." className="w-full px-3 py-2 border border-rose-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-rose-200" list={'loclist-to-' + legToEdit.id} />
+                        <datalist id={'loclist-to-' + legToEdit.id}>
+                          {savedDestinations.map((d, i) => <option key={'dest-drop-' + i} value={d.name + ' - ' + d.address}></option>)}
+                          {companyTerminals && companyTerminals.map((t, i) => <option key={'term-drop-' + i} value={t.name + (t.code ? ` (${t.code})` : '') + ' - ' + t.address}></option>)}
+                        </datalist>
                       </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (window.confirm('Send to billing? This will complete the container.')) {
-                          setFormData(prev => ({ ...prev, isBillingComplete: true, status: 'Ready for Billing' }));
-                        }
-                      }}
-                      disabled={!formData.isTerminated || formData.isBillingComplete}
-                      className={`px-5 py-3 rounded-xl text-xs font-black uppercase transition-all ${
-                        formData.isBillingComplete
-                          ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                          : !formData.isTerminated
-                          ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                          : 'bg-gray-600 text-white hover:bg-gray-700'
-                      }`}
-                    >
-                      {formData.isBillingComplete ? '✅ Billed' : !formData.isTerminated ? '🔒 Terminate First' : 'Send to Billing →'}
+
+                    {/* Financials */}
+                    <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                      <div><label className="text-[10px] font-black text-slate-500 uppercase block mb-1">Driver Pay</label><input type="number" value={legToEdit.driverPay || ''} onChange={e => updateLeg(legToEdit.id, 'driverPay', e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm font-bold bg-white" /></div>
+                      <div><label className="text-[10px] font-black text-slate-500 uppercase block mb-1">Fuel Cost</label><input type="number" value={legToEdit.fuelCost || ''} onChange={e => updateLeg(legToEdit.id, 'fuelCost', e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm font-bold bg-white" /></div>
+                      <div><label className="text-[10px] font-black text-slate-500 uppercase block mb-1">Detention</label><input type="number" value={legToEdit.detentionPay || ''} onChange={e => updateLeg(legToEdit.id, 'detentionPay', e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm font-bold bg-white" /></div>
+                      <div><label className="text-[10px] font-black text-slate-500 uppercase block mb-1">Distance (km)</label><input type="number" value={legToEdit.totalDistance || ''} onChange={e => updateLeg(legToEdit.id, 'totalDistance', e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm font-bold bg-white" /></div>
+                      <div><label className="text-[10px] font-black text-slate-500 uppercase block mb-1">Hours</label><input type="number" value={legToEdit.totalHours || ''} onChange={e => updateLeg(legToEdit.id, 'totalHours', e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm font-bold bg-white" /></div>
+                    </div>
+
+                    {/* Notes */}
+                    <div><label className="text-[10px] font-black text-slate-500 uppercase block mb-1">Dispatch Notes</label><textarea value={legToEdit.notes || ''} onChange={e => updateLeg(legToEdit.id, 'notes', e.target.value)} rows="2" className="w-full px-3 py-2 border rounded-xl text-sm bg-white outline-none focus:ring-2 focus:ring-blue-200" placeholder="Add leg-specific notes..."></textarea></div>
+                  </div>
+
+                  <div className="p-6 border-t border-slate-100 bg-slate-50 flex justify-end">
+                    <button type="button" onClick={() => setEditingLegId(null)} className="px-8 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-colors shadow-lg shadow-blue-200">
+                      Done Editing
                     </button>
                   </div>
                 </div>
               </div>
-            </>
-          )}
+            );
+          })()}
 
-          {/* ===== SUBMIT BUTTONS – ALWAYS VISIBLE ===== */}
-          <div className="flex gap-4 pt-4 border-t border-slate-100">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 py-4 border-2 border-slate-100 rounded-[24px] font-black text-slate-400 uppercase tracking-widest text-xs hover:bg-slate-50 transition-all"
-            >
-              Discard
-            </button>
-            <button
-              type="submit"
-              className="flex-[2] py-4 bg-blue-600 text-white rounded-[24px] font-black shadow-xl uppercase tracking-widest text-xs active:scale-[0.98] transition-all hover:bg-blue-700"
-            >
-              Save Load Record
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-};
+                    {/* ===== STICKY BOTTOM NAVIGATION ===== */}
+          <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 p-4 px-8 shadow-[0_-10px_20px_-10px_rgba(0,0,0,0.1)] flex items-center justify-between z-50">
+            <div>
+              <button type="button" onClick={onClose} className="px-6 py-3 border-2 border-slate-200 rounded-xl font-black text-slate-500 uppercase tracking-widest text-xs hover:bg-slate-50 transition-all">Discard</button>
+            </div>
+            
+            <div className="flex gap-3">
+              {activeStep !== 'step1' && activeStep !== 'lifecycle' && (
+                <button type="button" onClick={() => {
+                  if (activeStep === 'step2') setActiveStep('step1');
+                  if (activeStep === 'step3') setActiveStep('step2');
+                  if (activeStep === 'step4') setActiveStep('step3');
+                  if (activeStep === 'step5') setActiveStep('step4');
+                }} className="px-6 py-3 bg-slate-100 text-slate-700 rounded-xl font-black uppercase tracking-widest text-xs hover:bg-slate-200 transition-all flex items-center gap-2">
+                  ← Back
+                </button>
+              )}
 
-// ========== TABLE COMPONENTS (CONTINUED) ==========
-const LoadTable = React.memo(({ loads, onEdit, onDelete, onStatusChange, onViewDoc, onSign, onCopy, onDownload, onDownloadLoadConfirmation, onDownloadPOD, onTrack, onQuickAssign, companyName, currentPage, pageSize, isLoadingMore, onNextPage, onPrevPage, hasNextPage }) => (
+              {activeStep !== 'step5' && activeStep !== 'lifecycle' && (
+                <button type="button" onClick={() => {
+                  if (activeStep === 'step1') setActiveStep('step2');
+                  if (activeStep === 'step2') setActiveStep('step3');
+                  if (activeStep === 'step3') setActiveStep('step4');
+                  if (activeStep === 'step4') setActiveStep('step5');
+                }} className="px-6 py-3 bg-blue-600 text-white rounded-xl font-black uppercase tracking-widest text-xs hover:bg-blue-700 transition-all shadow-lg shadow-blue-200 flex items-center gap-2">
+                  Next Step →
+                </button>
+              )}
+
+                                        {(activeStep === 'step5' || activeStep === 'lifecycle') && (
+                            <button type="submit" disabled={isSaving} className="px-8 py-3 bg-green-600 text-white rounded-xl font-black uppercase tracking-widest text-xs hover:bg-green-700 transition-all shadow-lg shadow-green-200 disabled:opacity-50 flex items-center gap-2">
+                              <CheckCircle className="w-4 h-4" />
+                              {isSaving ? 'Saving...' : 'Save Load Record'}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+              );
+            };
+
+        // ========== TABLE COMPONENTS (CONTINUED) ==========
+const LoadTable = React.memo(({ loads, onEdit, onDelete, onStatusChange, onViewDoc, onSign, onCopy, onDownload, onDownloadLoadConfirmation, onDownloadPOD, onTrack, onQuickAssign, companyName, currentPage, pageSize, isLoadingMore, onNextPage, onPrevPage, hasNextPage, bulkDeleteMode = false, selectedLoadIds = [], onToggleSelection }) => (
   <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden animate-in fade-in">
     <div className="overflow-x-auto">
       <table className="w-full text-left border-collapse min-w-[1400px]">
         <thead>
-          <tr className="bg-slate-50/50 border-b border-slate-200 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                    <tr className="bg-slate-50/50 border-b border-slate-200 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+            {bulkDeleteMode && <th className="px-4 py-3 w-10"></th>}
             <th className="px-4 py-3">Container</th>
             <th className="px-4 py-3">Line</th>
             <th className="px-4 py-3">Terminal</th>
@@ -4776,13 +3519,41 @@ const LoadTable = React.memo(({ loads, onEdit, onDelete, onStatusChange, onViewD
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
-          {(loads || []).map((load) => (
+                    {(loads || []).map((load) => {
+            const isSelected = selectedLoadIds.includes(load.id);
+            return (
             <tr key={load.id}
-                className="hover:bg-slate-50/50 transition-colors group text-xs font-bold text-slate-700 cursor-pointer"
-                onClick={() => onEdit && onEdit(load)}
+                className={`hover:bg-slate-50/50 transition-colors group text-xs font-bold text-slate-700 cursor-pointer ${
+                  bulkDeleteMode && isSelected ? 'bg-red-50' : ''
+                }`}
+                onClick={(e) => {
+                  if (bulkDeleteMode) {
+                    e.preventDefault();
+                    onToggleSelection && onToggleSelection(load.id);
+                  } else {
+                    onEdit && onEdit(load);
+                  }
+                }}
             >
+              {bulkDeleteMode && (
+                <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={() => onToggleSelection && onToggleSelection(load.id)}
+                    className="w-4 h-4 accent-red-600 cursor-pointer"
+                  />
+                </td>
+              )}
               <td className="px-4 py-3">
-                <div className="font-black text-slate-900">{load.containerNo || 'N/A'}</div>
+                <div className="font-black text-slate-900 flex items-center gap-1">
+  {load.containerNo || 'N/A'}
+  {load.isReturningContainer && (
+    <span className="text-[9px] bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded border border-orange-200" title="This container has previous history in the system">
+      🔄 RETURNED
+    </span>
+  )}
+</div>
                 <div className="mt-1 flex items-center gap-1 flex-wrap">
                   {load.loadType === 'LIVE' ? (
                     <span className="text-[10px] font-black text-blue-600 bg-blue-100 px-2 py-0.5 rounded flex items-center gap-1">
@@ -4962,9 +3733,10 @@ const LoadTable = React.memo(({ loads, onEdit, onDelete, onStatusChange, onViewD
                   </button>
                 </div>
               </td>
-            </tr>
-          ))}
-          {(!loads || loads.length === 0) && (<tr><td colSpan="18" className="px-4 py-8 text-center text-slate-400 font-bold italic">No loads found matching this view.</td></tr>)}
+                        </tr>
+            );
+          })}
+          {(!loads || loads.length === 0) && (<tr><td colSpan={bulkDeleteMode ? 19 : 18} className="px-4 py-8 text-center text-slate-400 font-bold italic">No loads found matching this view.</td></tr>)}
         </tbody>
       </table>
     </div>
@@ -5233,6 +4005,7 @@ const AddressBook = ({
   onUpdateLocation, 
   onUpdateDriver,
   onImportBasePrices,
+  onImportLocations,
   savedTerminals,
   onDeleteTerminal,
   newTerminal,
@@ -5269,6 +4042,45 @@ const AddressBook = ({
     chassisRate: '',
     rateCurrency: 'CAD'
   });
+    // ===== NEW: SEARCH & BULK DELETE STATE FOR LOCATIONS =====
+  const [locationSearchTerm, setLocationSearchTerm] = useState('');
+  const [bulkDeleteMode, setBulkDeleteMode] = useState(false);
+  const [selectedLocationIds, setSelectedLocationIds] = useState([]);
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
+  const [bulkDeleteStep, setBulkDeleteStep] = useState(1);
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+
+    // ===== NEW: SEARCH & BULK DELETE STATE FOR CUSTOMERS =====
+  const [customerSearchTerm, setCustomerSearchTerm] = useState('');
+  const [customerBulkDeleteMode, setCustomerBulkDeleteMode] = useState(false);
+  const [selectedCustomerIds, setSelectedCustomerIds] = useState([]);
+  const [showCustomerBulkDeleteConfirm, setShowCustomerBulkDeleteConfirm] = useState(false);
+  const [customerBulkDeleteStep, setCustomerBulkDeleteStep] = useState(1);
+  const [isCustomerBulkDeleting, setIsCustomerBulkDeleting] = useState(false);
+
+    // ===== NEW: SEARCH & BULK DELETE STATE FOR DRIVERS =====
+  const [driverSearchTerm, setDriverSearchTerm] = useState('');
+  const [driverBulkDeleteMode, setDriverBulkDeleteMode] = useState(false);
+  const [selectedDriverIds, setSelectedDriverIds] = useState([]);
+  const [showDriverBulkDeleteConfirm, setShowDriverBulkDeleteConfirm] = useState(false);
+  const [driverBulkDeleteStep, setDriverBulkDeleteStep] = useState(1);
+  const [isDriverBulkDeleting, setIsDriverBulkDeleting] = useState(false);
+
+    // ===== NEW: SEARCH & BULK DELETE STATE FOR TERMINALS =====
+  const [terminalSearchTerm, setTerminalSearchTerm] = useState('');
+  const [terminalBulkDeleteMode, setTerminalBulkDeleteMode] = useState(false);
+  const [selectedTerminalIds, setSelectedTerminalIds] = useState([]);
+  const [showTerminalBulkDeleteConfirm, setShowTerminalBulkDeleteConfirm] = useState(false);
+  const [terminalBulkDeleteStep, setTerminalBulkDeleteStep] = useState(1);
+  const [isTerminalBulkDeleting, setIsTerminalBulkDeleting] = useState(false);
+
+    // ===== NEW: SEARCH & BULK DELETE STATE FOR BASE PRICES =====
+  const [basePriceSearchTerm, setBasePriceSearchTerm] = useState('');
+  const [basePriceBulkDeleteMode, setBasePriceBulkDeleteMode] = useState(false);
+  const [selectedBasePriceIds, setSelectedBasePriceIds] = useState([]);
+  const [showBasePriceBulkDeleteConfirm, setShowBasePriceBulkDeleteConfirm] = useState(false);
+  const [basePriceBulkDeleteStep, setBasePriceBulkDeleteStep] = useState(1);
+  const [isBasePriceBulkDeleting, setIsBasePriceBulkDeleting] = useState(false);
 
   const [showLocationEditModal, setShowLocationEditModal] = useState(false);
   const [locationEditFormData, setLocationEditFormData] = useState({
@@ -5306,6 +4118,33 @@ const AddressBook = ({
     email: '',
     contactName: ''
   });
+
+  // ===== FAST BULK DELETE HELPER (uses writeBatch for 500x speed) =====
+  const batchDeleteDocuments = async (collectionName, ids) => {
+    const CHUNK_SIZE = 500; // Firestore limit per batch
+    let successCount = 0;
+    let failCount = 0;
+
+    for (let i = 0; i < ids.length; i += CHUNK_SIZE) {
+      const chunk = ids.slice(i, i + CHUNK_SIZE);
+      try {
+        const batch = writeBatch(db);
+        chunk.forEach(id => {
+          const ref = doc(db, 'companies', companyId, collectionName, id);
+          batch.delete(ref);
+        });
+        await batch.commit();
+        successCount += chunk.length;
+        // Live progress feedback
+        setFeedback(`⏳ Deleting... ${successCount}/${ids.length}`);
+      } catch (err) {
+        console.error(`Batch delete failed:`, err);
+        failCount += chunk.length;
+      }
+    }
+
+    return { successCount, failCount };
+  };
 
   // ===== EDIT HANDLERS =====
   const openEditModal = (customer) => {
@@ -5513,136 +4352,733 @@ const AddressBook = ({
       </div>
 
       {/* ===== RENDER ACTIVE TAB ===== */}
-      {activeDatabaseTab === 'customers' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-            <h3 className="font-bold flex items-center gap-2 mb-4 text-slate-700">
-              <Building className="text-blue-600 w-5 h-5" /> Add Customer
-            </h3>
-            <form onSubmit={onAddCustomer} className="space-y-3">
-              <input required className="w-full p-3 border rounded-xl text-sm font-bold" placeholder="Company Name*" value={newCust.name} onChange={e => setNewCust({...newCust, name: e.target.value})} />
-              <div className="grid grid-cols-2 gap-3">
-                <input className="w-full p-3 border rounded-xl text-sm" placeholder="Contact Name" value={newCust.contactName} onChange={e => setNewCust({...newCust, contactName: e.target.value})} />
-                <input className="w-full p-3 border rounded-xl text-sm" placeholder="Contact Title" value={newCust.contactTitle} onChange={e => setNewCust({...newCust, contactTitle: e.target.value})} />
-                <input type="tel" className="w-full p-3 border rounded-xl text-sm" placeholder="Phone Number" value={newCust.phone} onChange={e => setNewCust({...newCust, phone: e.target.value})} />
-                <input type="tel" className="w-full p-3 border rounded-xl text-sm" placeholder="Fax Number" value={newCust.fax} onChange={e => setNewCust({...newCust, fax: e.target.value})} />
-              </div>
-              <input type="email" className="w-full p-3 border rounded-xl text-sm" placeholder="Email Address" value={newCust.email} onChange={e => setNewCust({...newCust, email: e.target.value})} />
-              <input className="w-full p-3 border rounded-xl text-sm" placeholder="Address" value={newCust.address} onChange={e => setNewCust({...newCust, address: e.target.value})} />
-              <div className="grid grid-cols-2 gap-3">
-                <input className="w-full p-3 border rounded-xl text-sm" placeholder="City" value={newCust.city} onChange={e => setNewCust({...newCust, city: e.target.value})} />
-                <input className="w-full p-3 border rounded-xl text-sm" placeholder="Postal Code" value={newCust.postalCode} onChange={e => setNewCust({...newCust, postalCode: e.target.value})} />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <input className="w-full p-3 border rounded-xl text-sm" placeholder="Accounting ID" value={newCust.accountingId} onChange={e => setNewCust({...newCust, accountingId: e.target.value})} />
-                <input className="w-full p-3 border rounded-xl text-sm" placeholder="Division" value={newCust.division} onChange={e => setNewCust({...newCust, division: e.target.value})} />
-              </div>
-              <button type="submit" className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold text-sm uppercase tracking-widest hover:bg-blue-700 transition-colors">Save Customer</button>
-            </form>
+      {activeDatabaseTab === 'customers' && (() => {
+  // Filter customers by search term
+  const filteredCustomers = (savedCustomers || []).filter(cust => {
+    if (!customerSearchTerm.trim()) return true;
+    const term = customerSearchTerm.toLowerCase().trim();
+    return (
+      (cust.name || '').toLowerCase().includes(term) ||
+      (cust.email || '').toLowerCase().includes(term) ||
+      (cust.phone || '').toLowerCase().includes(term) ||
+      (cust.address || '').toLowerCase().includes(term) ||
+      (cust.city || '').toLowerCase().includes(term) ||
+      (cust.contactName || '').toLowerCase().includes(term) ||
+      (cust.accountingId || '').toLowerCase().includes(term)
+    );
+  });
+
+  const toggleCustomerSelection = (id) => {
+    setSelectedCustomerIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
+
+  const selectAllFilteredCustomers = () => {
+    setSelectedCustomerIds(filteredCustomers.map(c => c.id));
+  };
+
+  const deselectAllCustomers = () => {
+    setSelectedCustomerIds([]);
+  };
+
+    const performCustomerBulkDelete = async () => {
+    if (selectedCustomerIds.length === 0) return;
+    setIsCustomerBulkDeleting(true);
+    const { successCount, failCount } = await batchDeleteDocuments('customers', selectedCustomerIds);
+    setIsCustomerBulkDeleting(false);
+    setSelectedCustomerIds([]);
+    setCustomerBulkDeleteMode(false);
+    setShowCustomerBulkDeleteConfirm(false);
+    setCustomerBulkDeleteStep(1);
+    setFeedback(failCount === 0
+      ? `✅ Deleted ${successCount} customer${successCount !== 1 ? 's' : ''}`
+      : `⚠️ Deleted ${successCount}, failed ${failCount}`
+    );
+  };
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      {/* ===== LEFT: Add Customer ===== */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+        <h3 className="font-bold flex items-center gap-2 mb-4 text-slate-700">
+          <Building className="text-blue-600 w-5 h-5" /> Add Customer
+        </h3>
+        <form onSubmit={onAddCustomer} className="space-y-3">
+          <input required className="w-full p-3 border rounded-xl text-sm font-bold" placeholder="Company Name*" value={newCust.name} onChange={e => setNewCust({...newCust, name: e.target.value})} />
+          <div className="grid grid-cols-2 gap-3">
+            <input className="w-full p-3 border rounded-xl text-sm" placeholder="Contact Name" value={newCust.contactName} onChange={e => setNewCust({...newCust, contactName: e.target.value})} />
+            <input className="w-full p-3 border rounded-xl text-sm" placeholder="Contact Title" value={newCust.contactTitle} onChange={e => setNewCust({...newCust, contactTitle: e.target.value})} />
+            <input type="tel" className="w-full p-3 border rounded-xl text-sm" placeholder="Phone Number" value={newCust.phone} onChange={e => setNewCust({...newCust, phone: e.target.value})} />
+            <input type="tel" className="w-full p-3 border rounded-xl text-sm" placeholder="Fax Number" value={newCust.fax} onChange={e => setNewCust({...newCust, fax: e.target.value})} />
           </div>
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-            <h3 className="font-bold flex items-center gap-2 mb-4 text-slate-700">
-              <Building className="text-blue-600 w-5 h-5" /> Customer List
-              <span className="ml-auto text-sm font-normal text-slate-400">({savedCustomers.length})</span>
-            </h3>
-            <div className="space-y-2 max-h-[500px] overflow-y-auto pr-2">
-              {(savedCustomers || []).map((c) => (
-                <div key={c.id} className="flex justify-between items-center p-3 bg-slate-50 rounded-xl text-sm font-bold text-slate-600 border border-slate-100 hover:bg-slate-100 transition-colors">
-                  <div className="flex flex-col flex-1 min-w-0">
-                    <span className="truncate">{c.name}</span>
-                    {(c.email || c.phone || c.contactName) && (
-                      <span className="text-[10px] text-slate-400 font-normal truncate">
-                        {[c.contactName, c.phone, c.email].filter(Boolean).join(' • ')}
-                      </span>
-                    )}
-                    {(c.prepullRate || c.stopOffRate || c.yardStorageRate || c.chassisRate) && (
-                      <span className="text-[9px] text-purple-500 font-medium mt-0.5">
-                        {c.prepullRate && `Pre: $${c.prepullRate} `}
-                        {c.stopOffRate && `Stop: $${c.stopOffRate} `}
-                        {c.yardStorageRate && `Yard: $${c.yardStorageRate}/day `}
-                        {c.chassisRate && `Chassis: $${c.chassisRate}/day`}
-                        <span className="text-slate-400 ml-1">({c.rateCurrency || 'CAD'})</span>
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-1 flex-shrink-0">
-                    <button onClick={() => openEditModal(c)} className="p-1.5 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors" title="Edit Customer"><Edit3 className="w-3.5 h-3.5" /></button>
-                    <button onClick={() => onDeleteCustomer && onDeleteCustomer(c.id)} className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Delete Customer"><Trash2 className="w-3.5 h-3.5" /></button>
-                  </div>
-                </div>
-              ))}
-              {(!savedCustomers || savedCustomers.length === 0) && (
-                <div className="text-center py-8 text-slate-400 font-bold italic text-sm">No customers saved yet</div>
+          <input type="email" className="w-full p-3 border rounded-xl text-sm" placeholder="Email Address" value={newCust.email} onChange={e => setNewCust({...newCust, email: e.target.value})} />
+          <input className="w-full p-3 border rounded-xl text-sm" placeholder="Address" value={newCust.address} onChange={e => setNewCust({...newCust, address: e.target.value})} />
+          <div className="grid grid-cols-2 gap-3">
+            <input className="w-full p-3 border rounded-xl text-sm" placeholder="City" value={newCust.city} onChange={e => setNewCust({...newCust, city: e.target.value})} />
+            <input className="w-full p-3 border rounded-xl text-sm" placeholder="Postal Code" value={newCust.postalCode} onChange={e => setNewCust({...newCust, postalCode: e.target.value})} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <input className="w-full p-3 border rounded-xl text-sm" placeholder="Accounting ID" value={newCust.accountingId} onChange={e => setNewCust({...newCust, accountingId: e.target.value})} />
+            <input className="w-full p-3 border rounded-xl text-sm" placeholder="Division" value={newCust.division} onChange={e => setNewCust({...newCust, division: e.target.value})} />
+          </div>
+          <button type="submit" className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold text-sm uppercase tracking-widest hover:bg-blue-700 transition-colors">Save Customer</button>
+        </form>
+      </div>
+
+      {/* ===== RIGHT: Customer List with Search + Bulk Delete ===== */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-bold flex items-center gap-2 text-slate-700">
+            <Building className="text-blue-600 w-5 h-5" /> Customer List
+            <span className="ml-2 text-xs font-normal text-slate-400">
+              ({filteredCustomers.length}{customerSearchTerm && ` of ${savedCustomers.length}`})
+            </span>
+          </h3>
+          <div className="flex items-center gap-2">
+            {!customerBulkDeleteMode ? (
+              <button
+                onClick={() => {
+                  setCustomerBulkDeleteMode(true);
+                  setSelectedCustomerIds([]);
+                }}
+                className="px-3 py-1.5 bg-red-50 text-red-600 border border-red-200 rounded-lg font-bold text-xs hover:bg-red-100 transition-colors flex items-center gap-1"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                Select & Delete
+              </button>
+            ) : (
+              <button
+                onClick={() => {
+                  setCustomerBulkDeleteMode(false);
+                  setSelectedCustomerIds([]);
+                }}
+                className="px-3 py-1.5 bg-slate-100 text-slate-600 border border-slate-200 rounded-lg font-bold text-xs hover:bg-slate-200 transition-colors flex items-center gap-1"
+              >
+                <X className="w-3.5 h-3.5" />
+                Cancel
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* ===== SEARCH BAR ===== */}
+        <div className="relative mb-3">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <input
+            type="text"
+            value={customerSearchTerm}
+            onChange={(e) => setCustomerSearchTerm(e.target.value)}
+            placeholder="Search by company, contact, email, phone, city..."
+            className="w-full pl-10 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+          />
+          {customerSearchTerm && (
+            <button
+              onClick={() => setCustomerSearchTerm('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-blue-600 rounded-md hover:bg-blue-50"
+              title="Clear search"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+
+        {/* ===== BULK DELETE ACTION BAR ===== */}
+        {customerBulkDeleteMode && (
+          <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded-xl flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-black text-red-700 uppercase">
+                {selectedCustomerIds.length} selected
+              </span>
+              <button
+                onClick={selectAllFilteredCustomers}
+                className="text-[10px] font-bold text-red-600 hover:text-red-800 underline"
+              >
+                Select All ({filteredCustomers.length})
+              </button>
+              {selectedCustomerIds.length > 0 && (
+                <button
+                  onClick={deselectAllCustomers}
+                  className="text-[10px] font-bold text-slate-500 hover:text-slate-700 underline"
+                >
+                  Deselect All
+                </button>
               )}
             </div>
+            <button
+              onClick={() => {
+                if (selectedCustomerIds.length === 0) {
+                  setFeedback("⚠️ No customers selected");
+                  return;
+                }
+                setCustomerBulkDeleteStep(1);
+                setShowCustomerBulkDeleteConfirm(true);
+              }}
+              disabled={selectedCustomerIds.length === 0}
+              className="px-4 py-2 bg-red-600 text-white rounded-lg font-bold text-xs hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Delete Selected ({selectedCustomerIds.length})
+            </button>
+          </div>
+        )}
+
+        {/* ===== CUSTOMER LIST ===== */}
+        <div className="space-y-2 max-h-[500px] overflow-y-auto pr-2">
+          {filteredCustomers.length === 0 ? (
+            <div className="text-center py-8 text-slate-400 font-bold italic text-sm">
+              {customerSearchTerm ? `No customers match "${customerSearchTerm}"` : 'No customers saved yet'}
+            </div>
+          ) : (
+            filteredCustomers.map((c) => {
+              const isSelected = selectedCustomerIds.includes(c.id);
+              return (
+                <div
+                  key={c.id}
+                  className={`flex justify-between items-center p-3 rounded-xl text-sm font-bold border transition-colors ${
+                    customerBulkDeleteMode && isSelected
+                      ? 'bg-red-50 border-red-300'
+                      : 'bg-slate-50 border-slate-100 hover:bg-slate-100'
+                  } text-slate-600`}
+                >
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                    {customerBulkDeleteMode && (
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleCustomerSelection(c.id)}
+                        className="w-4 h-4 accent-red-600 cursor-pointer flex-shrink-0"
+                      />
+                    )}
+                    <div className="flex flex-col flex-1 min-w-0">
+                      <span className="truncate">{c.name}</span>
+                      {(c.email || c.phone || c.contactName) && (
+                        <span className="text-[10px] text-slate-400 font-normal truncate">
+                          {[c.contactName, c.phone, c.email].filter(Boolean).join(' • ')}
+                        </span>
+                      )}
+                      {(c.prepullRate || c.stopOffRate || c.yardStorageRate || c.chassisRate) && (
+                        <span className="text-[9px] text-purple-500 font-medium mt-0.5">
+                          {c.prepullRate && `Pre: $${c.prepullRate} `}
+                          {c.stopOffRate && `Stop: $${c.stopOffRate} `}
+                          {c.yardStorageRate && `Yard: $${c.yardStorageRate}/day `}
+                          {c.chassisRate && `Chassis: $${c.chassisRate}/day`}
+                          <span className="text-slate-400 ml-1">({c.rateCurrency || 'CAD'})</span>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  {!customerBulkDeleteMode && (
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <button onClick={() => openEditModal(c)} className="p-1.5 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors" title="Edit Customer"><Edit3 className="w-3.5 h-3.5" /></button>
+                      <button onClick={() => onDeleteCustomer && onDeleteCustomer(c.id)} className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Delete Customer"><Trash2 className="w-3.5 h-3.5" /></button>
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+
+      {/* ===== DOUBLE CONFIRMATION MODAL ===== */}
+      {showCustomerBulkDeleteConfirm && (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-slate-900/70 backdrop-blur-sm"
+            onClick={() => {
+              if (!isCustomerBulkDeleting) {
+                setShowCustomerBulkDeleteConfirm(false);
+                setCustomerBulkDeleteStep(1);
+              }
+            }}
+          ></div>
+          <div className="bg-white w-full max-w-md rounded-[24px] shadow-2xl relative z-10 overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
+            {customerBulkDeleteStep === 1 ? (
+              <>
+                <div className="p-6 flex flex-col items-center text-center space-y-4">
+                  <div className="w-14 h-14 rounded-full bg-red-50 flex items-center justify-center">
+                    <AlertTriangle className="w-8 h-8 text-red-500" />
+                  </div>
+                  <h3 className="text-xl font-black text-slate-900">
+                    Delete {selectedCustomerIds.length} Customer{selectedCustomerIds.length !== 1 ? 's' : ''}?
+                  </h3>
+                  <p className="text-sm font-medium text-slate-500 leading-relaxed">
+                    You are about to delete <strong className="text-red-600">{selectedCustomerIds.length}</strong> customer{selectedCustomerIds.length !== 1 ? 's' : ''}. This action cannot be undone.
+                  </p>
+                </div>
+                <div className="flex border-t border-slate-100">
+                  <button
+                    onClick={() => { setShowCustomerBulkDeleteConfirm(false); setCustomerBulkDeleteStep(1); }}
+                    className="flex-1 py-4 text-sm font-bold text-slate-500 hover:bg-slate-50 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <div className="w-px bg-slate-100"></div>
+                  <button
+                    onClick={() => setCustomerBulkDeleteStep(2)}
+                    className="flex-1 py-4 text-sm font-bold text-red-600 hover:bg-red-50 transition-colors"
+                  >
+                    Continue →
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="p-6 flex flex-col items-center text-center space-y-4">
+                  <div className="w-14 h-14 rounded-full bg-red-100 flex items-center justify-center animate-pulse">
+                    <AlertCircle className="w-8 h-8 text-red-600" />
+                  </div>
+                  <h3 className="text-xl font-black text-slate-900">Are You Absolutely Sure?</h3>
+                  <p className="text-sm font-medium text-slate-500 leading-relaxed">
+                    This is your <strong className="text-red-600">final confirmation</strong>. Clicking "Delete Forever" will permanently remove <strong>{selectedCustomerIds.length}</strong> customer{selectedCustomerIds.length !== 1 ? 's' : ''} from the system.
+                  </p>
+                </div>
+                <div className="flex border-t border-slate-100">
+                  <button
+                    onClick={() => setCustomerBulkDeleteStep(1)}
+                    disabled={isCustomerBulkDeleting}
+                    className="flex-1 py-4 text-sm font-bold text-slate-500 hover:bg-slate-50 transition-colors disabled:opacity-50"
+                  >
+                    ← Back
+                  </button>
+                  <div className="w-px bg-slate-100"></div>
+                  <button
+                    onClick={performCustomerBulkDelete}
+                    disabled={isCustomerBulkDeleting}
+                    className="flex-1 py-4 text-sm font-bold text-white bg-red-600 hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {isCustomerBulkDeleting ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Deleting...
+                      </>
+                    ) : (
+                      <>
+                        <Trash2 className="w-4 h-4" />
+                        Delete Forever
+                      </>
+                    )}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
+    </div>
+  );
+})()}
 
-      {activeDatabaseTab === 'locations' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-            <h3 className="font-bold flex items-center gap-2 mb-4 text-slate-700">
-              <MapPin className="text-red-600 w-5 h-5" /> Add Location
-            </h3>
-            <form onSubmit={onAddLocation} className="space-y-3">
-              <input required className="w-full p-3 border rounded-xl text-sm font-bold" placeholder="Location Name*" value={newLoc.name} onChange={e => setNewLoc({...newLoc, name: e.target.value})} />
-              <input className="w-full p-3 border rounded-xl text-sm" placeholder="Address*" value={newLoc.address} onChange={e => setNewLoc({...newLoc, address: e.target.value})} />
-              <button type="submit" className="w-full py-3 bg-red-600 text-white rounded-xl font-bold text-sm uppercase tracking-widest hover:bg-red-700 transition-colors">Save Location</button>
-            </form>
+            {activeDatabaseTab === 'locations' && (() => {
+  // Filter locations by search term
+  const filteredLocations = (savedDestinations || []).filter(loc => {
+    if (!locationSearchTerm.trim()) return true;
+    const term = locationSearchTerm.toLowerCase().trim();
+    return (
+      (loc.name || '').toLowerCase().includes(term) ||
+      (loc.address || '').toLowerCase().includes(term) ||
+      (loc.city || '').toLowerCase().includes(term) ||
+      (loc.province || '').toLowerCase().includes(term) ||
+      (loc.postalCode || '').toLowerCase().includes(term)
+    );
+  });
+
+  const toggleLocationSelection = (id) => {
+    setSelectedLocationIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
+
+  const selectAllFiltered = () => {
+    const allIds = filteredLocations.map(l => l.id);
+    setSelectedLocationIds(allIds);
+  };
+
+  const deselectAll = () => {
+    setSelectedLocationIds([]);
+  };
+
+    const performBulkDelete = async () => {
+    if (selectedLocationIds.length === 0) return;
+    setIsBulkDeleting(true);
+    const { successCount, failCount } = await batchDeleteDocuments('locations', selectedLocationIds);
+    setIsBulkDeleting(false);
+    setSelectedLocationIds([]);
+    setBulkDeleteMode(false);
+    setShowBulkDeleteConfirm(false);
+    setBulkDeleteStep(1);
+    setFeedback(failCount === 0
+      ? `✅ Deleted ${successCount} location${successCount !== 1 ? 's' : ''}`
+      : `⚠️ Deleted ${successCount}, failed ${failCount}`
+    );
+  };
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      {/* ===== LEFT: Add Location ===== */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="font-bold flex items-center gap-2 text-slate-700">
+            <MapPin className="text-red-600 w-5 h-5" /> Add Location
+          </h3>
+          <button
+            onClick={() => document.getElementById('locationExcelUpload').click()}
+            className="px-4 py-2 bg-green-600 text-white rounded-xl font-bold text-sm hover:bg-green-700 transition-colors flex items-center gap-2 shadow-sm"
+          >
+            <Upload className="w-4 h-4" />
+            Upload Excel
+          </button>
+          <input
+            type="file"
+            id="locationExcelUpload"
+            accept=".xlsx,.xls,.csv"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files[0];
+              if (!file) return;
+              if (onImportLocations) {
+                onImportLocations(file);
+              } else {
+                console.error("onImportLocations is not defined");
+                setFeedback("❌ Import function not available");
+              }
+              e.target.value = '';
+            }}
+          />
+        </div>
+        <p className="text-[10px] text-slate-400 mb-4 -mt-2">
+          Upload an Excel/CSV file with "Name" and "Full address" columns
+        </p>
+        <form onSubmit={onAddLocation} className="space-y-3">
+          <input required className="w-full p-3 border rounded-xl text-sm font-bold" placeholder="Location Name*" value={newLoc.name} onChange={e => setNewLoc({...newLoc, name: e.target.value})} />
+          <input className="w-full p-3 border rounded-xl text-sm" placeholder="Address*" value={newLoc.address} onChange={e => setNewLoc({...newLoc, address: e.target.value})} />
+          <button type="submit" className="w-full py-3 bg-red-600 text-white rounded-xl font-bold text-sm uppercase tracking-widest hover:bg-red-700 transition-colors">Save Location</button>
+        </form>
+      </div>
+
+      {/* ===== RIGHT: Location List with Search + Bulk Delete ===== */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-bold flex items-center gap-2 text-slate-700">
+            <MapPin className="text-red-600 w-5 h-5" /> Location List
+            <span className="ml-2 text-xs font-normal text-slate-400">
+              ({filteredLocations.length}{locationSearchTerm && ` of ${savedDestinations.length}`})
+            </span>
+          </h3>
+          <div className="flex items-center gap-2">
+            {!bulkDeleteMode ? (
+              <button
+                onClick={() => {
+                  setBulkDeleteMode(true);
+                  setSelectedLocationIds([]);
+                }}
+                className="px-3 py-1.5 bg-red-50 text-red-600 border border-red-200 rounded-lg font-bold text-xs hover:bg-red-100 transition-colors flex items-center gap-1"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                Select & Delete
+              </button>
+            ) : (
+              <button
+                onClick={() => {
+                  setBulkDeleteMode(false);
+                  setSelectedLocationIds([]);
+                }}
+                className="px-3 py-1.5 bg-slate-100 text-slate-600 border border-slate-200 rounded-lg font-bold text-xs hover:bg-slate-200 transition-colors flex items-center gap-1"
+              >
+                <X className="w-3.5 h-3.5" />
+                Cancel
+              </button>
+            )}
           </div>
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-            <h3 className="font-bold flex items-center gap-2 mb-4 text-slate-700">
-              <MapPin className="text-red-600 w-5 h-5" /> Location List
-              <span className="ml-auto text-sm font-normal text-slate-400">({savedDestinations.length})</span>
-            </h3>
-            <div className="space-y-2 max-h-[500px] overflow-y-auto pr-2">
-              {(savedDestinations || []).map((d) => (
-                <div key={d.id} className="flex justify-between items-center p-3 bg-slate-50 rounded-xl text-sm font-bold text-slate-600 border border-slate-100 hover:bg-slate-100 transition-colors">
-                  <div className="flex flex-col flex-1 min-w-0">
-                    <span className="truncate">{d.name}</span>
-                    {d.address && (
-                      <span className="text-[10px] text-slate-400 font-normal truncate">{d.address}</span>
-                    )}
-                    {d.city && d.province && (
-                      <span className="text-[9px] text-slate-400 font-normal">{d.city}, {d.province} {d.postalCode || ''}</span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-1 flex-shrink-0">
-                    <button onClick={() => openLocationEditModal(d)} className="p-1.5 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors" title="Edit Location"><Edit3 className="w-3.5 h-3.5" /></button>
-                    <button onClick={() => onDeleteLocation && onDeleteLocation(d.id)} className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Delete Location"><Trash2 className="w-3.5 h-3.5" /></button>
-                  </div>
-                </div>
-              ))}
-              {(!savedDestinations || savedDestinations.length === 0) && (
-                <div className="text-center py-8 text-slate-400 font-bold italic text-sm">No locations saved yet</div>
+        </div>
+
+        {/* ===== SEARCH BAR ===== */}
+        <div className="relative mb-3">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <input
+            type="text"
+            value={locationSearchTerm}
+            onChange={(e) => setLocationSearchTerm(e.target.value)}
+            placeholder="Search by name, address, city, or postal code..."
+            className="w-full pl-10 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-500 transition-all"
+          />
+          {locationSearchTerm && (
+            <button
+              onClick={() => setLocationSearchTerm('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-red-600 rounded-md hover:bg-red-50"
+              title="Clear search"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+
+        {/* ===== BULK DELETE ACTION BAR ===== */}
+        {bulkDeleteMode && (
+          <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded-xl flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-black text-red-700 uppercase">
+                {selectedLocationIds.length} selected
+              </span>
+              <button
+                onClick={selectAllFiltered}
+                className="text-[10px] font-bold text-red-600 hover:text-red-800 underline"
+              >
+                Select All ({filteredLocations.length})
+              </button>
+              {selectedLocationIds.length > 0 && (
+                <button
+                  onClick={deselectAll}
+                  className="text-[10px] font-bold text-slate-500 hover:text-slate-700 underline"
+                >
+                  Deselect All
+                </button>
               )}
             </div>
+            <button
+              onClick={() => {
+                if (selectedLocationIds.length === 0) {
+                  setFeedback("⚠️ No locations selected");
+                  return;
+                }
+                setBulkDeleteStep(1);
+                setShowBulkDeleteConfirm(true);
+              }}
+              disabled={selectedLocationIds.length === 0}
+              className="px-4 py-2 bg-red-600 text-white rounded-lg font-bold text-xs hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Delete Selected ({selectedLocationIds.length})
+            </button>
+          </div>
+        )}
+
+        {/* ===== LOCATION LIST ===== */}
+        <div className="space-y-2 max-h-[500px] overflow-y-auto pr-2">
+          {filteredLocations.length === 0 ? (
+            <div className="text-center py-8 text-slate-400 font-bold italic text-sm">
+              {locationSearchTerm ? `No locations match "${locationSearchTerm}"` : 'No locations saved yet'}
+            </div>
+          ) : (
+            filteredLocations.map((d) => {
+              const isSelected = selectedLocationIds.includes(d.id);
+              return (
+                <div
+                  key={d.id}
+                  className={`flex justify-between items-center p-3 rounded-xl text-sm font-bold border transition-colors ${
+                    bulkDeleteMode && isSelected
+                      ? 'bg-red-50 border-red-300'
+                      : 'bg-slate-50 border-slate-100 hover:bg-slate-100'
+                  } text-slate-600`}
+                >
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                    {bulkDeleteMode && (
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleLocationSelection(d.id)}
+                        className="w-4 h-4 accent-red-600 cursor-pointer flex-shrink-0"
+                      />
+                    )}
+                    <div className="flex flex-col flex-1 min-w-0">
+                      <span className="truncate">{d.name}</span>
+                      {d.address && (
+                        <span className="text-[10px] text-slate-400 font-normal truncate">{d.address}</span>
+                      )}
+                      {d.city && d.province && (
+                        <span className="text-[9px] text-slate-400 font-normal">{d.city}, {d.province} {d.postalCode || ''}</span>
+                      )}
+                    </div>
+                  </div>
+                  {!bulkDeleteMode && (
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <button onClick={() => openLocationEditModal(d)} className="p-1.5 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors" title="Edit Location"><Edit3 className="w-3.5 h-3.5" /></button>
+                      <button onClick={() => onDeleteLocation && onDeleteLocation(d.id)} className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Delete Location"><Trash2 className="w-3.5 h-3.5" /></button>
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+
+      {/* ===== DOUBLE CONFIRMATION MODAL ===== */}
+      {showBulkDeleteConfirm && (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-slate-900/70 backdrop-blur-sm"
+            onClick={() => {
+              if (!isBulkDeleting) {
+                setShowBulkDeleteConfirm(false);
+                setBulkDeleteStep(1);
+              }
+            }}
+          ></div>
+          <div className="bg-white w-full max-w-md rounded-[24px] shadow-2xl relative z-10 overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
+            {bulkDeleteStep === 1 ? (
+              <>
+                <div className="p-6 flex flex-col items-center text-center space-y-4">
+                  <div className="w-14 h-14 rounded-full bg-red-50 flex items-center justify-center">
+                    <AlertTriangle className="w-8 h-8 text-red-500" />
+                  </div>
+                  <h3 className="text-xl font-black text-slate-900">
+                    Delete {selectedLocationIds.length} Location{selectedLocationIds.length !== 1 ? 's' : ''}?
+                  </h3>
+                  <p className="text-sm font-medium text-slate-500 leading-relaxed">
+                    You are about to delete <strong className="text-red-600">{selectedLocationIds.length}</strong> location{selectedLocationIds.length !== 1 ? 's' : ''}. This action cannot be undone.
+                  </p>
+                </div>
+                <div className="flex border-t border-slate-100">
+                  <button
+                    onClick={() => { setShowBulkDeleteConfirm(false); setBulkDeleteStep(1); }}
+                    className="flex-1 py-4 text-sm font-bold text-slate-500 hover:bg-slate-50 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <div className="w-px bg-slate-100"></div>
+                  <button
+                    onClick={() => setBulkDeleteStep(2)}
+                    className="flex-1 py-4 text-sm font-bold text-red-600 hover:bg-red-50 transition-colors"
+                  >
+                    Continue →
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="p-6 flex flex-col items-center text-center space-y-4">
+                  <div className="w-14 h-14 rounded-full bg-red-100 flex items-center justify-center animate-pulse">
+                    <AlertCircle className="w-8 h-8 text-red-600" />
+                  </div>
+                  <h3 className="text-xl font-black text-slate-900">Are You Absolutely Sure?</h3>
+                  <p className="text-sm font-medium text-slate-500 leading-relaxed">
+                    This is your <strong className="text-red-600">final confirmation</strong>. Clicking "Delete Forever" will permanently remove <strong>{selectedLocationIds.length}</strong> location{selectedLocationIds.length !== 1 ? 's' : ''} from the system.
+                  </p>
+                </div>
+                <div className="flex border-t border-slate-100">
+                  <button
+                    onClick={() => setBulkDeleteStep(1)}
+                    disabled={isBulkDeleting}
+                    className="flex-1 py-4 text-sm font-bold text-slate-500 hover:bg-slate-50 transition-colors disabled:opacity-50"
+                  >
+                    ← Back
+                  </button>
+                  <div className="w-px bg-slate-100"></div>
+                  <button
+                    onClick={performBulkDelete}
+                    disabled={isBulkDeleting}
+                    className="flex-1 py-4 text-sm font-bold text-white bg-red-600 hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {isBulkDeleting ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Deleting...
+                      </>
+                    ) : (
+                      <>
+                        <Trash2 className="w-4 h-4" />
+                        Delete Forever
+                      </>
+                    )}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
+    </div>
+  );
+})()}
 
-      {activeDatabaseTab === 'drivers' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-            <h3 className="font-bold flex items-center gap-2 mb-4 text-slate-700">
-              <Truck className="text-orange-600 w-5 h-5" /> Add Driver
-            </h3>
-            <form onSubmit={onAddDriver} className="space-y-3">
-              <input required className="w-full p-3 border rounded-xl text-sm font-bold" placeholder="Driver Name*" value={newDriver.name} onChange={e => setNewDriver({...newDriver, name: e.target.value})} />
-              <input className="w-full p-3 border rounded-xl text-sm" placeholder="Truck Number" value={newDriver.truckNo} onChange={e => setNewDriver({...newDriver, truckNo: e.target.value})} />
+      {activeDatabaseTab === 'drivers' && (() => {
+  // Filter drivers by search term
+  const filteredDrivers = (savedDrivers || []).filter(d => {
+    if (!driverSearchTerm.trim()) return true;
+    const term = driverSearchTerm.toLowerCase().trim();
+    return (
+      (d.name || '').toLowerCase().includes(term) ||
+      (d.truckNo || '').toLowerCase().includes(term) ||
+      (d.type || '').toLowerCase().includes(term) ||
+      (d.payType || '').toLowerCase().includes(term) ||
+      (d.email || '').toLowerCase().includes(term)
+    );
+  });
+
+  const toggleDriverSelection = (id) => {
+    setSelectedDriverIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
+
+  const selectAllFilteredDrivers = () => {
+    setSelectedDriverIds(filteredDrivers.map(d => d.id));
+  };
+
+  const deselectAllDrivers = () => {
+    setSelectedDriverIds([]);
+  };
+
+    const performDriverBulkDelete = async () => {
+    if (selectedDriverIds.length === 0) return;
+    setIsDriverBulkDeleting(true);
+    const { successCount, failCount } = await batchDeleteDocuments('drivers', selectedDriverIds);
+    setIsDriverBulkDeleting(false);
+    setSelectedDriverIds([]);
+    setDriverBulkDeleteMode(false);
+    setShowDriverBulkDeleteConfirm(false);
+    setDriverBulkDeleteStep(1);
+    setFeedback(failCount === 0
+      ? `✅ Deleted ${successCount} driver${successCount !== 1 ? 's' : ''}`
+      : `⚠️ Deleted ${successCount}, failed ${failCount}`
+    );
+  };
+
+  const getDriverBadge = (type) => {
+    switch(type) {
+      case 'Owner Operator': return 'bg-purple-100 text-purple-700';
+      case 'Company Driver': return 'bg-blue-100 text-blue-700';
+      case 'Third-Party Driver': return 'bg-orange-100 text-orange-700';
+      default: return 'bg-slate-100 text-slate-700';
+    }
+  };
+  const getPayTypeLabel = (type) => {
+    switch(type) {
+      case 'hourly': return '⏱️/hr';
+      case 'mileage': return '📏/km';
+      default: return '💰/leg';
+    }
+  };
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      {/* ===== LEFT: Add Driver ===== */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+        <h3 className="font-bold flex items-center gap-2 mb-4 text-slate-700">
+          <Truck className="text-orange-600 w-5 h-5" /> Add Driver
+        </h3>
+                <form onSubmit={onAddDriver} className="space-y-3">
+          <input required className="w-full p-3 border rounded-xl text-sm font-bold" placeholder="Driver / Company Name*" value={newDriver.name} onChange={e => setNewDriver({...newDriver, name: e.target.value})} />
+          <input className="w-full p-3 border rounded-xl text-sm" placeholder="Truck Number (Optional)" value={newDriver.truckNo} onChange={e => setNewDriver({...newDriver, truckNo: e.target.value})} />
+          
+          <div>
+            <label className="text-[10px] font-black text-slate-400 uppercase">Driver / Vendor Type</label>
+            <select className="w-full p-3 border rounded-xl text-sm bg-white" value={newDriver.type || 'Company Driver'} onChange={e => {
+              const newType = e.target.value;
+              setNewDriver({...newDriver, type: newType, payType: newType === 'Owner Operator' ? 'flat' : 'hourly'});
+            }}>
+              <option value="Company Driver">🏢 Company Driver (Paid per hour/mile)</option>
+              <option value="Owner Operator">💰 Owner Operator (Paid per leg)</option>
+              <option value="Third-Party Driver">🔄 Third-Party Logistics (No Rates)</option>
+            </select>
+          </div>
+
+          {/* ✅ ONLY SHOW THESE FOR COMPANY / OWNER OPERATOR */}
+          {newDriver.type !== 'Third-Party Driver' && (
+            <>
               <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase">Driver Type</label>
-                  <select className="w-full p-3 border rounded-xl text-sm bg-white" value={newDriver.type || 'Company Driver'} onChange={e => {
-                    const newType = e.target.value;
-                    setNewDriver({...newDriver, type: newType, payType: newType === 'Owner Operator' ? 'flat' : 'hourly'});
-                  }}>
-                    <option value="Company Driver">🏢 Company Driver</option>
-                    <option value="Owner Operator">💰 Owner Operator</option>
-                    <option value="Third-Party Driver">🔄 Third-Party Driver</option>
-                  </select>
-                </div>
                 <div>
                   <label className="text-[10px] font-black text-slate-400 uppercase">Pay Type</label>
                   <select className="w-full p-3 border rounded-xl text-sm bg-white" value={newDriver.payType || 'flat'} onChange={e => setNewDriver({...newDriver, payType: e.target.value})}>
@@ -5651,40 +5087,152 @@ const AddressBook = ({
                     <option value="mileage">📏 Per Mile</option>
                   </select>
                 </div>
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase">Pay Rate ($)</label>
+                  <input type="number" step="0.01" className="w-full p-3 border rounded-xl text-sm font-bold" placeholder="0.00" value={newDriver.payRate || ''} onChange={e => setNewDriver({...newDriver, payRate: parseFloat(e.target.value) || 0})} />
+                </div>
               </div>
-              <input type="number" step="0.01" className="w-full p-3 border rounded-xl text-sm font-bold" placeholder="Pay Rate ($)" value={newDriver.payRate || ''} onChange={e => setNewDriver({...newDriver, payRate: parseFloat(e.target.value) || 0})} />
               {newDriver.type === 'Company Driver' && (
                 <input type="number" step="0.1" className="w-full p-3 border rounded-xl text-sm" placeholder="⛽ Fuel Efficiency (km/L)" value={newDriver.fuelEfficiency || ''} onChange={e => setNewDriver({...newDriver, fuelEfficiency: parseFloat(e.target.value) || null})} />
               )}
-              <input type="email" className="w-full p-3 border rounded-xl text-sm" placeholder="Email (for app login)" value={newDriver.email || ''} onChange={e => setNewDriver({...newDriver, email: e.target.value})} />
-              <input type="password" className="w-full p-3 border rounded-xl text-sm" placeholder="Password (min 6 chars)" value={newDriver.password || ''} onChange={e => setNewDriver({...newDriver, password: e.target.value})} />
-              <button type="submit" className="w-full py-3 bg-orange-600 text-white rounded-xl font-bold text-sm uppercase tracking-widest hover:bg-orange-700 transition-colors">Add Driver</button>
-            </form>
+            </>
+          )}
+
+          {/* ✅ APP LOGIN IS ALWAYS OPTIONAL */}
+          <div className="bg-slate-100 p-3 rounded-xl border border-slate-200">
+            <p className="text-[10px] font-black text-slate-500 uppercase mb-2">App Login (Optional)</p>
+            <input type="email" className="w-full p-3 border rounded-xl text-sm mb-2" placeholder="Email (Leave blank if no login)" value={newDriver.email || ''} onChange={e => setNewDriver({...newDriver, email: e.target.value})} />
+            <input type="password" className="w-full p-3 border rounded-xl text-sm" placeholder="Password (min 6 chars)" value={newDriver.password || ''} onChange={e => setNewDriver({...newDriver, password: e.target.value})} />
           </div>
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-            <h3 className="font-bold flex items-center gap-2 mb-4 text-slate-700">
-              <Truck className="text-orange-600 w-5 h-5" /> Driver List
-              <span className="ml-auto text-sm font-normal text-slate-400">({savedDrivers.length})</span>
-            </h3>
-            <div className="space-y-2 max-h-[500px] overflow-y-auto pr-2">
-              {(savedDrivers || []).map((d) => {
-                const getDriverBadge = (type) => {
-                  switch(type) {
-                    case 'Owner Operator': return 'bg-purple-100 text-purple-700';
-                    case 'Company Driver': return 'bg-blue-100 text-blue-700';
-                    case 'Third-Party Driver': return 'bg-orange-100 text-orange-700';
-                    default: return 'bg-slate-100 text-slate-700';
-                  }
-                };
-                const getPayTypeLabel = (type) => {
-                  switch(type) {
-                    case 'hourly': return '⏱️/hr';
-                    case 'mileage': return '📏/km';
-                    default: return '💰/leg';
-                  }
-                };
-                return (
-                  <div key={d.id} className="flex justify-between items-center p-3 bg-slate-50 rounded-xl text-sm font-bold text-slate-600 border border-slate-100 hover:bg-slate-100 transition-colors">
+
+          <button type="submit" className="w-full py-3 bg-orange-600 text-white rounded-xl font-bold text-sm uppercase tracking-widest hover:bg-orange-700 transition-colors">Save Driver</button>
+        </form>
+      </div>
+
+      {/* ===== RIGHT: Driver List with Search + Bulk Delete ===== */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-bold flex items-center gap-2 text-slate-700">
+            <Truck className="text-orange-600 w-5 h-5" /> Driver List
+            <span className="ml-2 text-xs font-normal text-slate-400">
+              ({filteredDrivers.length}{driverSearchTerm && ` of ${savedDrivers.length}`})
+            </span>
+          </h3>
+          <div className="flex items-center gap-2">
+            {!driverBulkDeleteMode ? (
+              <button
+                onClick={() => {
+                  setDriverBulkDeleteMode(true);
+                  setSelectedDriverIds([]);
+                }}
+                className="px-3 py-1.5 bg-red-50 text-red-600 border border-red-200 rounded-lg font-bold text-xs hover:bg-red-100 transition-colors flex items-center gap-1"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                Select & Delete
+              </button>
+            ) : (
+              <button
+                onClick={() => {
+                  setDriverBulkDeleteMode(false);
+                  setSelectedDriverIds([]);
+                }}
+                className="px-3 py-1.5 bg-slate-100 text-slate-600 border border-slate-200 rounded-lg font-bold text-xs hover:bg-slate-200 transition-colors flex items-center gap-1"
+              >
+                <X className="w-3.5 h-3.5" />
+                Cancel
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* ===== SEARCH BAR ===== */}
+        <div className="relative mb-3">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <input
+            type="text"
+            value={driverSearchTerm}
+            onChange={(e) => setDriverSearchTerm(e.target.value)}
+            placeholder="Search by name, truck number, type, email..."
+            className="w-full pl-10 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all"
+          />
+          {driverSearchTerm && (
+            <button
+              onClick={() => setDriverSearchTerm('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-orange-600 rounded-md hover:bg-orange-50"
+              title="Clear search"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+
+        {/* ===== BULK DELETE ACTION BAR ===== */}
+        {driverBulkDeleteMode && (
+          <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded-xl flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-black text-red-700 uppercase">
+                {selectedDriverIds.length} selected
+              </span>
+              <button
+                onClick={selectAllFilteredDrivers}
+                className="text-[10px] font-bold text-red-600 hover:text-red-800 underline"
+              >
+                Select All ({filteredDrivers.length})
+              </button>
+              {selectedDriverIds.length > 0 && (
+                <button
+                  onClick={deselectAllDrivers}
+                  className="text-[10px] font-bold text-slate-500 hover:text-slate-700 underline"
+                >
+                  Deselect All
+                </button>
+              )}
+            </div>
+            <button
+              onClick={() => {
+                if (selectedDriverIds.length === 0) {
+                  setFeedback("⚠️ No drivers selected");
+                  return;
+                }
+                setDriverBulkDeleteStep(1);
+                setShowDriverBulkDeleteConfirm(true);
+              }}
+              disabled={selectedDriverIds.length === 0}
+              className="px-4 py-2 bg-red-600 text-white rounded-lg font-bold text-xs hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Delete Selected ({selectedDriverIds.length})
+            </button>
+          </div>
+        )}
+
+        {/* ===== DRIVER LIST ===== */}
+        <div className="space-y-2 max-h-[500px] overflow-y-auto pr-2">
+          {filteredDrivers.length === 0 ? (
+            <div className="text-center py-8 text-slate-400 font-bold italic text-sm">
+              {driverSearchTerm ? `No drivers match "${driverSearchTerm}"` : 'No drivers saved yet'}
+            </div>
+          ) : (
+            filteredDrivers.map((d) => {
+              const isSelected = selectedDriverIds.includes(d.id);
+              return (
+                <div
+                  key={d.id}
+                  className={`flex justify-between items-center p-3 rounded-xl text-sm font-bold border transition-colors ${
+                    driverBulkDeleteMode && isSelected
+                      ? 'bg-red-50 border-red-300'
+                      : 'bg-slate-50 border-slate-100 hover:bg-slate-100'
+                  } text-slate-600`}
+                >
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                    {driverBulkDeleteMode && (
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleDriverSelection(d.id)}
+                        className="w-4 h-4 accent-red-600 cursor-pointer flex-shrink-0"
+                      />
+                    )}
                     <div className="flex flex-col flex-1 min-w-0">
                       <span className="truncate">{d.name}</span>
                       <div className="flex items-center gap-2 mt-0.5 flex-wrap">
@@ -5694,91 +5242,434 @@ const AddressBook = ({
                         <span className="text-[10px] font-bold text-slate-600">
                           {getPayTypeLabel(d.payType)} ${d.payRate || 0}
                         </span>
+                        {d.truckNo && (
+                          <span className="text-[10px] font-bold text-slate-500">🚛 {d.truckNo}</span>
+                        )}
                         {d.type === 'Company Driver' && d.fuelEfficiency && (
                           <span className="text-[9px] text-blue-500">⛽ {d.fuelEfficiency} km/L</span>
                         )}
                       </div>
                     </div>
+                  </div>
+                  {!driverBulkDeleteMode && (
                     <div className="flex items-center gap-1 flex-shrink-0">
                       <button onClick={() => openDriverEditModal(d)} className="p-1.5 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors" title="Edit Driver"><Edit3 className="w-3.5 h-3.5" /></button>
                       <button onClick={() => onDeleteDriver && onDeleteDriver(d.id)} className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Delete Driver"><Trash2 className="w-3.5 h-3.5" /></button>
                     </div>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+
+      {/* ===== DOUBLE CONFIRMATION MODAL ===== */}
+      {showDriverBulkDeleteConfirm && (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-slate-900/70 backdrop-blur-sm"
+            onClick={() => {
+              if (!isDriverBulkDeleting) {
+                setShowDriverBulkDeleteConfirm(false);
+                setDriverBulkDeleteStep(1);
+              }
+            }}
+          ></div>
+          <div className="bg-white w-full max-w-md rounded-[24px] shadow-2xl relative z-10 overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
+            {driverBulkDeleteStep === 1 ? (
+              <>
+                <div className="p-6 flex flex-col items-center text-center space-y-4">
+                  <div className="w-14 h-14 rounded-full bg-red-50 flex items-center justify-center">
+                    <AlertTriangle className="w-8 h-8 text-red-500" />
                   </div>
-                );
-              })}
-              {(!savedDrivers || savedDrivers.length === 0) && (
-                <div className="text-center py-8 text-slate-400 font-bold italic text-sm">No drivers saved yet</div>
-              )}
-            </div>
+                  <h3 className="text-xl font-black text-slate-900">
+                    Delete {selectedDriverIds.length} Driver{selectedDriverIds.length !== 1 ? 's' : ''}?
+                  </h3>
+                  <p className="text-sm font-medium text-slate-500 leading-relaxed">
+                    You are about to delete <strong className="text-red-600">{selectedDriverIds.length}</strong> driver{selectedDriverIds.length !== 1 ? 's' : ''}. This action cannot be undone.
+                  </p>
+                </div>
+                <div className="flex border-t border-slate-100">
+                  <button
+                    onClick={() => { setShowDriverBulkDeleteConfirm(false); setDriverBulkDeleteStep(1); }}
+                    className="flex-1 py-4 text-sm font-bold text-slate-500 hover:bg-slate-50 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <div className="w-px bg-slate-100"></div>
+                  <button
+                    onClick={() => setDriverBulkDeleteStep(2)}
+                    className="flex-1 py-4 text-sm font-bold text-red-600 hover:bg-red-50 transition-colors"
+                  >
+                    Continue →
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="p-6 flex flex-col items-center text-center space-y-4">
+                  <div className="w-14 h-14 rounded-full bg-red-100 flex items-center justify-center animate-pulse">
+                    <AlertCircle className="w-8 h-8 text-red-600" />
+                  </div>
+                  <h3 className="text-xl font-black text-slate-900">Are You Absolutely Sure?</h3>
+                  <p className="text-sm font-medium text-slate-500 leading-relaxed">
+                    This is your <strong className="text-red-600">final confirmation</strong>. Clicking "Delete Forever" will permanently remove <strong>{selectedDriverIds.length}</strong> driver{selectedDriverIds.length !== 1 ? 's' : ''} from the system.
+                  </p>
+                </div>
+                <div className="flex border-t border-slate-100">
+                  <button
+                    onClick={() => setDriverBulkDeleteStep(1)}
+                    disabled={isDriverBulkDeleting}
+                    className="flex-1 py-4 text-sm font-bold text-slate-500 hover:bg-slate-50 transition-colors disabled:opacity-50"
+                  >
+                    ← Back
+                  </button>
+                  <div className="w-px bg-slate-100"></div>
+                  <button
+                    onClick={performDriverBulkDelete}
+                    disabled={isDriverBulkDeleting}
+                    className="flex-1 py-4 text-sm font-bold text-white bg-red-600 hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {isDriverBulkDeleting ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Deleting...
+                      </>
+                    ) : (
+                      <>
+                        <Trash2 className="w-4 h-4" />
+                        Delete Forever
+                      </>
+                    )}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
+    </div>
+  );
+})()}
 
-      {activeDatabaseTab === 'terminals' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-            <h3 className="font-bold flex items-center gap-2 mb-4 text-slate-700">
-              <Anchor className="text-teal-600 w-5 h-5" /> Add Terminal
-            </h3>
-            <form onSubmit={onAddTerminal} className="space-y-3">
-              <input required className="w-full p-3 border rounded-xl text-sm font-bold" placeholder="Terminal Name*" value={newTerminal?.name || ''} onChange={e => setNewTerminal({...newTerminal, name: e.target.value})} />
-              <input className="w-full p-3 border rounded-xl text-sm" placeholder="Terminal Code (e.g., VAN01, TOR02)" value={newTerminal?.code || ''} onChange={e => setNewTerminal({...newTerminal, code: e.target.value.toUpperCase()})} />
-              <input className="w-full p-3 border rounded-xl text-sm" placeholder="Address*" value={newTerminal?.address || ''} onChange={e => setNewTerminal({...newTerminal, address: e.target.value})} />
-              <div className="grid grid-cols-2 gap-3">
-                <input className="w-full p-3 border rounded-xl text-sm" placeholder="City" value={newTerminal?.city || ''} onChange={e => setNewTerminal({...newTerminal, city: e.target.value})} />
-                <input className="w-full p-3 border rounded-xl text-sm" placeholder="Province" value={newTerminal?.province || ''} onChange={e => setNewTerminal({...newTerminal, province: e.target.value})} />
-              </div>
-              <input className="w-full p-3 border rounded-xl text-sm" placeholder="Postal Code" value={newTerminal?.postalCode || ''} onChange={e => setNewTerminal({...newTerminal, postalCode: e.target.value})} />
-              <div className="grid grid-cols-2 gap-3">
-                <input className="w-full p-3 border rounded-xl text-sm" placeholder="Phone" value={newTerminal?.phone || ''} onChange={e => setNewTerminal({...newTerminal, phone: e.target.value})} />
-                <input className="w-full p-3 border rounded-xl text-sm" placeholder="Email" value={newTerminal?.email || ''} onChange={e => setNewTerminal({...newTerminal, email: e.target.value})} />
-              </div>
-              <input className="w-full p-3 border rounded-xl text-sm" placeholder="Contact Name" value={newTerminal?.contactName || ''} onChange={e => setNewTerminal({...newTerminal, contactName: e.target.value})} />
-              <button type="submit" className="w-full py-3 bg-teal-600 text-white rounded-xl font-bold text-sm uppercase tracking-widest hover:bg-teal-700 transition-colors">Save Terminal</button>
-            </form>
+      {activeDatabaseTab === 'terminals' && (() => {
+  // Filter terminals by search term
+  const filteredTerminals = (savedTerminals || []).filter(t => {
+    if (!terminalSearchTerm.trim()) return true;
+    const term = terminalSearchTerm.toLowerCase().trim();
+    return (
+      (t.name || '').toLowerCase().includes(term) ||
+      (t.address || '').toLowerCase().includes(term) ||
+      (t.city || '').toLowerCase().includes(term) ||
+      (t.province || '').toLowerCase().includes(term) ||
+      (t.code || '').toLowerCase().includes(term) ||
+      (t.phone || '').toLowerCase().includes(term) ||
+      (t.email || '').toLowerCase().includes(term)
+    );
+  });
+
+  const toggleTerminalSelection = (id) => {
+    setSelectedTerminalIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
+
+  const selectAllFilteredTerminals = () => {
+    setSelectedTerminalIds(filteredTerminals.map(t => t.id));
+  };
+
+  const deselectAllTerminals = () => {
+    setSelectedTerminalIds([]);
+  };
+
+    const performTerminalBulkDelete = async () => {
+    if (selectedTerminalIds.length === 0) return;
+    setIsTerminalBulkDeleting(true);
+    const { successCount, failCount } = await batchDeleteDocuments('terminals', selectedTerminalIds);
+    setIsTerminalBulkDeleting(false);
+    setSelectedTerminalIds([]);
+    setTerminalBulkDeleteMode(false);
+    setShowTerminalBulkDeleteConfirm(false);
+    setTerminalBulkDeleteStep(1);
+    setFeedback(failCount === 0
+      ? `✅ Deleted ${successCount} terminal${successCount !== 1 ? 's' : ''}`
+      : `⚠️ Deleted ${successCount}, failed ${failCount}`
+    );
+  };
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      {/* ===== LEFT: Add Terminal ===== */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+        <h3 className="font-bold flex items-center gap-2 mb-4 text-slate-700">
+          <Anchor className="text-teal-600 w-5 h-5" /> Add Terminal
+        </h3>
+        <form onSubmit={onAddTerminal} className="space-y-3">
+          <input required className="w-full p-3 border rounded-xl text-sm font-bold" placeholder="Terminal Name*" value={newTerminal?.name || ''} onChange={e => setNewTerminal({...newTerminal, name: e.target.value})} />
+          <input className="w-full p-3 border rounded-xl text-sm" placeholder="Terminal Code (e.g., VAN01, TOR02)" value={newTerminal?.code || ''} onChange={e => setNewTerminal({...newTerminal, code: e.target.value.toUpperCase()})} />
+          <input className="w-full p-3 border rounded-xl text-sm" placeholder="Address*" value={newTerminal?.address || ''} onChange={e => setNewTerminal({...newTerminal, address: e.target.value})} />
+          <div className="grid grid-cols-2 gap-3">
+            <input className="w-full p-3 border rounded-xl text-sm" placeholder="City" value={newTerminal?.city || ''} onChange={e => setNewTerminal({...newTerminal, city: e.target.value})} />
+            <input className="w-full p-3 border rounded-xl text-sm" placeholder="Province" value={newTerminal?.province || ''} onChange={e => setNewTerminal({...newTerminal, province: e.target.value})} />
           </div>
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-            <h3 className="font-bold flex items-center gap-2 mb-4 text-slate-700">
-              <Anchor className="text-teal-600 w-5 h-5" /> Terminal List
-              <span className="ml-auto text-sm font-normal text-slate-400">({savedTerminals?.length || 0})</span>
-            </h3>
-            <div className="space-y-2 max-h-[500px] overflow-y-auto pr-2">
-              {(savedTerminals || []).map((t) => (
-                <div key={t.id} className="flex justify-between items-center p-3 bg-slate-50 rounded-xl text-sm font-bold text-slate-600 border border-slate-100 hover:bg-slate-100 transition-colors">
-                  <div className="flex flex-col flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="truncate">{t.name}</span>
-                      {t.code && (
-                        <span className="text-[10px] font-black text-teal-600 bg-teal-50 px-2 py-0.5 rounded border border-teal-200">
-                          {t.code}
+          <input className="w-full p-3 border rounded-xl text-sm" placeholder="Postal Code" value={newTerminal?.postalCode || ''} onChange={e => setNewTerminal({...newTerminal, postalCode: e.target.value})} />
+          <div className="grid grid-cols-2 gap-3">
+            <input className="w-full p-3 border rounded-xl text-sm" placeholder="Phone" value={newTerminal?.phone || ''} onChange={e => setNewTerminal({...newTerminal, phone: e.target.value})} />
+            <input className="w-full p-3 border rounded-xl text-sm" placeholder="Email" value={newTerminal?.email || ''} onChange={e => setNewTerminal({...newTerminal, email: e.target.value})} />
+          </div>
+          <input className="w-full p-3 border rounded-xl text-sm" placeholder="Contact Name" value={newTerminal?.contactName || ''} onChange={e => setNewTerminal({...newTerminal, contactName: e.target.value})} />
+          <button type="submit" className="w-full py-3 bg-teal-600 text-white rounded-xl font-bold text-sm uppercase tracking-widest hover:bg-teal-700 transition-colors">Save Terminal</button>
+        </form>
+      </div>
+
+      {/* ===== RIGHT: Terminal List with Search + Bulk Delete ===== */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-bold flex items-center gap-2 text-slate-700">
+            <Anchor className="text-teal-600 w-5 h-5" /> Terminal List
+            <span className="ml-2 text-xs font-normal text-slate-400">
+              ({filteredTerminals.length}{terminalSearchTerm && ` of ${savedTerminals?.length || 0}`})
+            </span>
+          </h3>
+          <div className="flex items-center gap-2">
+            {!terminalBulkDeleteMode ? (
+              <button
+                onClick={() => {
+                  setTerminalBulkDeleteMode(true);
+                  setSelectedTerminalIds([]);
+                }}
+                className="px-3 py-1.5 bg-red-50 text-red-600 border border-red-200 rounded-lg font-bold text-xs hover:bg-red-100 transition-colors flex items-center gap-1"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                Select & Delete
+              </button>
+            ) : (
+              <button
+                onClick={() => {
+                  setTerminalBulkDeleteMode(false);
+                  setSelectedTerminalIds([]);
+                }}
+                className="px-3 py-1.5 bg-slate-100 text-slate-600 border border-slate-200 rounded-lg font-bold text-xs hover:bg-slate-200 transition-colors flex items-center gap-1"
+              >
+                <X className="w-3.5 h-3.5" />
+                Cancel
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* ===== SEARCH BAR ===== */}
+        <div className="relative mb-3">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <input
+            type="text"
+            value={terminalSearchTerm}
+            onChange={(e) => setTerminalSearchTerm(e.target.value)}
+            placeholder="Search by name, code, address, city..."
+            className="w-full pl-10 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all"
+          />
+          {terminalSearchTerm && (
+            <button
+              onClick={() => setTerminalSearchTerm('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-teal-600 rounded-md hover:bg-teal-50"
+              title="Clear search"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+
+        {/* ===== BULK DELETE ACTION BAR ===== */}
+        {terminalBulkDeleteMode && (
+          <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded-xl flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-black text-red-700 uppercase">
+                {selectedTerminalIds.length} selected
+              </span>
+              <button
+                onClick={selectAllFilteredTerminals}
+                className="text-[10px] font-bold text-red-600 hover:text-red-800 underline"
+              >
+                Select All ({filteredTerminals.length})
+              </button>
+              {selectedTerminalIds.length > 0 && (
+                <button
+                  onClick={deselectAllTerminals}
+                  className="text-[10px] font-bold text-slate-500 hover:text-slate-700 underline"
+                >
+                  Deselect All
+                </button>
+              )}
+            </div>
+            <button
+              onClick={() => {
+                if (selectedTerminalIds.length === 0) {
+                  setFeedback("⚠️ No terminals selected");
+                  return;
+                }
+                setTerminalBulkDeleteStep(1);
+                setShowTerminalBulkDeleteConfirm(true);
+              }}
+              disabled={selectedTerminalIds.length === 0}
+              className="px-4 py-2 bg-red-600 text-white rounded-lg font-bold text-xs hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Delete Selected ({selectedTerminalIds.length})
+            </button>
+          </div>
+        )}
+
+        {/* ===== TERMINAL LIST ===== */}
+        <div className="space-y-2 max-h-[500px] overflow-y-auto pr-2">
+          {filteredTerminals.length === 0 ? (
+            <div className="text-center py-8 text-slate-400 font-bold italic text-sm">
+              {terminalSearchTerm ? `No terminals match "${terminalSearchTerm}"` : 'No terminals saved yet'}
+            </div>
+          ) : (
+            filteredTerminals.map((t) => {
+              const isSelected = selectedTerminalIds.includes(t.id);
+              return (
+                <div
+                  key={t.id}
+                  className={`flex justify-between items-center p-3 rounded-xl text-sm font-bold border transition-colors ${
+                    terminalBulkDeleteMode && isSelected
+                      ? 'bg-red-50 border-red-300'
+                      : 'bg-slate-50 border-slate-100 hover:bg-slate-100'
+                  } text-slate-600`}
+                >
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                    {terminalBulkDeleteMode && (
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleTerminalSelection(t.id)}
+                        className="w-4 h-4 accent-red-600 cursor-pointer flex-shrink-0"
+                      />
+                    )}
+                    <div className="flex flex-col flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="truncate">{t.name}</span>
+                        {t.code && (
+                          <span className="text-[10px] font-black text-teal-600 bg-teal-50 px-2 py-0.5 rounded border border-teal-200">
+                            {t.code}
+                          </span>
+                        )}
+                      </div>
+                      {t.address && (
+                        <span className="text-[10px] text-slate-400 font-normal truncate">{t.address}</span>
+                      )}
+                      {t.city && t.province && (
+                        <span className="text-[9px] text-slate-400 font-normal">{t.city}, {t.province} {t.postalCode || ''}</span>
+                      )}
+                      {(t.phone || t.email) && (
+                        <span className="text-[9px] text-slate-400 font-normal">
+                          {t.phone && `📞 ${t.phone}`} {t.email && `✉️ ${t.email}`}
                         </span>
                       )}
                     </div>
-                    {t.address && (
-                      <span className="text-[10px] text-slate-400 font-normal truncate">{t.address}</span>
-                    )}
-                    {t.city && t.province && (
-                      <span className="text-[9px] text-slate-400 font-normal">{t.city}, {t.province} {t.postalCode || ''}</span>
-                    )}
-                    {(t.phone || t.email) && (
-                      <span className="text-[9px] text-slate-400 font-normal">
-                        {t.phone && `📞 ${t.phone}`} {t.email && `✉️ ${t.email}`}
-                      </span>
-                    )}
                   </div>
-                  <div className="flex items-center gap-1 flex-shrink-0">
-                    <button onClick={() => openTerminalEditModal(t)} className="p-1.5 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors" title="Edit Terminal"><Edit3 className="w-3.5 h-3.5" /></button>
-                    <button onClick={() => onDeleteTerminal && onDeleteTerminal(t.id)} className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Delete Terminal"><Trash2 className="w-3.5 h-3.5" /></button>
-                  </div>
+                  {!terminalBulkDeleteMode && (
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <button onClick={() => openTerminalEditModal(t)} className="p-1.5 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors" title="Edit Terminal"><Edit3 className="w-3.5 h-3.5" /></button>
+                      <button onClick={() => onDeleteTerminal && onDeleteTerminal(t.id)} className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Delete Terminal"><Trash2 className="w-3.5 h-3.5" /></button>
+                    </div>
+                  )}
                 </div>
-              ))}
-              {(!savedTerminals || savedTerminals.length === 0) && (
-                <div className="text-center py-8 text-slate-400 font-bold italic text-sm">No terminals saved yet</div>
-              )}
-            </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+
+      {/* ===== DOUBLE CONFIRMATION MODAL ===== */}
+      {showTerminalBulkDeleteConfirm && (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-slate-900/70 backdrop-blur-sm"
+            onClick={() => {
+              if (!isTerminalBulkDeleting) {
+                setShowTerminalBulkDeleteConfirm(false);
+                setTerminalBulkDeleteStep(1);
+              }
+            }}
+          ></div>
+          <div className="bg-white w-full max-w-md rounded-[24px] shadow-2xl relative z-10 overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
+            {terminalBulkDeleteStep === 1 ? (
+              <>
+                <div className="p-6 flex flex-col items-center text-center space-y-4">
+                  <div className="w-14 h-14 rounded-full bg-red-50 flex items-center justify-center">
+                    <AlertTriangle className="w-8 h-8 text-red-500" />
+                  </div>
+                  <h3 className="text-xl font-black text-slate-900">
+                    Delete {selectedTerminalIds.length} Terminal{selectedTerminalIds.length !== 1 ? 's' : ''}?
+                  </h3>
+                  <p className="text-sm font-medium text-slate-500 leading-relaxed">
+                    You are about to delete <strong className="text-red-600">{selectedTerminalIds.length}</strong> terminal{selectedTerminalIds.length !== 1 ? 's' : ''}. This action cannot be undone.
+                  </p>
+                </div>
+                <div className="flex border-t border-slate-100">
+                  <button
+                    onClick={() => { setShowTerminalBulkDeleteConfirm(false); setTerminalBulkDeleteStep(1); }}
+                    className="flex-1 py-4 text-sm font-bold text-slate-500 hover:bg-slate-50 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <div className="w-px bg-slate-100"></div>
+                  <button
+                    onClick={() => setTerminalBulkDeleteStep(2)}
+                    className="flex-1 py-4 text-sm font-bold text-red-600 hover:bg-red-50 transition-colors"
+                  >
+                    Continue →
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="p-6 flex flex-col items-center text-center space-y-4">
+                  <div className="w-14 h-14 rounded-full bg-red-100 flex items-center justify-center animate-pulse">
+                    <AlertCircle className="w-8 h-8 text-red-600" />
+                  </div>
+                  <h3 className="text-xl font-black text-slate-900">Are You Absolutely Sure?</h3>
+                  <p className="text-sm font-medium text-slate-500 leading-relaxed">
+                    This is your <strong className="text-red-600">final confirmation</strong>. Clicking "Delete Forever" will permanently remove <strong>{selectedTerminalIds.length}</strong> terminal{selectedTerminalIds.length !== 1 ? 's' : ''} from the system.
+                  </p>
+                </div>
+                <div className="flex border-t border-slate-100">
+                  <button
+                    onClick={() => setTerminalBulkDeleteStep(1)}
+                    disabled={isTerminalBulkDeleting}
+                    className="flex-1 py-4 text-sm font-bold text-slate-500 hover:bg-slate-50 transition-colors disabled:opacity-50"
+                  >
+                    ← Back
+                  </button>
+                  <div className="w-px bg-slate-100"></div>
+                  <button
+                    onClick={performTerminalBulkDelete}
+                    disabled={isTerminalBulkDeleting}
+                    className="flex-1 py-4 text-sm font-bold text-white bg-red-600 hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {isTerminalBulkDeleting ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Deleting...
+                      </>
+                    ) : (
+                      <>
+                        <Trash2 className="w-4 h-4" />
+                        Delete Forever
+                      </>
+                    )}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
+    </div>
+  );
+})()}
 
       {activeDatabaseTab === 'chassis' && (
         <ChassisModule
@@ -5799,177 +5690,417 @@ const AddressBook = ({
       )}
 
       {/* ===== BASE PRICES TAB ===== */}
-{activeDatabaseTab === 'basePrices' && (
-  <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-      <div className="flex justify-between items-center mb-4">
-        <h3 className="font-bold flex items-center gap-2 text-slate-700">
-          <DollarSign className="text-amber-600 w-5 h-5" /> Add Base Price
-        </h3>
-        {/* ✅ SIMPLE UPLOAD BUTTON */}
-        <button
-          onClick={() => {
-            document.getElementById('basePriceExcelUpload').click();
-          }}
-          className="px-4 py-2 bg-green-600 text-white rounded-xl font-bold text-sm hover:bg-green-700 transition-colors flex items-center gap-2 shadow-sm"
-        >
-          <Upload className="w-4 h-4" />
-          Upload Locations
-        </button>
-        <input
-  type="file"
-  id="basePriceExcelUpload"
-  accept=".xlsx,.xls,.csv"
-  className="hidden"
-  onChange={(e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    if (onImportBasePrices) {
-      onImportBasePrices(file);
-    } else {
-      console.error("onImportBasePrices is not defined");
-      setFeedback("❌ Import function not available");
-    }
-    e.target.value = '';
-  }}
-/>
-      </div>
-      <p className="text-[10px] text-slate-400 mb-4 -mt-2">
-        Upload an Excel/CSV file with location names in the first column
-      </p>
-      <form onSubmit={(e) => {
-        e.preventDefault();
-        onAddBasePrice && onAddBasePrice(e);
-      }} className="space-y-3">
-        <div>
-          <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Location Name *</label>
-          <input 
-            required 
-            className="w-full p-3 border rounded-xl text-sm font-bold" 
-            placeholder="e.g., Calgary to Airdrie, Calgary to Balzac..." 
-            value={newBasePrice?.location || ''} 
-            onChange={e => setNewBasePrice && setNewBasePrice({...newBasePrice, location: e.target.value})} 
+{activeDatabaseTab === 'basePrices' && (() => {
+  // Filter base prices by search term
+  const filteredBasePrices = (savedBasePrices || []).filter(bp => {
+    if (!basePriceSearchTerm.trim()) return true;
+    const term = basePriceSearchTerm.toLowerCase().trim();
+    return (
+      (bp.location || '').toLowerCase().includes(term) ||
+      (bp.description || '').toLowerCase().includes(term) ||
+      (bp.currency || '').toLowerCase().includes(term)
+    );
+  });
+
+  // Sort alphabetically
+  const sortedBasePrices = [...filteredBasePrices].sort((a, b) =>
+    (a.location || '').localeCompare(b.location || '')
+  );
+
+  const toggleBasePriceSelection = (id) => {
+    setSelectedBasePriceIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
+
+  const selectAllFilteredBasePrices = () => {
+    setSelectedBasePriceIds(sortedBasePrices.map(bp => bp.id));
+  };
+
+  const deselectAllBasePrices = () => {
+    setSelectedBasePriceIds([]);
+  };
+
+    const performBasePriceBulkDelete = async () => {
+    if (selectedBasePriceIds.length === 0) return;
+    setIsBasePriceBulkDeleting(true);
+    const { successCount, failCount } = await batchDeleteDocuments('basePrices', selectedBasePriceIds);
+    setIsBasePriceBulkDeleting(false);
+    setSelectedBasePriceIds([]);
+    setBasePriceBulkDeleteMode(false);
+    setShowBasePriceBulkDeleteConfirm(false);
+    setBasePriceBulkDeleteStep(1);
+    setFeedback(failCount === 0
+      ? `✅ Deleted ${successCount} base price${successCount !== 1 ? 's' : ''}`
+      : `⚠️ Deleted ${successCount}, failed ${failCount}`
+    );
+  };
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      {/* ===== LEFT: Add Base Price ===== */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="font-bold flex items-center gap-2 text-slate-700">
+            <DollarSign className="text-amber-600 w-5 h-5" /> Add Base Price
+          </h3>
+          <button
+            onClick={() => document.getElementById('basePriceExcelUpload').click()}
+            className="px-4 py-2 bg-green-600 text-white rounded-xl font-bold text-sm hover:bg-green-700 transition-colors flex items-center gap-2 shadow-sm"
+          >
+            <Upload className="w-4 h-4" />
+            Upload Locations
+          </button>
+          <input
+            type="file"
+            id="basePriceExcelUpload"
+            accept=".xlsx,.xls,.csv"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files[0];
+              if (!file) return;
+              if (onImportBasePrices) {
+                onImportBasePrices(file);
+              } else {
+                console.error("onImportBasePrices is not defined");
+                setFeedback("❌ Import function not available");
+              }
+              e.target.value = '';
+            }}
           />
-          <p className="text-[9px] text-slate-400 mt-1">Enter the route/location name (e.g., Calgary to Airdrie)</p>
         </div>
-        <div className="grid grid-cols-2 gap-3">
+        <p className="text-[10px] text-slate-400 mb-4 -mt-2">
+          Upload an Excel/CSV file with location names in the first column
+        </p>
+        <form onSubmit={(e) => { e.preventDefault(); onAddBasePrice && onAddBasePrice(e); }} className="space-y-3">
           <div>
-  <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Price (Optional)</label>
-  <input 
-    type="number" 
-    step="0.01"
-    className="w-full p-3 border rounded-xl text-sm font-bold" 
-    placeholder="0.00" 
-    value={newBasePrice?.price || ''} 
-    onChange={e => setNewBasePrice && setNewBasePrice({...newBasePrice, price: e.target.value})} 
-  />
-  <p className="text-[9px] text-slate-400 mt-1">Leave blank to set later in load form</p>
-</div>
+            <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Location Name *</label>
+            <input
+              required
+              className="w-full p-3 border rounded-xl text-sm font-bold"
+              placeholder="e.g., Calgary to Airdrie, Calgary to Balzac..."
+              value={newBasePrice?.location || ''}
+              onChange={e => setNewBasePrice && setNewBasePrice({...newBasePrice, location: e.target.value})}
+            />
+            <p className="text-[9px] text-slate-400 mt-1">Enter the route/location name (e.g., Calgary to Airdrie)</p>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Price (Optional)</label>
+              <input
+                type="number"
+                step="0.01"
+                className="w-full p-3 border rounded-xl text-sm font-bold"
+                placeholder="0.00"
+                value={newBasePrice?.price || ''}
+                onChange={e => setNewBasePrice && setNewBasePrice({...newBasePrice, price: e.target.value})}
+              />
+              <p className="text-[9px] text-slate-400 mt-1">Leave blank to set later in load form</p>
+            </div>
+            <div>
+              <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Currency</label>
+              <select
+                className="w-full p-3 border rounded-xl text-sm bg-white"
+                value={newBasePrice?.currency || 'CAD'}
+                onChange={e => setNewBasePrice && setNewBasePrice({...newBasePrice, currency: e.target.value})}
+              >
+                <option value="CAD">🇨🇦 CAD</option>
+                <option value="USD">🇺🇸 USD</option>
+              </select>
+            </div>
+          </div>
           <div>
-            <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Currency</label>
-            <select 
-              className="w-full p-3 border rounded-xl text-sm bg-white"
-              value={newBasePrice?.currency || 'CAD'}
-              onChange={e => setNewBasePrice && setNewBasePrice({...newBasePrice, currency: e.target.value})}
-            >
-              <option value="CAD">🇨🇦 CAD</option>
-              <option value="USD">🇺🇸 USD</option>
-            </select>
+            <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Description (Optional)</label>
+            <input
+              className="w-full p-3 border rounded-xl text-sm"
+              placeholder="e.g., Flat rate for Calgary to Airdrie"
+              value={newBasePrice?.description || ''}
+              onChange={e => setNewBasePrice && setNewBasePrice({...newBasePrice, description: e.target.value})}
+            />
+          </div>
+          <button type="submit" className="w-full py-3 bg-amber-600 text-white rounded-xl font-bold text-sm uppercase tracking-widest hover:bg-amber-700 transition-colors">
+            Save Location
+          </button>
+        </form>
+      </div>
+
+      {/* ===== RIGHT: Base Price List with Search + Bulk Delete ===== */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-bold flex items-center gap-2 text-slate-700">
+            <DollarSign className="text-amber-600 w-5 h-5" /> Location List
+            <span className="ml-2 text-xs font-normal text-slate-400">
+              ({sortedBasePrices.length}{basePriceSearchTerm && ` of ${savedBasePrices?.length || 0}`})
+            </span>
+          </h3>
+          <div className="flex items-center gap-2">
+            {!basePriceBulkDeleteMode ? (
+              <button
+                onClick={() => {
+                  setBasePriceBulkDeleteMode(true);
+                  setSelectedBasePriceIds([]);
+                }}
+                className="px-3 py-1.5 bg-red-50 text-red-600 border border-red-200 rounded-lg font-bold text-xs hover:bg-red-100 transition-colors flex items-center gap-1"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                Select & Delete
+              </button>
+            ) : (
+              <button
+                onClick={() => {
+                  setBasePriceBulkDeleteMode(false);
+                  setSelectedBasePriceIds([]);
+                }}
+                className="px-3 py-1.5 bg-slate-100 text-slate-600 border border-slate-200 rounded-lg font-bold text-xs hover:bg-slate-200 transition-colors flex items-center gap-1"
+              >
+                <X className="w-3.5 h-3.5" />
+                Cancel
+              </button>
+            )}
           </div>
         </div>
-        <div>
-          <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Description (Optional)</label>
-          <input 
-            className="w-full p-3 border rounded-xl text-sm" 
-            placeholder="e.g., Flat rate for Calgary to Airdrie" 
-            value={newBasePrice?.description || ''} 
-            onChange={e => setNewBasePrice && setNewBasePrice({...newBasePrice, description: e.target.value})} 
-          />
-        </div>
-        <button type="submit" className="w-full py-3 bg-amber-600 text-white rounded-xl font-bold text-sm uppercase tracking-widest hover:bg-amber-700 transition-colors">
-  Save Location
-</button>
-      </form>
-    </div>
 
-    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-      <h3 className="font-bold flex items-center gap-2 mb-4 text-slate-700">
-        <DollarSign className="text-amber-600 w-5 h-5" /> Location List
-        <span className="ml-auto text-sm font-normal text-slate-400">({savedBasePrices?.length || 0})</span>
-      </h3>
-      <div className="space-y-2 max-h-[500px] overflow-y-auto pr-2">
-        {(() => {
-          const sorted = [...(savedBasePrices || [])].sort((a, b) => a.location?.localeCompare(b.location || '') || 0);
-          return sorted.length === 0 ? (
-            <div className="text-center py-8 text-slate-400 font-bold italic text-sm">No locations saved yet. Upload an Excel file or add manually.</div>
+        {/* ===== SEARCH BAR ===== */}
+        <div className="relative mb-3">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <input
+            type="text"
+            value={basePriceSearchTerm}
+            onChange={(e) => setBasePriceSearchTerm(e.target.value)}
+            placeholder="Search by location or description..."
+            className="w-full pl-10 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all"
+          />
+          {basePriceSearchTerm && (
+            <button
+              onClick={() => setBasePriceSearchTerm('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-amber-600 rounded-md hover:bg-amber-50"
+              title="Clear search"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+
+        {/* ===== BULK DELETE ACTION BAR ===== */}
+        {basePriceBulkDeleteMode && (
+          <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded-xl flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-black text-red-700 uppercase">
+                {selectedBasePriceIds.length} selected
+              </span>
+              <button
+                onClick={selectAllFilteredBasePrices}
+                className="text-[10px] font-bold text-red-600 hover:text-red-800 underline"
+              >
+                Select All ({sortedBasePrices.length})
+              </button>
+              {selectedBasePriceIds.length > 0 && (
+                <button
+                  onClick={deselectAllBasePrices}
+                  className="text-[10px] font-bold text-slate-500 hover:text-slate-700 underline"
+                >
+                  Deselect All
+                </button>
+              )}
+            </div>
+            <button
+              onClick={() => {
+                if (selectedBasePriceIds.length === 0) {
+                  setFeedback("⚠️ No base prices selected");
+                  return;
+                }
+                setBasePriceBulkDeleteStep(1);
+                setShowBasePriceBulkDeleteConfirm(true);
+              }}
+              disabled={selectedBasePriceIds.length === 0}
+              className="px-4 py-2 bg-red-600 text-white rounded-lg font-bold text-xs hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Delete Selected ({selectedBasePriceIds.length})
+            </button>
+          </div>
+        )}
+
+        {/* ===== BASE PRICE LIST ===== */}
+        <div className="space-y-2 max-h-[500px] overflow-y-auto pr-2">
+          {sortedBasePrices.length === 0 ? (
+            <div className="text-center py-8 text-slate-400 font-bold italic text-sm">
+              {basePriceSearchTerm
+                ? `No locations match "${basePriceSearchTerm}"`
+                : 'No locations saved yet. Upload an Excel file or add manually.'}
+            </div>
           ) : (
-            sorted.map((bp) => {
+            sortedBasePrices.map((bp) => {
               const currencySymbol = bp.currency === 'USD' ? 'US$' : 'C$';
               const hasPrice = bp.price && parseFloat(bp.price) > 0;
+              const isSelected = selectedBasePriceIds.includes(bp.id);
               return (
-                <div key={bp.id} className="flex justify-between items-center p-3 bg-slate-50 rounded-xl text-sm font-bold text-slate-600 border border-slate-100 hover:bg-slate-100 transition-colors">
-                  <div className="flex flex-col flex-1 min-w-0">
-                    <span className="truncate font-bold text-slate-800">{bp.location}</span>
-                    <div className="flex items-center gap-2 mt-0.5">
-  {hasPrice ? (
-  <span className="text-sm font-black text-green-600">{currencySymbol}{bp.price}</span>
-) : (
-  <span className="text-[10px] font-bold text-amber-500 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
-    ⚠️ Price not set
-  </span>
-)}
-                      {bp.description && (
-                        <span className="text-[10px] text-slate-400 truncate">- {bp.description}</span>
-                      )}
-                      {bp.importedFromExcel && (
-                        <span className="text-[9px] text-blue-400 bg-blue-50 px-1.5 py-0.5 rounded">📥 Imported</span>
-                      )}
+                <div
+                  key={bp.id}
+                  className={`flex justify-between items-center p-3 rounded-xl text-sm font-bold border transition-colors ${
+                    basePriceBulkDeleteMode && isSelected
+                      ? 'bg-red-50 border-red-300'
+                      : 'bg-slate-50 border-slate-100 hover:bg-slate-100'
+                  } text-slate-600`}
+                >
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                    {basePriceBulkDeleteMode && (
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleBasePriceSelection(bp.id)}
+                        className="w-4 h-4 accent-red-600 cursor-pointer flex-shrink-0"
+                      />
+                    )}
+                    <div className="flex flex-col flex-1 min-w-0">
+                      <span className="truncate font-bold text-slate-800">{bp.location}</span>
+                      <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                        {hasPrice ? (
+                          <span className="text-sm font-black text-green-600">{currencySymbol}{bp.price}</span>
+                        ) : (
+                          <span className="text-[10px] font-bold text-amber-500 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                            ⚠️ Price not set
+                          </span>
+                        )}
+                        {bp.description && (
+                          <span className="text-[10px] text-slate-400 truncate">- {bp.description}</span>
+                        )}
+                        {bp.importedFromExcel && (
+                          <span className="text-[9px] text-blue-400 bg-blue-50 px-1.5 py-0.5 rounded">📥 Imported</span>
+                        )}
+                      </div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1 flex-shrink-0">
-                    <button 
-                      onClick={() => {
-                        // Quick edit price
-                        const newPrice = prompt(`Enter price for ${bp.location}:`, bp.price || '');
-                        if (newPrice !== null) {
-                          const priceValue = parseFloat(newPrice);
-                          if (!isNaN(priceValue) && priceValue >= 0) {
-                            // Update in Firestore
-                            const bpRef = doc(db, 'companies', companyId, 'basePrices', bp.id);
-                            updateDoc(bpRef, { 
-                              price: priceValue,
-                              updatedAt: new Date().toISOString()
-                            }).then(() => {
-                              setFeedback(`✅ Price updated for ${bp.location}`);
-                            }).catch(err => {
-                              console.error("Error updating price:", err);
-                              setFeedback("❌ Failed to update price");
-                            });
+                  {!basePriceBulkDeleteMode && (
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <button
+                        onClick={() => {
+                          const newPrice = prompt(`Enter price for ${bp.location}:`, bp.price || '');
+                          if (newPrice !== null) {
+                            const priceValue = parseFloat(newPrice);
+                            if (!isNaN(priceValue) && priceValue >= 0) {
+                              const bpRef = doc(db, 'companies', companyId, 'basePrices', bp.id);
+                              updateDoc(bpRef, {
+                                price: priceValue,
+                                updatedAt: new Date().toISOString()
+                              }).then(() => {
+                                setFeedback(`✅ Price updated for ${bp.location}`);
+                              }).catch(err => {
+                                console.error("Error updating price:", err);
+                                setFeedback("❌ Failed to update price");
+                              });
+                            }
                           }
-                        }
-                      }}
-                      className="p-1.5 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors" 
-                      title="Edit Price"
-                    >
-                      <Edit3 className="w-3.5 h-3.5" />
-                    </button>
-                    <button 
-                      onClick={() => onDeleteBasePrice && onDeleteBasePrice(bp.id)} 
-                      className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" 
-                      title="Delete Location"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
+                        }}
+                        className="p-1.5 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors"
+                        title="Edit Price"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => onDeleteBasePrice && onDeleteBasePrice(bp.id)}
+                        className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                        title="Delete Location"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  )}
                 </div>
               );
             })
-          );
-        })()}
+          )}
+        </div>
       </div>
+
+      {/* ===== DOUBLE CONFIRMATION MODAL ===== */}
+      {showBasePriceBulkDeleteConfirm && (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-slate-900/70 backdrop-blur-sm"
+            onClick={() => {
+              if (!isBasePriceBulkDeleting) {
+                setShowBasePriceBulkDeleteConfirm(false);
+                setBasePriceBulkDeleteStep(1);
+              }
+            }}
+          ></div>
+          <div className="bg-white w-full max-w-md rounded-[24px] shadow-2xl relative z-10 overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
+            {basePriceBulkDeleteStep === 1 ? (
+              <>
+                <div className="p-6 flex flex-col items-center text-center space-y-4">
+                  <div className="w-14 h-14 rounded-full bg-red-50 flex items-center justify-center">
+                    <AlertTriangle className="w-8 h-8 text-red-500" />
+                  </div>
+                  <h3 className="text-xl font-black text-slate-900">
+                    Delete {selectedBasePriceIds.length} Location{selectedBasePriceIds.length !== 1 ? 's' : ''}?
+                  </h3>
+                  <p className="text-sm font-medium text-slate-500 leading-relaxed">
+                    You are about to delete <strong className="text-red-600">{selectedBasePriceIds.length}</strong> base price location{selectedBasePriceIds.length !== 1 ? 's' : ''}. This action cannot be undone.
+                  </p>
+                </div>
+                <div className="flex border-t border-slate-100">
+                  <button
+                    onClick={() => { setShowBasePriceBulkDeleteConfirm(false); setBasePriceBulkDeleteStep(1); }}
+                    className="flex-1 py-4 text-sm font-bold text-slate-500 hover:bg-slate-50 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <div className="w-px bg-slate-100"></div>
+                  <button
+                    onClick={() => setBasePriceBulkDeleteStep(2)}
+                    className="flex-1 py-4 text-sm font-bold text-red-600 hover:bg-red-50 transition-colors"
+                  >
+                    Continue →
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="p-6 flex flex-col items-center text-center space-y-4">
+                  <div className="w-14 h-14 rounded-full bg-red-100 flex items-center justify-center animate-pulse">
+                    <AlertCircle className="w-8 h-8 text-red-600" />
+                  </div>
+                  <h3 className="text-xl font-black text-slate-900">Are You Absolutely Sure?</h3>
+                  <p className="text-sm font-medium text-slate-500 leading-relaxed">
+                    This is your <strong className="text-red-600">final confirmation</strong>. Clicking "Delete Forever" will permanently remove <strong>{selectedBasePriceIds.length}</strong> base price location{selectedBasePriceIds.length !== 1 ? 's' : ''} from the system.
+                  </p>
+                </div>
+                <div className="flex border-t border-slate-100">
+                  <button
+                    onClick={() => setBasePriceBulkDeleteStep(1)}
+                    disabled={isBasePriceBulkDeleting}
+                    className="flex-1 py-4 text-sm font-bold text-slate-500 hover:bg-slate-50 transition-colors disabled:opacity-50"
+                  >
+                    ← Back
+                  </button>
+                  <div className="w-px bg-slate-100"></div>
+                  <button
+                    onClick={performBasePriceBulkDelete}
+                    disabled={isBasePriceBulkDeleting}
+                    className="flex-1 py-4 text-sm font-bold text-white bg-red-600 hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {isBasePriceBulkDeleting ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Deleting...
+                      </>
+                    ) : (
+                      <>
+                        <Trash2 className="w-4 h-4" />
+                        Delete Forever
+                      </>
+                    )}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
-  </div>
-)}
+  );
+})()}
 
       {/* ===== EDIT MODALS ===== */}
       {showEditModal && (
@@ -6048,7 +6179,7 @@ const AddressBook = ({
         </div>
       )}
 
-      {showDriverEditModal && (
+            {showDriverEditModal && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-900/70 backdrop-blur-sm" onClick={() => setShowDriverEditModal(false)}></div>
           <div className="bg-white w-full max-w-2xl rounded-[32px] shadow-2xl relative z-10 overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200">
@@ -6060,41 +6191,57 @@ const AddressBook = ({
               <button onClick={() => setShowDriverEditModal(false)} className="p-2 hover:bg-slate-200 rounded-lg transition-colors"><X className="w-5 h-5" /></button>
             </div>
             <form onSubmit={handleDriverEditSubmit} className="p-6 overflow-y-auto space-y-4">
+              
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div><label className="text-[10px] font-black text-slate-500 uppercase">Driver Name *</label><input required className="w-full p-3 border rounded-xl text-sm font-bold" value={driverEditFormData.name} onChange={e => setDriverEditFormData({...driverEditFormData, name: e.target.value})} placeholder="Driver name" /></div>
+                <div><label className="text-[10px] font-black text-slate-500 uppercase">Driver / Company Name *</label><input required className="w-full p-3 border rounded-xl text-sm font-bold" value={driverEditFormData.name} onChange={e => setDriverEditFormData({...driverEditFormData, name: e.target.value})} placeholder="Driver name" /></div>
                 <div><label className="text-[10px] font-black text-slate-500 uppercase">Truck Number</label><input className="w-full p-3 border rounded-xl text-sm" value={driverEditFormData.truckNo} onChange={e => setDriverEditFormData({...driverEditFormData, truckNo: e.target.value})} placeholder="e.g., TRK-123" /></div>
               </div>
-              <div><label className="text-[10px] font-black text-slate-500 uppercase">Driver Type</label>
+
+              <div>
+                <label className="text-[10px] font-black text-slate-500 uppercase">Driver Type</label>
                 <select className="w-full p-3 border rounded-xl text-sm bg-white" value={driverEditFormData.type || 'Company Driver'} onChange={e => {
                   const newType = e.target.value;
                   setDriverEditFormData({...driverEditFormData, type: newType, payType: newType === 'Owner Operator' ? 'flat' : 'hourly'});
                 }}>
                   <option value="Company Driver">🏢 Company Driver</option>
                   <option value="Owner Operator">💰 Owner Operator</option>
-                  <option value="Third-Party Driver">🔄 Third-Party Driver</option>
+                  <option value="Third-Party Driver">🔄 Third-Party Driver (No Rates)</option>
                 </select>
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div><label className="text-[10px] font-black text-slate-500 uppercase">Pay Rate ($)</label><input type="number" step="0.01" className="w-full p-3 border rounded-xl text-sm font-bold" value={driverEditFormData.payRate || ''} onChange={e => setDriverEditFormData({...driverEditFormData, payRate: parseFloat(e.target.value) || 0})} placeholder="0.00" /></div>
-                <div><label className="text-[10px] font-black text-slate-500 uppercase">Pay Type</label>
-                  <select className="w-full p-3 border rounded-xl text-sm bg-white" value={driverEditFormData.payType || 'flat'} onChange={e => setDriverEditFormData({...driverEditFormData, payType: e.target.value})}>
-                    <option value="flat">💰 Per Leg</option>
-                    <option value="hourly">⏱️ Per Hour</option>
-                    <option value="mileage">📏 Per Mile</option>
-                  </select>
+
+              {/* ✅ HIDE PAY RATES FOR THIRD PARTY */}
+              {driverEditFormData.type !== 'Third-Party Driver' && (
+                <div className="grid grid-cols-2 gap-4">
+                  <div><label className="text-[10px] font-black text-slate-500 uppercase">Pay Rate ($)</label><input type="number" step="0.01" className="w-full p-3 border rounded-xl text-sm font-bold" value={driverEditFormData.payRate || ''} onChange={e => setDriverEditFormData({...driverEditFormData, payRate: parseFloat(e.target.value) || 0})} placeholder="0.00" /></div>
+                  <div><label className="text-[10px] font-black text-slate-500 uppercase">Pay Type</label>
+                    <select className="w-full p-3 border rounded-xl text-sm bg-white" value={driverEditFormData.payType || 'flat'} onChange={e => setDriverEditFormData({...driverEditFormData, payType: e.target.value})}>
+                      <option value="flat">💰 Per Leg</option>
+                      <option value="hourly">⏱️ Per Hour</option>
+                      <option value="mileage">📏 Per Mile</option>
+                    </select>
+                  </div>
                 </div>
-              </div>
+              )}
+
               {driverEditFormData.type === 'Company Driver' && (
                 <div><label className="text-[10px] font-black text-slate-500 uppercase">⛽ Fuel Efficiency (km/L)</label>
                   <input type="number" step="0.1" className="w-full p-3 border rounded-xl text-sm" placeholder="e.g., 2.0 km/L" value={driverEditFormData.fuelEfficiency || ''} onChange={e => setDriverEditFormData({...driverEditFormData, fuelEfficiency: parseFloat(e.target.value) || null})} />
                 </div>
               )}
-              <div><label className="text-[10px] font-black text-slate-500 uppercase">Email (for app login)</label>
-                <input type="email" className="w-full p-3 border rounded-xl text-sm" value={driverEditFormData.email || ''} onChange={e => setDriverEditFormData({...driverEditFormData, email: e.target.value})} placeholder="driver@company.com" />
+
+              {/* APP LOGIN (OPTIONAL) */}
+              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 mt-4">
+                <p className="text-[10px] font-black text-slate-500 uppercase mb-2">App Login (Optional)</p>
+                <div className="space-y-3">
+                  <div><label className="text-[10px] font-bold text-slate-400">Email (for app login)</label>
+                    <input type="email" className="w-full p-3 border rounded-xl text-sm" value={driverEditFormData.email || ''} onChange={e => setDriverEditFormData({...driverEditFormData, email: e.target.value})} placeholder="driver@company.com" />
+                  </div>
+                  <div><label className="text-[10px] font-bold text-slate-400">New Password (optional)</label>
+                    <input type="password" className="w-full p-3 border rounded-xl text-sm" value={driverEditFormData.password || ''} onChange={e => setDriverEditFormData({...driverEditFormData, password: e.target.value})} placeholder="Leave blank to keep current" minLength={6} />
+                  </div>
+                </div>
               </div>
-              <div><label className="text-[10px] font-black text-slate-500 uppercase">New Password (optional)</label>
-                <input type="password" className="w-full p-3 border rounded-xl text-sm" value={driverEditFormData.password || ''} onChange={e => setDriverEditFormData({...driverEditFormData, password: e.target.value})} placeholder="Leave blank to keep current" minLength={6} />
-              </div>
+
               <div className="flex gap-3 pt-4 border-t border-slate-100">
                 <button type="button" onClick={() => setShowDriverEditModal(false)} className="flex-1 py-3 border-2 border-slate-200 rounded-xl font-bold text-slate-500 hover:bg-slate-50 transition-colors">Cancel</button>
                 <button type="submit" className="flex-[2] py-3 bg-orange-600 text-white rounded-xl font-bold hover:bg-orange-700 transition-colors shadow-lg shadow-orange-200">Update Driver</button>
@@ -6140,6 +6287,8 @@ const AddressBook = ({
     </div>
   );
 };
+
+
 
 // ========== OTHER COMPONENTS ==========
 const AssignmentView = ({ loads, assignmentDate, setAssignmentDate, assignmentSlots, onEdit }) => (
@@ -6240,91 +6389,59 @@ const DailySummary = ({ loads }) => {
   const today = new Date().toISOString().split('T')[0];
   const loadsToday = safeLoads.filter(l => l?.appointmentDate === today);
   const workToday = loadsToday.length;
+  
   const activeTrucks = new Set();
   loadsToday.forEach(l => { (l.legs || []).forEach(leg => { if (leg?.truckNo) activeTrucks.add(leg.truckNo); }); });
   const numActiveTrucks = activeTrucks.size;
+  
   const needToBill = safeLoads.filter(l => { const legs = getSafeLegs(l); return l.status === 'Open' && legs.length > 0 && legs.every(leg => leg.status === 'Completed'); }).length;
   const pendingTerminationLoads = safeLoads.filter(l => { if(l.status !== 'Open') return false; const legs = getSafeLegs(l); const hasCompleted = legs.some(leg => leg.status === 'Completed'); const hasPending = legs.some(leg => leg.status !== 'Completed'); return hasCompleted && hasPending; });
   const needToTerminate = pendingTerminationLoads.length;
+
   return (
     <>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 animate-in fade-in">
-        <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex items-center gap-4 hover:shadow-md transition-shadow">
-          <div className="w-14 h-14 rounded-2xl bg-blue-50 flex items-center justify-center"><Package className="w-7 h-7 text-blue-600" /></div>
-          <div><div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Loads Today</div><div className="text-3xl font-black text-slate-900">{workToday}</div></div>
-        </div>
-        <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex items-center gap-4 hover:shadow-md transition-shadow">
-          <div className="w-14 h-14 rounded-2xl bg-orange-50 flex items-center justify-center"><Truck className="w-7 h-7 text-orange-600" /></div>
-          <div><div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Active Trucks</div><div className="text-3xl font-black text-slate-900">{numActiveTrucks}</div></div>
-        </div>
-        <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex items-center gap-4 hover:shadow-md transition-shadow">
-          <div className="w-14 h-14 rounded-2xl bg-green-50 flex items-center justify-center"><Receipt className="w-7 h-7 text-green-600" /></div>
-          <div><div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Need to Bill</div><div className="text-3xl font-black text-slate-900">{needToBill}</div></div>
-        </div>
-        <div onClick={() => setShowPendingModal(true)} className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex items-center gap-4 hover:shadow-md hover:border-rose-300 transition-all cursor-pointer group">
-          <div className="w-14 h-14 rounded-2xl bg-rose-50 flex items-center justify-center group-hover:bg-rose-100 transition-colors"><Anchor className="w-7 h-7 text-rose-600" /></div>
-          <div><div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Pending Terminations</div><div className="text-3xl font-black text-slate-900">{needToTerminate}</div></div>
-        </div>
-      </div>
-      {showPendingModal && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowPendingModal(false)}></div>
-          <div className="bg-white w-full max-w-5xl rounded-3xl shadow-2xl relative z-10 overflow-hidden flex flex-col max-h-[85vh] animate-in zoom-in-95 duration-200">
-            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-              <div className="flex items-center gap-3"><div className="bg-rose-100 p-2 rounded-xl"><Anchor className="w-5 h-5 text-rose-600" /></div><div><h2 className="font-black text-slate-900 text-lg tracking-tight">Pending Terminations Details</h2><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Containers requiring return/termination</p></div></div>
-              <button onClick={() => setShowPendingModal(false)} className="p-2 text-slate-400 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition-all"><X className="w-5 h-5" /></button>
-            </div>
-            <div className="overflow-y-auto p-6 bg-slate-50/30">
-              {pendingTerminationLoads.length === 0 ? (
-                <div className="text-center py-12 text-slate-400 font-bold italic text-sm bg-white rounded-2xl border border-slate-100 shadow-sm">No pending termination details available</div>
-              ) : (
-                <div className="overflow-x-auto bg-white border border-slate-200 rounded-2xl shadow-sm">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                        <th className="px-6 py-4">Container Number</th>
-                        <th className="px-6 py-4">Booking Number</th>
-                        <th className="px-6 py-4">Leg Type</th>
-                        <th className="px-6 py-4">Status</th>
-                        <th className="px-6 py-4">Last Movement</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {pendingTerminationLoads.map(load => {
-                        const legs = getSafeLegs(load);
-                        const completedLegs = legs.filter(leg => leg.status === 'Completed');
-                        const lastCompleted = completedLegs[completedLegs.length - 1];
-                        const fromLoc = lastCompleted?.from || 'Unknown Origin';
-                        const toLoc = lastCompleted?.to || 'Unknown Destination';
-                        const legType = lastCompleted ? `${fromLoc.split(' - ')[0]} → ${toLoc.split(' - ')[0]}` : 'N/A';
-                        let statusBadge = 'Unknown';
-                        if (lastCompleted) {
-                          const toLower = toLoc.toLowerCase();
-                          if (toLower.includes('yard') || toLower.includes('depot') || toLower.includes('terminal') || toLower.includes('port') || toLower.includes('cn ') || toLower.includes('cp ')) {
-                            statusBadge = 'At Yard';
-                          } else {
-                            statusBadge = 'At Customer';
-                          }
-                        }
-                        const moveDate = lastCompleted?.departureTime ? `${load.appointmentDate} at ${lastCompleted.departureTime}` : (load.appointmentDate || 'N/A');
-                        return (
-                          <tr key={load.id} className="hover:bg-slate-50/50 transition-colors text-xs font-bold text-slate-700">
-                            <td className="px-6 py-4"><div className="text-sm text-slate-900 font-black">{load.containerNo || 'N/A'}</div></td>
-                            <td className="px-6 py-4">{load.poNumber || load.customerRefNo || '--'}</td>
-                            <td className="px-6 py-4 font-bold text-blue-600 truncate max-w-[250px]" title={legType}>{legType}</td>
-                            <td className="px-6 py-4"><span className={`inline-flex px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-wider ${statusBadge === 'At Yard' ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'}`}>{statusBadge}</span></td>
-                            <td className="px-6 py-4 text-slate-500">{moveDate}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 animate-in fade-in">
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4 hover:shadow-md transition-shadow">
+          <div className="w-12 h-12 rounded-xl bg-purple-50 flex items-center justify-center flex-shrink-0">
+            <Package className="w-6 h-6 text-purple-600" />
+          </div>
+          <div>
+            <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Loads Today</div>
+            <div className="text-3xl font-black text-slate-900 leading-none">{workToday}</div>
           </div>
         </div>
-      )}
+
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4 hover:shadow-md transition-shadow">
+          <div className="w-12 h-12 rounded-xl bg-indigo-50 flex items-center justify-center flex-shrink-0">
+            <Truck className="w-6 h-6 text-indigo-600" />
+          </div>
+          <div>
+            <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Active Trucks</div>
+            <div className="text-3xl font-black text-slate-900 leading-none">{numActiveTrucks}</div>
+          </div>
+        </div>
+
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4 hover:shadow-md transition-shadow">
+          <div className="w-12 h-12 rounded-xl bg-emerald-50 flex items-center justify-center flex-shrink-0">
+            <Receipt className="w-6 h-6 text-emerald-600" />
+          </div>
+          <div>
+            <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Need to Bill</div>
+            <div className="text-3xl font-black text-slate-900 leading-none">{needToBill}</div>
+          </div>
+        </div>
+
+        <div onClick={() => setShowPendingModal(true)} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4 hover:shadow-md hover:border-rose-300 transition-all cursor-pointer group">
+          <div className="w-12 h-12 rounded-xl bg-rose-50 flex items-center justify-center flex-shrink-0 group-hover:bg-rose-100 transition-colors">
+            <Anchor className="w-6 h-6 text-rose-600" />
+          </div>
+          <div>
+            <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Pending Terminations</div>
+            <div className="text-3xl font-black text-slate-900 leading-none">{needToTerminate}</div>
+          </div>
+        </div>
+      </div>
+      {/* ... keep your showPendingModal code exactly as it is ... */}
     </>
   );
 };
@@ -6879,11 +6996,22 @@ const ActionRequired = ({ loads, onEdit, onStatusChange }) => {
 
 // ========== WORKSPACE MANAGER ==========
 const WorkspaceManager = ({ setCompanyId, setUserRole, setAppState, onRegistrationComplete }) => {
-  const [mode, setMode] = useState('login'); // Always login
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  // ===== NEW: CONTACT SALES STATE =====
+  const [isContactSalesOpen, setIsContactSalesOpen] = useState(false);
+  const [salesForm, setSalesForm] = useState({
+    companyName: "",
+    contactName: "",
+    workEmail: "",
+    phone: "",
+    monthlyContainers: "500+",
+    message: ""
+  });
 
   const handleLogin = async () => { 
     if (!email.trim() || !password.trim()) { 
@@ -6903,63 +7031,390 @@ const WorkspaceManager = ({ setCompanyId, setUserRole, setAppState, onRegistrati
     } 
   };
 
+  // ===== NEW: HANDLE CONTACT SALES SUBMISSION =====
+  const handleContactSalesSubmit = (e) => {
+    e.preventDefault();
+    
+    // Build the email body
+    const subject = `Account Request - ${salesForm.companyName}`;
+    const body = `Company Name: ${salesForm.companyName}%0D%0A` +
+                 `Contact Name: ${salesForm.contactName}%0D%0A` +
+                 `Work Email: ${salesForm.workEmail}%0D%0A` +
+                 `Phone: ${salesForm.phone}%0D%0A` +
+                 `Monthly Containers: ${salesForm.monthlyContainers}%0D%0A%0D%0A` +
+                 `Message:%0D%0A${salesForm.message}`;
+                 
+    // Open the user's default email client
+    window.location.href = `mailto:support@nexdray.com?subject=${encodeURIComponent(subject)}&body=${body}`;
+    
+    // Close modal and show a thank you message
+    setIsContactSalesOpen(false);
+    alert("Your email client has been opened. Please send the email to complete your request.");
+    
+    // Reset form
+    setSalesForm({
+      companyName: "",
+      contactName: "",
+      workEmail: "",
+      phone: "",
+      monthlyContainers: "500+",
+      message: ""
+    });
+  };
+
   return (
-    <div className="min-h-screen bg-[#FAFAFA] flex items-center justify-center p-4 relative overflow-hidden">
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-purple-600/5 blur-[120px] rounded-full pointer-events-none"></div>
-      <div className="bg-white w-full max-w-md rounded-[24px] shadow-[0_20px_40px_-15px_rgba(0,0,0,0.05)] border border-slate-200/60 overflow-hidden relative z-10 transition-all duration-300">
-        <div className="pt-10 pb-6 text-center px-8">
-          <div className="flex items-center justify-center mx-auto mb-6">
-            <div className="w-14 h-14 bg-gradient-to-tr from-purple-600 to-indigo-500 rounded-[16px] shadow-[0_8px_16px_-6px_rgba(124,58,237,0.4)] flex items-center justify-center text-white ring-1 ring-white/20">
-              <Truck className="w-7 h-7" strokeWidth={2.5} />
-            </div>
-          </div>
-          <h2 className="text-3xl font-extrabold text-slate-900 tracking-tight mb-2">NEXDRAY</h2>
-          <p className="text-[10px] font-bold text-purple-600 uppercase tracking-[0.2em]">MULTI-LOCATION TMS</p>
-          <p className="text-xs font-medium text-slate-500 mt-2">Sign in to your workspace</p>
-        </div>
+    <div className="h-screen w-full flex bg-[#050814] text-slate-200 selection:bg-purple-500/30 overflow-hidden">
+      
+      {/* ================= LEFT PANEL (Desktop) ================= */}
+      <div className="hidden lg:flex lg:w-[55%] relative flex-col justify-between p-8 xl:p-12 overflow-hidden border-r border-slate-800/50">
+        {/* Ambient Background Glows */}
+        <div className="absolute top-[-10%] left-[-10%] w-[500px] h-[500px] bg-purple-600/10 blur-[120px] rounded-full pointer-events-none" />
+        <div className="absolute bottom-[-10%] right-[-10%] w-[400px] h-[400px] bg-blue-600/10 blur-[100px] rounded-full pointer-events-none" />
         
-        {/* REMOVED REGISTER TAB - ONLY LOGIN NOW */}
-        <div className="px-8 pb-10">
+        {/* Brand Wordmark */}
+        <div className="relative z-10 flex items-center gap-3 shrink-0">
+          <div className="w-10 h-10 bg-gradient-to-tr from-purple-600 to-indigo-500 rounded-xl flex items-center justify-center text-white shadow-[0_0_20px_rgba(124,58,237,0.3)]">
+            <Truck className="w-5 h-5" strokeWidth={2.5} />
+          </div>
+          <span className="text-2xl font-black tracking-[0.15em] text-white">NEXDRAY</span>
+        </div>
+
+        {/* Hero Content */}
+        <div className="relative z-10 max-w-lg mt-6 xl:mt-10 shrink-0">
+          <h1 className="text-4xl xl:text-5xl font-black tracking-tight text-white leading-[1.1] mb-4">
+            Move Freight.<br />
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-indigo-400">
+              Master Operations.
+            </span>
+          </h1>
+          <p className="text-base xl:text-lg text-slate-400 font-medium leading-relaxed">
+            One intelligent platform to manage dispatch, drayage, deliveries, and billing — all in one place.
+          </p>
+        </div>
+
+        {/* Custom SVG Logistics Illustration */}
+        <div className="relative z-10 w-full flex-1 min-h-[120px] my-4 xl:my-6">
+          <svg viewBox="0 0 800 400" className="w-full h-full object-contain" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <g opacity="0.05" stroke="#fff" strokeWidth="1">
+              <line x1="0" y1="100" x2="800" y2="100" />
+              <line x1="0" y1="200" x2="800" y2="200" />
+              <line x1="0" y1="300" x2="800" y2="300" />
+              <line x1="200" y1="0" x2="200" y2="400" />
+              <line x1="400" y1="0" x2="400" y2="400" />
+              <line x1="600" y1="0" x2="600" y2="400" />
+            </g>
+            <path d="M 150 250 Q 300 150 450 200 T 700 100" stroke="url(#routeGradient)" strokeWidth="2" strokeDasharray="6 6" fill="none">
+              <animate attributeName="stroke-dashoffset" from="120" to="0" dur="3s" repeatCount="indefinite" />
+            </path>
+            <path d="M 200 300 Q 400 350 600 250 T 750 300" stroke="url(#routeGradient2)" strokeWidth="2" strokeDasharray="4 8" fill="none">
+              <animate attributeName="stroke-dashoffset" from="120" to="0" dur="4s" repeatCount="indefinite" />
+            </path>
+            <circle cx="150" cy="250" r="6" fill="#8B5CF6" />
+            <circle cx="150" cy="250" r="12" fill="#8B5CF6" opacity="0.3">
+              <animate attributeName="r" values="12;20;12" dur="2s" repeatCount="indefinite" />
+              <animate attributeName="opacity" values="0.3;0;0.3" dur="2s" repeatCount="indefinite" />
+            </circle>
+            <circle cx="450" cy="200" r="5" fill="#3B82F6" />
+            <circle cx="700" cy="100" r="8" fill="#8B5CF6" />
+            <circle cx="700" cy="100" r="16" fill="#8B5CF6" opacity="0.2">
+              <animate attributeName="r" values="16;24;16" dur="2.5s" repeatCount="indefinite" />
+              <animate attributeName="opacity" values="0.2;0;0.2" dur="2.5s" repeatCount="indefinite" />
+            </circle>
+            <g transform="translate(450, 240)">
+              <rect x="0" y="0" width="180" height="80" rx="4" fill="#1E293B" stroke="#334155" strokeWidth="2" />
+              <line x1="20" y1="10" x2="20" y2="70" stroke="#334155" strokeWidth="2" />
+              <line x1="40" y1="10" x2="40" y2="70" stroke="#334155" strokeWidth="2" />
+              <line x1="60" y1="10" x2="60" y2="70" stroke="#334155" strokeWidth="2" />
+              <line x1="80" y1="10" x2="80" y2="70" stroke="#334155" strokeWidth="2" />
+              <path d="M 180 20 L 230 20 L 250 50 L 250 80 L 180 80 Z" fill="#0F172A" stroke="#334155" strokeWidth="2" />
+              <path d="M 185 25 L 220 25 L 235 45 L 185 45 Z" fill="#1E293B" stroke="#334155" strokeWidth="1" />
+              <circle cx="40" cy="85" r="12" fill="#0F172A" stroke="#475569" strokeWidth="2" />
+              <circle cx="120" cy="85" r="12" fill="#0F172A" stroke="#475569" strokeWidth="2" />
+              <circle cx="210" cy="85" r="12" fill="#0F172A" stroke="#475569" strokeWidth="2" />
+              <rect x="245" y="60" width="5" height="10" rx="2" fill="#8B5CF6" />
+              <rect x="0" y="0" width="180" height="80" rx="4" fill="url(#trailerGlow)" opacity="0.1" />
+            </g>
+            <defs>
+              <linearGradient id="routeGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stopColor="#8B5CF6" stopOpacity="0" />
+                <stop offset="50%" stopColor="#8B5CF6" stopOpacity="1" />
+                <stop offset="100%" stopColor="#3B82F6" stopOpacity="0" />
+              </linearGradient>
+              <linearGradient id="routeGradient2" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stopColor="#3B82F6" stopOpacity="0" />
+                <stop offset="50%" stopColor="#8B5CF6" stopOpacity="1" />
+                <stop offset="100%" stopColor="#3B82F6" stopOpacity="0" />
+              </linearGradient>
+              <linearGradient id="trailerGlow" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stopColor="#8B5CF6" stopOpacity="0.5" />
+                <stop offset="100%" stopColor="#8B5CF6" stopOpacity="0" />
+              </linearGradient>
+            </defs>
+          </svg>
+        </div>
+
+        {/* Footer Text */}
+        <div className="relative z-10 text-xs font-medium text-slate-600 shrink-0">
+          © {new Date().getFullYear()} NexDray Logistics. All rights reserved.
+        </div>
+      </div>
+
+      {/* ================= RIGHT PANEL (Form) ================= */}
+      <div className="w-full lg:w-[45%] flex flex-col items-center justify-center p-6 sm:p-8 xl:p-12 relative overflow-y-auto">
+        {/* Mobile Brand Header */}
+        <div className="lg:hidden w-full max-w-md flex items-center gap-3 mb-8">
+          <div className="w-9 h-9 bg-gradient-to-tr from-purple-600 to-indigo-500 rounded-xl flex items-center justify-center text-white shadow-[0_0_15px_rgba(124,58,237,0.4)]">
+            <Truck className="w-5 h-5" strokeWidth={2.5} />
+          </div>
+          <span className="text-xl font-black tracking-[0.15em] text-white">NEXDRAY</span>
+        </div>
+
+        <div className="w-full max-w-md my-auto">
+          {/* Form Header */}
+          <div className="mb-8">
+            <h2 className="text-3xl font-bold text-white tracking-tight mb-2">Welcome back</h2>
+            <p className="text-sm text-slate-400 font-medium">Sign in to your NexDray workspace.</p>
+          </div>
+
+          {/* Error Message */}
           {error && (
-            <div className="mb-6 p-3 bg-red-50 text-red-600 text-xs font-bold rounded-xl border border-red-100 text-center">
-              {error}
+            <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-xl flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+              <p className="text-sm font-medium text-red-400">{error}</p>
             </div>
           )}
-          
-          <form onSubmit={(e) => { e.preventDefault(); handleLogin(); }} className="space-y-4">
+
+          {/* Form */}
+          <form onSubmit={(e) => { e.preventDefault(); handleLogin(); }} className="space-y-5">
             <div>
-              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Work Email</label>
-              <input 
-                type="email" 
-                required 
-                value={email} 
-                onChange={e => setEmail(e.target.value)} 
-                className="w-full px-4 py-3 bg-white border border-slate-200 rounded-[12px] text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 outline-none transition-all" 
-                placeholder="you@company.com" 
-              />
+              <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2 block">
+                Work Email
+              </label>
+              <div className="relative">
+                <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                <input 
+                  type="email" 
+                  required 
+                  value={email} 
+                  onChange={e => setEmail(e.target.value)} 
+                  className="w-full pl-11 pr-4 py-3.5 bg-[#0D1117] border border-slate-800 rounded-xl text-sm font-medium text-white placeholder:text-slate-600 focus:ring-2 focus:ring-purple-500/40 focus:border-purple-500 outline-none transition-all hover:border-slate-700" 
+                  placeholder="you@company.com" 
+                />
+              </div>
             </div>
+
             <div>
-              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Password</label>
-              <input 
-                type="password" 
-                required 
-                value={password} 
-                onChange={e => setPassword(e.target.value)} 
-                className="w-full px-4 py-3 bg-white border border-slate-200 rounded-[12px] text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 outline-none transition-all" 
-                placeholder="••••••••" 
-                minLength={6} 
-              />
+              <div className="flex justify-between items-center mb-2">
+                <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
+                  Password
+                </label>
+                <button 
+                  type="button" 
+                  onClick={() => { /* Add forgot password logic here if you have it */ alert("Please contact your administrator to reset your password."); }} 
+                  className="text-xs font-bold text-purple-400 hover:text-purple-300 transition-colors"
+                >
+                  Forgot password?
+                </button>
+              </div>
+              <div className="relative">
+                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                <input 
+                  type={showPassword ? "text" : "password"} 
+                  required 
+                  value={password} 
+                  onChange={e => setPassword(e.target.value)} 
+                  className="w-full pl-11 pr-12 py-3.5 bg-[#0D1117] border border-slate-800 rounded-xl text-sm font-medium text-white placeholder:text-slate-600 focus:ring-2 focus:ring-purple-500/40 focus:border-purple-500 outline-none transition-all hover:border-slate-700" 
+                  placeholder="••••••••" 
+                  minLength={6} 
+                />
+                <button 
+                  type="button" 
+                  onClick={() => setShowPassword(!showPassword)} 
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors focus:outline-none"
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
             </div>
+
             <button 
               type="submit" 
               disabled={loading} 
-              className="w-full mt-4 py-3.5 bg-purple-600 hover:bg-purple-700 text-white rounded-[12px] font-bold text-[13px] uppercase tracking-widest transition-all shadow-[0_4px_14px_-4px_rgba(124,58,237,0.4)] disabled:opacity-50"
+              className="w-full mt-2 py-4 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-500 hover:to-purple-500 text-white rounded-xl font-bold text-sm tracking-wide transition-all shadow-[0_0_20px_rgba(124,58,237,0.3)] hover:shadow-[0_0_25px_rgba(124,58,237,0.5)] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
-              {loading ? 'Signing in...' : 'Sign In'}
+              {loading ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Signing in...
+                </>
+              ) : (
+                "Sign in to workspace"
+              )}
             </button>
           </form>
+
+          {/* Footer / Support */}
+          <div className="mt-8 text-center">
+            <p className="text-xs text-slate-500 font-medium">
+              Don't have an account?{" "}
+              <button 
+                type="button"
+                onClick={() => setIsContactSalesOpen(true)}
+                className="text-purple-400 hover:text-purple-300 font-bold transition-colors underline decoration-purple-400/30 hover:decoration-purple-400"
+              >
+                Contact Sales
+              </button>
+            </p>
+          </div>
         </div>
       </div>
+
+      {/* ================= CONTACT SALES MODAL ================= */}
+      {isContactSalesOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-[#050814]/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-[#0D1117] border border-slate-800 rounded-2xl w-full max-w-lg shadow-[0_0_50px_rgba(0,0,0,0.5)] overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200">
+            
+            {/* Modal Header */}
+            <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-900/50">
+              <div>
+                <h3 className="text-xl font-bold text-white">Contact Sales</h3>
+                <p className="text-sm text-slate-400 mt-1">Request an account for NexDray.</p>
+              </div>
+              <button 
+                onClick={() => setIsContactSalesOpen(false)} 
+                className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 overflow-y-auto space-y-5">
+              
+              {/* Eligibility Notice */}
+              <div className="bg-purple-900/20 border border-purple-500/30 rounded-xl p-4 flex gap-3 items-start">
+                <AlertCircle className="w-5 h-5 text-purple-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <h4 className="text-sm font-bold text-purple-300 mb-1">Eligibility Requirement</h4>
+                  <p className="text-xs text-purple-200/80 leading-relaxed">
+                    Only companies processing <strong>500+ containers per month</strong> are eligible for a NexDray account. 
+                    If you meet this requirement, please fill out the form below.
+                  </p>
+                </div>
+              </div>
+
+              <form onSubmit={handleContactSalesSubmit} className="space-y-4">
+                <div>
+                  <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2 block">
+                    Company Name *
+                  </label>
+                  <input 
+                    type="text" 
+                    required 
+                    value={salesForm.companyName}
+                    onChange={e => setSalesForm({...salesForm, companyName: e.target.value})}
+                    className="w-full px-4 py-3 bg-[#050814] border border-slate-800 rounded-xl text-sm text-white placeholder:text-slate-600 focus:ring-2 focus:ring-purple-500/40 focus:border-purple-500 outline-none transition-all"
+                    placeholder="Your Logistics Company"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2 block">
+                      Contact Name *
+                    </label>
+                    <input 
+                      type="text" 
+                      required 
+                      value={salesForm.contactName}
+                      onChange={e => setSalesForm({...salesForm, contactName: e.target.value})}
+                      className="w-full px-4 py-3 bg-[#050814] border border-slate-800 rounded-xl text-sm text-white placeholder:text-slate-600 focus:ring-2 focus:ring-purple-500/40 focus:border-purple-500 outline-none transition-all"
+                      placeholder="John Doe"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2 block">
+                      Phone Number
+                    </label>
+                    <input 
+                      type="tel" 
+                      value={salesForm.phone}
+                      onChange={e => setSalesForm({...salesForm, phone: e.target.value})}
+                      className="w-full px-4 py-3 bg-[#050814] border border-slate-800 rounded-xl text-sm text-white placeholder:text-slate-600 focus:ring-2 focus:ring-purple-500/40 focus:border-purple-500 outline-none transition-all"
+                      placeholder="(555) 123-4567"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2 block">
+                    Work Email *
+                  </label>
+                  <input 
+                    type="email" 
+                    required 
+                    value={salesForm.workEmail}
+                    onChange={e => setSalesForm({...salesForm, workEmail: e.target.value})}
+                    className="w-full px-4 py-3 bg-[#050814] border border-slate-800 rounded-xl text-sm text-white placeholder:text-slate-600 focus:ring-2 focus:ring-purple-500/40 focus:border-purple-500 outline-none transition-all"
+                    placeholder="john@yourcompany.com"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2 block">
+                    Estimated Monthly Containers *
+                  </label>
+                  <select 
+                    required
+                    value={salesForm.monthlyContainers}
+                    onChange={e => setSalesForm({...salesForm, monthlyContainers: e.target.value})}
+                    className="w-full px-4 py-3 bg-[#050814] border border-slate-800 rounded-xl text-sm text-white focus:ring-2 focus:ring-purple-500/40 focus:border-purple-500 outline-none transition-all"
+                  >
+                    <option value="Less than 500">Less than 500</option>
+                    <option value="500+">500+ (Eligible)</option>
+                    <option value="1000+">1000+</option>
+                    <option value="5000+">5000+</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2 block">
+                    Message (Optional)
+                  </label>
+                  <textarea 
+                    rows="3"
+                    value={salesForm.message}
+                    onChange={e => setSalesForm({...salesForm, message: e.target.value})}
+                    className="w-full px-4 py-3 bg-[#050814] border border-slate-800 rounded-xl text-sm text-white placeholder:text-slate-600 focus:ring-2 focus:ring-purple-500/40 focus:border-purple-500 outline-none transition-all resize-none"
+                    placeholder="Tell us about your business needs..."
+                  />
+                </div>
+
+                <div className="pt-2">
+                  <button 
+                    type="submit" 
+                    className="w-full py-3.5 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-500 hover:to-purple-500 text-white rounded-xl font-bold text-sm transition-all shadow-[0_0_20px_rgba(124,58,237,0.3)] hover:shadow-[0_0_25px_rgba(124,58,237,0.5)] flex items-center justify-center gap-2"
+                  >
+                    <Send className="w-4 h-4" />
+                    Submit Request
+                  </button>
+                </div>
+              </form>
+              
+              <div className="text-center pt-2">
+                <p className="text-xs text-slate-500">
+                  Or email us directly at{" "}
+                  <a href="mailto:support@nexdray.com" className="text-purple-400 hover:text-purple-300 font-bold">
+                    support@nexdray.com
+                  </a>
+                </p>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -7128,6 +7583,7 @@ const [newBasePrice, setNewBasePrice] = useState({
 });
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
+const [editingLoadData, setEditingLoadData] = useState(null); // ✅ ADD THIS LINE
   const [searchTerm, setSearchTerm] = useState("");
   const [copyFeedback, setCopyFeedback] = useFeedback();
   const [assignmentDate, setAssignmentDate] = useState(new Date().toISOString().split('T')[0]);
@@ -7154,8 +7610,13 @@ const [pendingInvoiceLoadId, setPendingInvoiceLoadId] = useState(null);  // ✅ 
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [boardView, setBoardView] = useState(null); // 'today', 'tomorrow', or null
+    // ===== NEW: SEARCH & BULK DELETE STATE FOR LOADS =====
+  const [loadBulkDeleteMode, setLoadBulkDeleteMode] = useState(false);
+  const [selectedLoadIds, setSelectedLoadIds] = useState([]);
+  const [showLoadBulkDeleteConfirm, setShowLoadBulkDeleteConfirm] = useState(false);
+  const [loadBulkDeleteStep, setLoadBulkDeleteStep] = useState(1);
+  const [isLoadBulkDeleting, setIsLoadBulkDeleting] = useState(false);
 
-  // ========== COMPUTED VALUES ==========
   // ========== COMPUTED VALUES ==========
 const summaryLoads = useMemo(() => {
   const combined = [...loadsToday, ...loadsOpen];
@@ -7180,7 +7641,11 @@ useEffect(() => {
                 activeTab === 'revenue' ? revenueLoads :
                 paginatedLoads;
 
-  const loadToEdit = editingId ? [...loadsToday, ...loadsOpen, ...paginatedLoads].find(l => l.id === editingId) : null;
+  const loadToEdit = editingId 
+  ? (editingLoadData?.id === editingId 
+      ? editingLoadData 
+      : [...loadsToday, ...loadsOpen, ...paginatedLoads].find(l => l.id === editingId)) 
+  : null;
     const isAdmin = userRole === 'owner' || userRole === 'admin';
   const isDispatcher = userRole === 'dispatcher';
   const isAccounting = userRole === 'accounting';
@@ -7460,9 +7925,13 @@ useEffect(() => {
   }
   setIsLoadingMore(true);
   try {
-    let constraints = [];
+        let constraints = [];
     const searchValue = searchTermOverride !== undefined ? searchTermOverride : searchTerm;
-    const search = (searchValue || '').toLowerCase();
+    
+    // ✅ FIX: Container numbers are stored in UPPERCASE in the database. 
+    // We must query them in UPPERCASE to get a match.
+    const search = (searchValue || '').trim().toUpperCase(); 
+    
     if (search) {
       constraints.push(where('containerNo', '>=', search));
       constraints.push(where('containerNo', '<=', search + '\uf8ff'));
@@ -7775,54 +8244,56 @@ const handleUpdateDriver = useCallback(async (driverId, updatedData) => {
 
 const handleAddDriver = useCallback(async (e) => {
   e.preventDefault();
-  console.log('🟢 handleAddDriver called');
-  console.log('newDriver:', newDriver);
-  console.log('companyId:', companyId);
-  
   if (!newDriver.name.trim() || !companyId) {
-    console.log('❌ Validation failed: missing name or companyId');
     setCopyFeedback('❌ Missing required fields');
     return;
   }
-  
-  if (newDriver.email && newDriver.email.trim() && (!newDriver.password || newDriver.password.length < 6)) {
-    console.log('❌ Password too short');
-    setCopyFeedback("❌ Password must be at least 6 characters");
-    return;
-  }
-  
-  setCopyFeedback("⏳ Creating driver...");
-  
+
+  const isThirdParty = newDriver.type === 'Third-Party Driver';
+  const hasCredentials = newDriver.email && newDriver.email.trim() && newDriver.password && newDriver.password.length >= 6;
+
+  setCopyFeedback("⏳ Saving driver...");
+
   try {
-    console.log('📤 Calling createDriver cloud function...');
-    const functions = getFunctions();
-    const createDriverFn = httpsCallable(functions, 'createDriver');
-    
-    const result = await createDriverFn({
-      name: newDriver.name.trim(),
-      truckNo: newDriver.truckNo || '',
-      type: newDriver.type || 'Company Driver',
-      payRate: newDriver.payRate || 0,
-      payType: newDriver.payType || 'flat',
-      fuelEfficiency: newDriver.fuelEfficiency || null,
-      email: newDriver.email ? newDriver.email.trim() : '',
-      password: newDriver.password
-    });
-    
-    console.log('✅ Cloud function result:', result.data);
-    
-    if (result.data.success) {
-      setNewDriver({
-        name: '', truckNo: '', type: 'Company Driver',
-        payRate: 0, payType: 'flat', fuelEfficiency: '',
-        email: '', password: ''
+    if (!hasCredentials) {
+      // ✅ No email/password provided -> Save directly to Firestore (No App Login)
+      await addDoc(collection(db, 'companies', companyId, 'drivers'), {
+        name: sanitizeInput(newDriver.name),
+        truckNo: sanitizeInput(newDriver.truckNo || ''),
+        type: newDriver.type || 'Company Driver',
+        payRate: newDriver.payRate || 0,
+        payType: newDriver.payType || 'flat',
+        fuelEfficiency: newDriver.fuelEfficiency || null,
+        email: '',
+        authUid: null, // No auth user created
+        createdAt: new Date().toISOString(),
+        companyId: companyId
       });
-      setCopyFeedback("✅ Driver created successfully");
-      console.log('✅ Feedback set');
+      setNewDriver({ name: '', truckNo: '', type: 'Company Driver', payRate: 0, payType: 'flat', fuelEfficiency: '', email: '', password: '' });
+      setCopyFeedback("✅ Saved successfully (No app login created)");
+    } else {
+      // ✅ Email/password provided -> Use Cloud Function to create Auth user
+      const functions = getFunctions();
+      const createDriverFn = httpsCallable(functions, 'createDriver');
+      const result = await createDriverFn({
+        name: newDriver.name.trim(),
+        truckNo: newDriver.truckNo || '',
+        type: newDriver.type || 'Company Driver',
+        payRate: newDriver.payRate || 0,
+        payType: newDriver.payType || 'flat',
+        fuelEfficiency: newDriver.fuelEfficiency || null,
+        email: newDriver.email.trim(),
+        password: newDriver.password
+      });
+      
+      if (result.data.success) {
+        setNewDriver({ name: '', truckNo: '', type: 'Company Driver', payRate: 0, payType: 'flat', fuelEfficiency: '', email: '', password: '' });
+        setCopyFeedback("✅ Driver created with app login");
+      }
     }
   } catch (error) {
     console.error('❌ createDriver error:', error);
-    const errorMsg = error.details?.message || error.message || "Failed to create driver";
+    const errorMsg = error.details?.message || error.message || "Failed to save driver";
     setCopyFeedback(`❌ ${errorMsg}`);
   }
 }, [companyId, newDriver, setCopyFeedback]);
@@ -8082,6 +8553,113 @@ const handleImportBasePrices = useCallback(async (file) => {
   }
 }, [companyId, savedBasePrices, setCopyFeedback]);
 
+// ===== IMPORT LOCATIONS FROM EXCEL =====
+const handleImportLocations = useCallback(async (file) => {
+  if (!file || !companyId) {
+    setCopyFeedback("❌ No file selected or company not found");
+    return;
+  }
+  
+  const extension = file.name.split('.').pop().toLowerCase();
+  if (!['xlsx', 'xls', 'csv'].includes(extension)) {
+    setCopyFeedback("❌ Please upload .xlsx, .xls, or .csv files only");
+    return;
+  }
+  
+  try {
+    setIsImporting(true);
+    setCopyFeedback("📊 Processing Locations Excel file...");
+    
+    const ExcelJS = await retryDynamicImport(() => import('exceljs'));
+    const workbook = new ExcelJS.Workbook();
+    const arrayBuffer = await file.arrayBuffer();
+    await workbook.xlsx.load(arrayBuffer);
+    
+    const worksheet = workbook.worksheets[0];
+    if (!worksheet) {
+      setCopyFeedback("❌ No worksheet found in file");
+      return;
+    }
+    
+    // Find column headers (Case insensitive)
+    let nameColumnIndex = 1; // Default to Column A
+    let addressColumnIndex = 3; // Default to Column C
+    
+    const headerRow = worksheet.getRow(1);
+    headerRow.eachCell((cell, colNumber) => {
+      const value = cell.value ? String(cell.value).trim().toLowerCase() : '';
+      if (value === 'name' || value === 'location name') {
+        nameColumnIndex = colNumber;
+      } else if (value === 'full address' || value === 'address' || value === 'location address') {
+        addressColumnIndex = colNumber;
+      }
+    });
+    
+    let importedCount = 0;
+    let skippedCount = 0;
+    const locationsToSave = [];
+    const existingAddresses = new Set(savedDestinations.map(d => d.address?.toLowerCase().trim()));
+    
+    worksheet.eachRow((row, rowNumber) => {
+      if (rowNumber === 1) return; // Skip header row
+      
+      const nameCell = row.getCell(nameColumnIndex);
+      const addressCell = row.getCell(addressColumnIndex);
+      
+      let locationName = nameCell.value ? String(nameCell.value).trim() : '';
+      let locationAddress = addressCell.value ? String(addressCell.value).trim() : '';
+      
+      // If name is empty, use the address as the name
+      if (!locationName && locationAddress) {
+        locationName = locationAddress;
+      }
+      
+      // Skip if both are empty
+      if (!locationName && !locationAddress) {
+        skippedCount++;
+        return;
+      }
+      
+      // Check for duplicates in the current list
+      const addressLower = locationAddress.toLowerCase().trim();
+      if (existingAddresses.has(addressLower)) {
+        skippedCount++;
+        return;
+      }
+      
+      locationsToSave.push({
+        name: locationName,
+        address: locationAddress,
+        companyId: companyId,
+        createdAt: new Date().toISOString()
+      });
+      
+      existingAddresses.add(addressLower); // Prevent duplicates within the Excel file itself
+      importedCount++;
+    });
+    
+    if (locationsToSave.length > 0) {
+      const batch = writeBatch(db);
+      
+      for (const loc of locationsToSave) {
+        const docRef = doc(collection(db, 'companies', companyId, 'locations'));
+        batch.set(docRef, loc);
+      }
+      
+      await batch.commit();
+      setCopyFeedback(`✅ Imported ${importedCount} locations! ${skippedCount} duplicates/empty rows skipped.`);
+    } else {
+      setCopyFeedback(`⚠️ No new locations found. ${skippedCount} duplicates or empty rows skipped.`);
+    }
+    
+  } catch (error) {
+    console.error("Import error:", error);
+    setCopyFeedback(`❌ Import failed: ${error.message}`);
+  } finally {
+    setIsImporting(false);
+  }
+}, [companyId, savedDestinations, setCopyFeedback]);
+
 const executeDeleteBasePrice = useCallback(async (id) => {
   if (!user || !companyId || !id) return;
   try {
@@ -8229,6 +8807,38 @@ const confirmDeleteTerminal = useCallback((id) => {
     if (isMountedRef.current) setCopyFeedback("❌ Failed to close load");
   }
 }, [user, companyId, userEmail, setCopyFeedback, isMountedRef, setLoadsToday, setLoadsOpen, setPaginatedLoads, setRevenueLoads, setAssignmentLoads]);
+  // ===== FAST BATCH SOFT DELETE FOR LOADS (marks as Completed, 500 per batch) =====
+  const batchSoftDeleteLoads = async (ids) => {
+    const CHUNK_SIZE = 500;
+    let successCount = 0;
+    let failCount = 0;
+    const now = new Date().toISOString();
+    const deletedBy = userEmail || user?.email || 'Unknown';
+
+    for (let i = 0; i < ids.length; i += CHUNK_SIZE) {
+      const chunk = ids.slice(i, i + CHUNK_SIZE);
+      try {
+        const batch = writeBatch(db);
+        chunk.forEach(id => {
+          const ref = doc(db, 'companies', companyId, 'loads', id);
+          batch.update(ref, {
+            status: 'Completed',
+            deletedAt: now,
+            deletedBy: deletedBy,
+            isDeleted: true
+          });
+        });
+        await batch.commit();
+        successCount += chunk.length;
+        setCopyFeedback(`⏳ Deleting... ${successCount}/${ids.length}`);
+      } catch (err) {
+        console.error(`Batch soft-delete failed:`, err);
+        failCount += chunk.length;
+      }
+    }
+
+    return { successCount, failCount };
+  };
 
 // Add this after executeDeleteLoad function
 const resetOrphanedDrivers = useCallback(async () => {
@@ -8550,22 +9160,22 @@ const handleSubmitLoad = useCallback(async (formData) => {
 
   // Format all date fields in formData
   const formattedFormData = {
-    ...formData,
-    appointmentDate: formatDateForStorage(formData.appointmentDate),
-    prepullDate: formatDateForStorage(formData.prepullDate),
-    deliveryDate: formatDateForStorage(formData.deliveryDate),
-    returnDate: formatDateForStorage(formData.returnDate),
-    erdDate: formatDateForStorage(formData.erdDate),
-    cutoffDate: formatDateForStorage(formData.cutoffDate),
-    yardStorageStartDate: formatDateForStorage(formData.yardStorageStartDate),
-    yardStorageEndDate: formatDateForStorage(formData.yardStorageEndDate),
-    chassisStartDate: formatDateForStorage(formData.chassisStartDate),
-    chassisEndDate: formatDateForStorage(formData.chassisEndDate),
-    legs: (formData.legs || []).map(leg => ({
-      ...leg,
-      legDate: formatDateForStorage(leg.legDate)
-    }))
-  };
+  ...formData,
+  appointmentDate: formatDateForStorage(formData.appointmentDate),
+  appointmentTime: formData.appointmentTime || '', // ✅ ADD THIS LINE
+  prepullDate: formatDateForStorage(formData.prepullDate),
+  returnDate: formatDateForStorage(formData.returnDate),
+  erdDate: formatDateForStorage(formData.erdDate),
+  cutoffDate: formatDateForStorage(formData.cutoffDate),
+  yardStorageStartDate: formatDateForStorage(formData.yardStorageStartDate),
+  yardStorageEndDate: formatDateForStorage(formData.yardStorageEndDate),
+  chassisStartDate: formatDateForStorage(formData.chassisStartDate),
+  chassisEndDate: formatDateForStorage(formData.chassisEndDate),
+  legs: (formData.legs || []).map(leg => ({
+    ...leg,
+    legDate: formatDateForStorage(leg.legDate)
+  }))
+};
 
   // ===== PREPARE DATA FOR SAVING =====
   const now = new Date().toISOString();
@@ -8627,10 +9237,26 @@ const handleSubmitLoad = useCallback(async (formData) => {
     cleanedData.workOrderNo = `WO-${Math.floor(100000 + Math.random() * 900000)}`;
   }
 
-  // ===== OPTIMIZED SAVE - INSTANT! =====
+    // ===== OPTIMIZED SAVE - INSTANT! =====
   try {
+    // ✅ CHECK IF CONTAINER ALREADY EXISTS IN HISTORY (Returning Container Logic)
+    let isReturningContainer = false;
+    if (cleanedData.containerNo && cleanedData.containerNo !== 'N/A') {
+      const containerCheckQuery = query(
+        collection(db, 'companies', companyId, 'loads'),
+        where('containerNo', '==', cleanedData.containerNo),
+        limit(1)
+      );
+      const containerCheckSnap = await getDocs(containerCheckQuery);
+      
+      if (!containerCheckSnap.empty && (!editingId || containerCheckSnap.docs[0].id !== editingId)) {
+        isReturningContainer = true;
+      }
+    }
+        cleanedData.isReturningContainer = isReturningContainer;
+
     let loadRef;
-    let loadId;
+    let loadId; // ✅ ADD THIS LINE HERE
 
     // ✅ STEP 1: SAVE THE LOAD FIRST (INSTANT)
     if (editingId) {
@@ -9234,7 +9860,10 @@ const handleEditInvoiceFromHistory = useCallback((load) => {
         </style>
         <div class="flex justify-between" style="align-items: flex-start;">
           <div><div class="text-2xl font-black text-blue mb-2">${sanitizeInput(companyName || 'Company Name')}</div><div style="color: #374151;">${sanitizeInput(addressStr)}</div>${companyDetails?.phone ? `<div style="color: #374151;">Tel: ${sanitizeInput(companyDetails.phone)}</div>` : ''}${companyDetails?.email ? `<div style="color: #374151;">Email: ${sanitizeInput(companyDetails.email)}</div>` : ''}</div>
-          <div class="text-right"><div class="text-2xl font-black text-gray mb-2">INVOICE</div><table class="meta-table"><tr><td class="label">INVOICE #</td><td class="value">${sanitizeInput(load.workOrderNo || String(load.id || '').substring(0,8).toUpperCase())}</td></tr><tr><td class="label">DATE</td><td class="value">${currentDate}</td></tr><tr><td class="label">PO #</td><td class="value">${sanitizeInput(load.poNumber || 'N/A')}</td></tr><tr><td class="label">CURRENCY</td><td class="value">${load.currency || 'CAD'}</td></tr><tr><td class="label">TERMS</td><td class="value">Due on Receipt</td></tr></table></div>
+                    <div class="text-right">
+            ${companyDetails?.logoUrl ? `<img src="${sanitizeInput(companyDetails.logoUrl)}" style="max-height: 60px; max-width: 200px; margin-bottom: 10px; margin-left: auto; display: block;" alt="Company Logo" />` : ''}
+            <div class="text-2xl font-black text-gray mb-2">INVOICE</div>
+            <table class="meta-table"><tr><td class="label">INVOICE #</td><td class="value">${sanitizeInput(load.workOrderNo || String(load.id || '').substring(0,8).toUpperCase())}</td></tr><tr><td class="label">DATE</td><td class="value">${currentDate}</td></tr><tr><td class="label">PO #</td><td class="value">${sanitizeInput(load.poNumber || 'N/A')}</td></tr><tr><td class="label">CURRENCY</td><td class="value">${load.currency || 'CAD'}</td></tr><tr><td class="label">TERMS</td><td class="value">Due on Receipt</td></tr></table></div>
         </div>
         <div class="divider"></div>
         <div class="flex gap-4 mb-8">
@@ -9311,12 +9940,14 @@ const handleEditInvoiceFromHistory = useCallback((load) => {
       setCompanyName(companyData.name || 'Workspace');
       setCompanyLocations(companyData.locations || []);
       setDataSharingMode(companyData.dataSharingMode || 'separate');
-            setCompanyDetails({
+                  setCompanyDetails({
         address: companyData.address || '',
         city: companyData.city || '',
         phone: companyData.phone || '',
         email: companyData.email || '',
-        logoUrl: companyData.logoUrl || '',   // ✅ ADD THIS LINE
+        logoUrl: companyData.logoUrl || '',
+        website: companyData.website || '', // ✅ ADD THIS
+        emailTemplate: companyData.emailTemplate || '', // ✅ ADD THIS
       });
 
       // Fetch user doc for role and locations
@@ -9354,15 +9985,19 @@ const handleEditInvoiceFromHistory = useCallback((load) => {
   const confirmDeleteDriver = useCallback((id) => { setConfirmModal({ isOpen: true, title: 'Delete Driver?', message: 'Are you sure you want to delete this driver? This action cannot be undone.', onConfirm: () => executeDeleteDriver(id) }); }, [executeDeleteDriver]);
   const confirmDeleteLoad = useCallback((id) => { setConfirmModal({ isOpen: true, title: 'Delete Load?', message: 'Are you sure you want to delete this load record? This action cannot be undone.', onConfirm: () => executeDeleteLoad(id) }); }, [executeDeleteLoad]);
 
-  const handleEdit = useCallback((load) => { if (load?.id) { setEditingId(load.id); setIsFormOpen(true); } }, []);
+  const handleEdit = useCallback((load) => { 
+  if (load?.id) { 
+    setEditingId(load.id); 
+    setEditingLoadData(load); // ✅ Saves the full data
+    setIsFormOpen(true); 
+  } 
+}, []);
   const handleCopy = useCallback((load, leg) => { copyDispatch(load, leg, setCopyFeedback); }, [setCopyFeedback]);
-  const handleDownload = useCallback((load, leg) => {
-    // Build full location address from the load's location
+    const handleDownload = useCallback((load, leg) => {
     let locationAddress = null;
     if (load.locationId) {
       const location = companyLocations.find(loc => loc.id === load.locationId);
       if (location) {
-        // Build complete address string
         const addressParts = [
           location.name,
           location.address,
@@ -9373,12 +10008,20 @@ const handleEditInvoiceFromHistory = useCallback((load) => {
         locationAddress = addressParts.join(', ');
       }
     }
-    // Fallback to company details if no location found
     if (!locationAddress) {
       locationAddress = [companyDetails?.address, companyDetails?.city, companyDetails?.postalCode].filter(Boolean).join(', ');
     }
-    downloadPOD(load, leg, setCopyFeedback, companyName, companyDetails, locationAddress);
+    // ✅ FALLBACK
+    const effectiveDetails = {
+      ...companyDetails,
+      address: companyDetails?.address || companyLocations?.[0]?.address || '',
+      city: companyDetails?.city || companyLocations?.[0]?.city || '',
+      province: companyDetails?.province || companyLocations?.[0]?.province || '',
+      postalCode: companyDetails?.postalCode || companyLocations?.[0]?.postalCode || '',
+    };
+    downloadPOD(load, leg, setCopyFeedback, companyName, effectiveDetails, locationAddress);
   }, [setCopyFeedback, companyName, companyDetails, companyLocations]);
+
   // ========== DOWNLOAD DOCUMENT HELPER ==========
   const downloadDocument = (file, fileName) => {
     if (!file) {
@@ -9455,7 +10098,7 @@ const handleEditInvoiceFromHistory = useCallback((load) => {
     downloadDocument(load.signedPodDoc, fileName);
   };
 
-  const handlePrint = useCallback((load) => {
+    const handlePrint = useCallback((load) => {
     // Build full location address from the load's location
     let locationAddress = null;
     if (load.locationId) {
@@ -9471,12 +10114,21 @@ const handleEditInvoiceFromHistory = useCallback((load) => {
         locationAddress = addressParts.join(', ');
       }
     }
-    // Fallback to company details if no location found
     if (!locationAddress) {
       locationAddress = [companyDetails?.address, companyDetails?.city, companyDetails?.postalCode].filter(Boolean).join(', ');
     }
-    downloadInvoice(load, setCopyFeedback, companyName, companyDetails, locationAddress);
+    // ✅ FALLBACK: Use first company location if companyDetails.address is empty
+    const effectiveDetails = {
+      ...companyDetails,
+      address: companyDetails?.address || companyLocations?.[0]?.address || '',
+      city: companyDetails?.city || companyLocations?.[0]?.city || '',
+      province: companyDetails?.province || companyLocations?.[0]?.province || '',
+      postalCode: companyDetails?.postalCode || companyLocations?.[0]?.postalCode || '',
+    };
+    downloadInvoice(load, setCopyFeedback, companyName, effectiveDetails, locationAddress);
   }, [setCopyFeedback, companyName, companyDetails, companyLocations]);
+
+
   const handleSign = useCallback((loadId, leg) => {
   if (loadId && leg?.id) {
     const extractTime = (value) => {
@@ -9904,12 +10556,14 @@ const initializeAuth = () => {
         setCompanyName(cData.name || 'Workspace');
         setCompanyLocations(cData.locations || []);
         setDataSharingMode(cData.dataSharingMode || 'separate');
-                setCompanyDetails({
+                        setCompanyDetails({
           address: cData.address || '',
           city: cData.city || '',
           phone: cData.phone || '',
           email: cData.email || '',
-          logoUrl: cData.logoUrl || '',   // ✅ ADD THIS LINE
+          logoUrl: cData.logoUrl || '',
+          website: cData.website || '', // ✅ ADD THIS
+          emailTemplate: cData.emailTemplate || '', // ✅ ADD THIS
         });
       } else {
         setCompanyName('Workspace');
@@ -10024,21 +10678,18 @@ if (window.location.pathname.startsWith('/admin')) {
     </SuperAdminGuard>
   );
 }
-  if (appState === 'loading') return (<><div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center space-y-4"><Loader2 className="w-10 h-10 text-blue-600 animate-spin" /><div className="text-sm font-bold text-slate-500 uppercase tracking-widest">Loading Workspace...</div></div><HelpPanel currentPage={appState} /></>);
+  if (appState === 'loading') return (<div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center space-y-4"><Loader2 className="w-10 h-10 text-purple-600 animate-spin" /><div className="text-sm font-bold text-slate-500 uppercase tracking-widest">Loading Workspace...</div></div>);
   if (appState === 'landing') {
   return (
-    <>
-      <WorkspaceManager
-        setCompanyId={setCompanyId}
-        setUserRole={setUserRole}
-        setAppState={setAppState}
-        onRegistrationComplete={handleRegistrationComplete}
-      />
-      <HelpPanel currentPage={appState} />
-    </>
+    <WorkspaceManager
+      setCompanyId={setCompanyId}
+      setUserRole={setUserRole}
+      setAppState={setAppState}
+      onRegistrationComplete={handleRegistrationComplete}
+    />
   );
 }
-  if (appState === 'rolesetup') return (<><RoleSetup companyId={pendingCompanyId} ownerUid={pendingOwnerUid} onComplete={handleRoleSetupComplete} /><HelpPanel currentPage={appState} /></>);
+  if (appState === 'rolesetup') return (<RoleSetup companyId={pendingCompanyId} ownerUid={pendingOwnerUid} onComplete={handleRoleSetupComplete} />);
 
 // ✅ AUTO-RECOVERY DISABLED - Prevents forced logout
 if (appState === 'dashboard' && !authReady) {
@@ -10053,7 +10704,7 @@ if (appState === 'dashboard' && !authReady) {
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center space-y-4">
-      <Loader2 className="w-10 h-10 text-blue-600 animate-spin" />
+      <Loader2 className="w-10 h-10 text-purple-600 animate-spin" />
       <div className="text-sm font-bold text-slate-500 uppercase tracking-widest">
         Preparing your workspace...
       </div>
@@ -10074,26 +10725,26 @@ if (appState === 'dashboard' && !authReady) {
         <ConfirmModal isOpen={confirmModal.isOpen} title={confirmModal.title} message={confirmModal.message} onClose={() => setConfirmModal({ ...confirmModal, isOpen: false })} onConfirm={confirmModal.onConfirm} />
         <ImportDataModal isOpen={isImportModalOpen} onClose={() => setIsImportModalOpen(false)} onImport={(file, type) => handleImportData(file, type)} isLoading={isImporting} />
         {signingContext && (<div className="fixed inset-0 z-[100] flex items-center justify-center p-4"><div className="absolute inset-0 bg-slate-900/80 backdrop-blur-sm" onClick={() => setSigningContext(null)}></div><div className="bg-white w-full max-w-lg rounded-[32px] shadow-2xl relative z-10 overflow-hidden flex flex-col animate-in zoom-in-95 duration-200"><div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50"><h2 className="font-black text-slate-900">Sign Delivery Leg</h2><button onClick={() => setSigningContext(null)} className="p-2 hover:bg-slate-200 rounded-lg"><X /></button></div><div className="p-6 space-y-6"><div className="grid grid-cols-2 gap-4"><div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase">Arrival</label><input type="time" className="w-full px-4 py-3 bg-slate-50 border rounded-xl font-bold" value={signingContext.arrivalTime} onChange={(e) => setSigningContext({...signingContext, arrivalTime: e.target.value})} /></div><div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase">Departure</label><input type="time" className="w-full px-4 py-3 bg-slate-50 border rounded-xl font-bold" value={signingContext.departureTime} onChange={(e) => setSigningContext({...signingContext, departureTime: e.target.value})} /></div></div><div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase">Receiver Name</label><input type="text" className="w-full px-4 py-3 bg-slate-50 border rounded-xl font-bold placeholder:font-normal" placeholder="Who is receiving this?" value={signingContext.receiverName} onChange={(e) => setSigningContext({...signingContext, receiverName: e.target.value})} /></div><SignaturePad onSave={handleSignLeg} onCancel={() => setSigningContext(null)} /></div></div></div>)}
-        <header className="bg-white border-b border-slate-200 sticky top-0 z-30">
-  <div className="w-full px-3 sm:px-4 lg:px-6 h-16 flex items-center justify-between gap-3">
+        <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-[0_2px_10px_-3px_rgba(0,0,0,0.05)]">
+  <div className="w-full px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
 
     {/* ===== LEFT: Logo + Nav ===== */}
-    <div className="flex items-center gap-3 min-w-0 flex-1">
+    <div className="flex items-center gap-4 min-w-0 flex-1">
 
-            {/* Logo + Company Name */}
+      {/* Logo + Company Name */}
       <div className="flex items-center gap-2 flex-shrink-0">
         {companyDetails?.logoUrl ? (
           <img
             src={companyDetails.logoUrl}
             alt={companyName || 'Company Logo'}
-            className="w-9 h-9 rounded-lg object-contain bg-white border border-slate-200 p-0.5"
+            className="w-9 h-9 rounded-xl object-contain bg-white border border-slate-200 p-1 shadow-sm"
           />
         ) : (
-          <div className="bg-blue-600 p-2 rounded-lg">
-            <Package className="text-white w-5 h-5" />
+          <div className="bg-gradient-to-tr from-purple-600 to-indigo-500 p-2 rounded-xl shadow-sm">
+            <Truck className="text-white w-5 h-5" strokeWidth={2.5} />
           </div>
         )}
-                <h1
+        <h1
           className="text-sm font-bold text-slate-800 tracking-tight leading-tight truncate max-w-[180px]"
           title={companyName || 'Workspace'}
         >
@@ -10102,15 +10753,18 @@ if (appState === 'dashboard' && !authReady) {
       </div>
 
       {/* Nav Tabs */}
-            <nav className="hidden md:flex gap-0.5 bg-slate-100 p-1 rounded-xl overflow-x-auto min-w-0">
+      <nav className="hidden md:flex gap-1 bg-slate-100/80 p-1 rounded-xl overflow-x-auto min-w-0 border border-slate-200/60">
         {Object.entries(TAB_CONFIG).map(([tabKey, config]) => {
           if (!config.roles.includes(userRole)) return null;
+          const isActive = activeTab === tabKey;
           return (
             <button
               key={tabKey}
               onClick={() => setActiveTab(tabKey)}
-              className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
-                activeTab === tabKey ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500 hover:text-slate-700'
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all duration-200 ${
+                isActive
+                  ? 'bg-white shadow-sm text-purple-600 border border-slate-200/50'
+                  : 'text-slate-500 hover:text-slate-800 hover:bg-slate-200/50'
               }`}
             >
               {config.label}
@@ -10131,7 +10785,7 @@ if (appState === 'dashboard' && !authReady) {
         dataSharingMode={dataSharingMode}
       />
 
-                        {/* Avatar with role tooltip */}
+      {/* Avatar with role tooltip */}
       <div
         className="relative group flex-shrink-0"
         title={`${userEmail || 'User'}\nRole: ${ROLE_DISPLAY_NAMES[userRole] || userRole}`}
@@ -10146,7 +10800,7 @@ if (appState === 'dashboard' && !authReady) {
       {isAdmin && (
         <button
           onClick={() => setIsUserManagementOpen(true)}
-          className="flex items-center gap-1.5 bg-purple-600 text-white px-3 py-2 rounded-xl font-bold text-xs shadow-md transition-transform active:scale-95 hover:bg-purple-700"
+          className="flex items-center gap-1.5 bg-slate-100 text-slate-700 hover:bg-slate-200 px-3 py-2 rounded-xl font-bold text-xs transition-colors"
           title="Team Management"
         >
           <UserPlus className="w-4 h-4" />
@@ -10154,11 +10808,11 @@ if (appState === 'dashboard' && !authReady) {
         </button>
       )}
 
-            {/* Settings button (Email + Logo) */}
+      {/* Settings button */}
       {isAdmin && (
         <button
           onClick={() => setShowEmailSettings(true)}
-          className="flex items-center gap-1.5 bg-slate-600 text-white px-3 py-2 rounded-xl font-bold text-xs shadow-md transition-transform active:scale-95 hover:bg-slate-700"
+          className="flex items-center gap-1.5 bg-slate-100 text-slate-700 hover:bg-slate-200 px-3 py-2 rounded-xl font-bold text-xs transition-colors"
           title="Company Settings"
         >
           <Mail className="w-4 h-4" />
@@ -10170,7 +10824,7 @@ if (appState === 'dashboard' && !authReady) {
       {(isAdmin || isDispatcher || isCustomerService) && (
         <button
           onClick={() => { setEditingId(null); setIsFormOpen(true); }}
-          className="flex items-center gap-1.5 bg-blue-600 text-white px-3 py-2 rounded-xl font-bold text-xs shadow-md transition-transform active:scale-95 hover:bg-blue-700"
+          className="flex items-center gap-1.5 bg-purple-600 text-white px-4 py-2 rounded-xl font-bold text-xs shadow-md shadow-purple-200 transition-all active:scale-95 hover:bg-purple-700"
           title="New Load"
         >
           <Plus className="w-4 h-4" />
@@ -10178,11 +10832,11 @@ if (appState === 'dashboard' && !authReady) {
         </button>
       )}
 
-            {/* Fix Orphans button (icon-only) */}
+      {/* Fix Orphans button (icon-only) */}
       {isAdmin && (
         <button
           onClick={resetOrphanedDrivers}
-          className="flex items-center justify-center w-9 h-9 bg-red-600 text-white rounded-xl shadow-md transition-transform active:scale-95 hover:bg-red-700"
+          className="flex items-center justify-center w-9 h-9 bg-red-50 text-red-600 rounded-xl transition-colors hover:bg-red-100"
           title="Fix Orphaned Drivers"
         >
           <RefreshCw className="w-4 h-4" />
@@ -10192,7 +10846,7 @@ if (appState === 'dashboard' && !authReady) {
       {/* Logout button */}
       <button
         onClick={handleLeaveWorkspace}
-        className="flex items-center gap-1.5 p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"
+        className="flex items-center justify-center w-9 h-9 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"
         title="Log Out"
       >
         <LogOut className="w-4 h-4" />
@@ -10328,61 +10982,59 @@ if (appState === 'dashboard' && !authReady) {
           </div>
 
           {/* Pre-Pull Alert */}
-          <div className="bg-purple-50 border border-purple-200 rounded-[32px] p-6 animate-in slide-in-from-top-4 relative overflow-hidden">
-            <div className="absolute top-0 right-0 p-8 opacity-10 pointer-events-none">
-              <Clock className="w-32 h-32 text-purple-600" />
-            </div>
-            <div className="relative z-10">
-              <div className="flex items-center gap-4 mb-4">
-                <div className="bg-purple-100 p-3 rounded-2xl text-purple-700 shadow-sm">
-                  <Clock className="w-8 h-8" />
-                </div>
-                <div>
-                  <h3 className="font-black text-xl text-purple-900 tracking-tight">📦 Pre-Pull Required</h3>
-                  <p className="text-purple-800 font-bold text-sm">
-                    {summaryLoads.filter(l => l.isPrePull).length} containers marked for pre-pull
-                  </p>
-                </div>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {summaryLoads.filter(l => l.isPrePull).slice(0, 6).map(load => (
-                  <div
-                    key={load.id}
-                    className="bg-white p-4 rounded-2xl border border-purple-200 shadow-sm flex flex-col gap-2 group hover:shadow-md hover:border-purple-300 transition-all cursor-pointer"
-                    onClick={() => handleEdit(load)}
-                  >
-                    <div className="flex justify-between items-start">
-                      <div className="font-black text-slate-800">{load.containerNo || 'N/A'}</div>
-                      <span className={`text-[10px] font-black px-2 py-1 rounded ${
-                        load.prePullDate && new Date(load.prePullDate) < new Date()
-                          ? 'bg-red-100 text-red-700'
-                          : 'bg-yellow-100 text-yellow-700'
-                      }`}>
-                        {load.prePullDate && new Date(load.prePullDate) < new Date()
-                          ? '🔴 OVERDUE'
-                          : '⏳ Pending'
-                        }
-                      </span>
-                    </div>
-                    <div className="text-xs text-slate-500 truncate">{load.customerName || 'N/A'}</div>
-                    {load.prePullDate && (
-                      <div className="text-xs font-bold text-purple-600">
-                        📅 {new Date(load.prePullDate).toLocaleDateString()}
-                      </div>
-                    )}
-                    <div className="text-[10px] text-slate-400 mt-1">
-                      WO: {load.workOrderNo || 'N/A'}
-                    </div>
-                  </div>
-                ))}
-                {summaryLoads.filter(l => l.isPrePull).length === 0 && (
-                  <div className="col-span-full text-center text-purple-500 font-bold text-sm py-4">
-                    ✅ No containers need pre-pull
-                  </div>
-                )}
-              </div>
-            </div>
+<div className="bg-purple-50/50 border border-purple-100 rounded-2xl p-5 animate-in slide-in-from-top-4 relative overflow-hidden">
+  <div className="absolute top-0 right-0 p-6 opacity-[0.03] pointer-events-none">
+    <Clock className="w-48 h-48 text-purple-900" />
+  </div>
+  <div className="relative z-10">
+    <div className="flex items-center gap-3 mb-4">
+      <div className="bg-purple-100 p-2 rounded-lg text-purple-700 shadow-sm">
+        <Clock className="w-5 h-5" />
+      </div>
+      <div>
+        <h3 className="font-black text-lg text-purple-900 tracking-tight">Pre-Pull Required</h3>
+        <p className="text-purple-700 font-bold text-xs">
+          {summaryLoads.filter(l => l.isPrePull).length} containers marked for pre-pull
+        </p>
+      </div>
+    </div>
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+      {summaryLoads.filter(l => l.isPrePull).slice(0, 6).map(load => (
+        <div
+          key={load.id}
+          className="bg-white p-4 rounded-xl border border-purple-100 shadow-sm flex flex-col gap-2 group hover:shadow-md hover:border-purple-200 transition-all cursor-pointer"
+          onClick={() => handleEdit(load)}
+        >
+          <div className="flex justify-between items-start">
+            <div className="font-black text-slate-800 text-sm">{load.containerNo || 'N/A'}</div>
+            <span className={`text-[10px] font-black px-2 py-0.5 rounded-md ${
+              load.prePullDate && new Date(load.prePullDate) < new Date()
+                ? 'bg-red-50 text-red-700 border border-red-100'
+                : 'bg-amber-50 text-amber-700 border border-amber-100'
+            }`}>
+              {load.prePullDate && new Date(load.prePullDate) < new Date() ? 'OVERDUE' : 'PENDING'}
+            </span>
           </div>
+          <div className="text-xs text-slate-500 font-medium truncate">{load.customerName || 'N/A'}</div>
+          {load.prePullDate && (
+            <div className="text-[11px] font-bold text-purple-600 flex items-center gap-1">
+              <Calendar className="w-3 h-3" />
+              {new Date(load.prePullDate).toLocaleDateString()}
+            </div>
+          )}
+          <div className="text-[10px] text-slate-400 mt-1 font-medium">
+            WO: {load.workOrderNo || 'N/A'}
+          </div>
+        </div>
+      ))}
+      {summaryLoads.filter(l => l.isPrePull).length === 0 && (
+        <div className="col-span-full text-center text-purple-500 font-bold text-sm py-6 bg-white/50 rounded-xl border border-purple-100 border-dashed">
+          ✅ No containers need pre-pull
+        </div>
+      )}
+    </div>
+  </div>
+</div>
 
           {/* Action Required - Pending Terminations */}
           <ActionRequired
@@ -10444,7 +11096,7 @@ if (appState === 'dashboard' && !authReady) {
                  '📋 Operations View'}
               </span>
             </div>
-            <div className="flex gap-2 flex-wrap">
+                        <div className="flex gap-2 flex-wrap">
               <button
                 onClick={() => {
                   setShowContainerBoard(false);
@@ -10473,8 +11125,73 @@ if (appState === 'dashboard' && !authReady) {
               >
                 📦 Container Board
               </button>
+              {!showContainerBoard && !showDispatchBoard && !showTomorrowDispatchBoard && (
+                !loadBulkDeleteMode ? (
+                  <button
+                    onClick={() => {
+                      setLoadBulkDeleteMode(true);
+                      setSelectedLoadIds([]);
+                    }}
+                    className="px-4 py-2 rounded-xl font-bold text-sm transition-all bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 flex items-center gap-1"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Select & Delete
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => {
+                      setLoadBulkDeleteMode(false);
+                      setSelectedLoadIds([]);
+                    }}
+                    className="px-4 py-2 rounded-xl font-bold text-sm transition-all bg-slate-100 text-slate-600 border border-slate-200 hover:bg-slate-200 flex items-center gap-1"
+                  >
+                    <X className="w-4 h-4" />
+                    Cancel
+                  </button>
+                )
+              )}
             </div>
           </div>
+
+                    {/* ===== BULK DELETE ACTION BAR ===== */}
+          {loadBulkDeleteMode && !showContainerBoard && !showDispatchBoard && !showTomorrowDispatchBoard && (
+            <div className="p-3 bg-red-50 border border-red-200 rounded-xl flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-black text-red-700 uppercase">
+                  {selectedLoadIds.length} selected
+                </span>
+                <button
+                  onClick={() => setSelectedLoadIds((paginatedLoads || []).map(l => l.id))}
+                  className="text-[10px] font-bold text-red-600 hover:text-red-800 underline"
+                >
+                  Select All ({paginatedLoads?.length || 0})
+                </button>
+                {selectedLoadIds.length > 0 && (
+                  <button
+                    onClick={() => setSelectedLoadIds([])}
+                    className="text-[10px] font-bold text-slate-500 hover:text-slate-700 underline"
+                  >
+                    Deselect All
+                  </button>
+                )}
+              </div>
+              <button
+                onClick={() => {
+                  if (selectedLoadIds.length === 0) {
+                    setCopyFeedback("⚠️ No loads selected");
+                    return;
+                  }
+                  setLoadBulkDeleteStep(1);
+                  setShowLoadBulkDeleteConfirm(true);
+                }}
+                disabled={selectedLoadIds.length === 0}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg font-bold text-xs hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                Delete Selected ({selectedLoadIds.length})
+              </button>
+            </div>
+          )}
 
           {/* Conditional Rendering - FOUR VIEWS */}
           {showDispatchBoard ? (
@@ -10512,7 +11229,7 @@ if (appState === 'dashboard' && !authReady) {
               isAccounting={isAccounting}
             />
           ) : (
-            <LoadTable 
+                        <LoadTable 
               loads={paginatedLoads} 
               onEdit={handleEdit} 
               onDelete={confirmDeleteLoad} 
@@ -10542,8 +11259,115 @@ if (appState === 'dashboard' && !authReady) {
                   fetchPaginatedLoads(true);
                 }
               }} 
-              hasNextPage={paginatedLoads.length === pageSize} 
+              hasNextPage={paginatedLoads.length === pageSize}
+              bulkDeleteMode={loadBulkDeleteMode}
+              selectedLoadIds={selectedLoadIds}
+              onToggleSelection={(id) => {
+                setSelectedLoadIds(prev =>
+                  prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+                );
+              }}
             />
+          )}
+
+          {/* ===== DOUBLE CONFIRMATION MODAL ===== */}
+          {showLoadBulkDeleteConfirm && (
+            <div className="fixed inset-0 z-[300] flex items-center justify-center p-4">
+              <div
+                className="absolute inset-0 bg-slate-900/70 backdrop-blur-sm"
+                onClick={() => {
+                  if (!isLoadBulkDeleting) {
+                    setShowLoadBulkDeleteConfirm(false);
+                    setLoadBulkDeleteStep(1);
+                  }
+                }}
+              ></div>
+              <div className="bg-white w-full max-w-md rounded-[24px] shadow-2xl relative z-10 overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
+                {loadBulkDeleteStep === 1 ? (
+                  <>
+                    <div className="p-6 flex flex-col items-center text-center space-y-4">
+                      <div className="w-14 h-14 rounded-full bg-red-50 flex items-center justify-center">
+                        <AlertTriangle className="w-8 h-8 text-red-500" />
+                      </div>
+                      <h3 className="text-xl font-black text-slate-900">
+                        Delete {selectedLoadIds.length} Load{selectedLoadIds.length !== 1 ? 's' : ''}?
+                      </h3>
+                      <p className="text-sm font-medium text-slate-500 leading-relaxed">
+                        You are about to close <strong className="text-red-600">{selectedLoadIds.length}</strong> load{selectedLoadIds.length !== 1 ? 's' : ''} and mark them as Completed. This action can be undone from the History tab.
+                      </p>
+                    </div>
+                    <div className="flex border-t border-slate-100">
+                      <button
+                        onClick={() => { setShowLoadBulkDeleteConfirm(false); setLoadBulkDeleteStep(1); }}
+                        className="flex-1 py-4 text-sm font-bold text-slate-500 hover:bg-slate-50 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                      <div className="w-px bg-slate-100"></div>
+                      <button
+                        onClick={() => setLoadBulkDeleteStep(2)}
+                        className="flex-1 py-4 text-sm font-bold text-red-600 hover:bg-red-50 transition-colors"
+                      >
+                        Continue →
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="p-6 flex flex-col items-center text-center space-y-4">
+                      <div className="w-14 h-14 rounded-full bg-red-100 flex items-center justify-center animate-pulse">
+                        <AlertCircle className="w-8 h-8 text-red-600" />
+                      </div>
+                      <h3 className="text-xl font-black text-slate-900">Are You Absolutely Sure?</h3>
+                      <p className="text-sm font-medium text-slate-500 leading-relaxed">
+                        This is your <strong className="text-red-600">final confirmation</strong>. Clicking "Delete Forever" will close <strong>{selectedLoadIds.length}</strong> load{selectedLoadIds.length !== 1 ? 's' : ''} and hide them from the Operations tab.
+                      </p>
+                    </div>
+                    <div className="flex border-t border-slate-100">
+                      <button
+                        onClick={() => setLoadBulkDeleteStep(1)}
+                        disabled={isLoadBulkDeleting}
+                        className="flex-1 py-4 text-sm font-bold text-slate-500 hover:bg-slate-50 transition-colors disabled:opacity-50"
+                      >
+                        ← Back
+                      </button>
+                      <div className="w-px bg-slate-100"></div>
+                      <button
+                        onClick={async () => {
+                          if (selectedLoadIds.length === 0) return;
+                          setIsLoadBulkDeleting(true);
+                          const { successCount, failCount } = await batchSoftDeleteLoads(selectedLoadIds);
+                          setIsLoadBulkDeleting(false);
+                          setSelectedLoadIds([]);
+                          setLoadBulkDeleteMode(false);
+                          setShowLoadBulkDeleteConfirm(false);
+                          setLoadBulkDeleteStep(1);
+                          setCopyFeedback(failCount === 0
+                            ? `✅ Deleted ${successCount} load${successCount !== 1 ? 's' : ''}`
+                            : `⚠️ Deleted ${successCount}, failed ${failCount}`
+                          );
+                          if (activeTab === 'loads') fetchPaginatedLoads(true);
+                        }}
+                        disabled={isLoadBulkDeleting}
+                        className="flex-1 py-4 text-sm font-bold text-white bg-red-600 hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                      >
+                        {isLoadBulkDeleting ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            Deleting...
+                          </>
+                        ) : (
+                          <>
+                            <Trash2 className="w-4 h-4" />
+                            Delete Forever
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
           )}
         </div>
       )}
@@ -10598,6 +11422,7 @@ if (appState === 'dashboard' && !authReady) {
     setNewBasePrice={setNewBasePrice}           // ✅ ADD THIS
     onAddCustomer={handleAddCustomer}
     onAddLocation={handleAddLocation}
+    onImportLocations={handleImportLocations}
     onAddDriver={handleAddDriver}
     onAddBasePrice={handleAddBasePrice}         // ✅ ADD THIS
     onUpdateCustomer={handleUpdateCustomer}
@@ -10687,12 +11512,33 @@ if (appState === 'dashboard' && !authReady) {
   companyId={companyId}
   setFeedback={setCopyFeedback}
   companyName={companyName}
+  companyDetails={companyDetails}
   currentLogoUrl={companyDetails?.logoUrl || ''}
-  onLogoUpdated={(newUrl) => setCompanyDetails(prev => ({ ...prev, logoUrl: newUrl }))}
+  onLogoUpdated={(newUrl) =>
+    setCompanyDetails(prev => ({ ...prev, logoUrl: newUrl }))
+  }
+    onCompanyUpdated={(updated) => {
+    if (updated.name) setCompanyName(updated.name);
+    setCompanyDetails(prev => ({
+      ...prev,
+      address: updated.address,
+      city: updated.city,
+      province: updated.province,
+      postalCode: updated.postalCode,
+      phone: updated.phone,
+      email: updated.email,
+      website: updated.website, // ✅ ADD THIS
+      emailTemplate: updated.emailTemplate, // ✅ ADD THIS
+    }));
+  }}
 />
         <LoadForm
   isOpen={isFormOpen}
-  onClose={() => { setIsFormOpen(false); setEditingId(null); }}
+  onClose={() => { 
+    setIsFormOpen(false); 
+    setEditingId(null); 
+    setEditingLoadData(null); // ✅ Clears the data on close
+  }}
   onSubmit={handleSubmitLoad}
   initialData={loadToEdit}
   savedCustomers={savedCustomers}
@@ -10711,8 +11557,7 @@ if (appState === 'dashboard' && !authReady) {
   companyLocations={companyLocations}
   companyTerminals={savedTerminals}
 />
-      </div>
-      <HelpPanel currentPage={appState} />
+            </div>
     </ErrorBoundary>
   );
 };

@@ -56,7 +56,7 @@ const DriverActivityBoard = ({ drivers, companyId, onViewPOD, onResetDriver }) =
   const [expandedDrivers, setExpandedDrivers] = useState(new Set());
   const [viewMode, setViewMode] = useState('cards');
   const [sortBy, setSortBy] = useState('name');
-  const [updatingLoad, setUpdatingLoad] = useState(null); // ✅ FIX 2: Track which load is being updated
+  const [updatingLoad, setUpdatingLoad] = useState(null); 
 
   // ========== FETCH LOADS FOR ALL DRIVERS ==========
   useEffect(() => {
@@ -80,6 +80,13 @@ const DriverActivityBoard = ({ drivers, companyId, onViewPOD, onResetDriver }) =
             if (leg.driverName || leg.truckNo) {
               const key = leg.driverName || leg.truckNo;
               if (key) {
+                
+                // ✅ FIX: DO NOT ADD COMPLETED LEGS TO LIVE BOARD
+                const legStatus = leg.tripStatus || leg.status || 'Planned';
+                if (legStatus === 'Completed' || legStatus === 'Delivered' || legStatus === 'POD Uploaded') {
+                  return; // Skip this leg entirely
+                }
+
                 if (!loadsData[key]) {
                   loadsData[key] = [];
                 }
@@ -91,7 +98,7 @@ const DriverActivityBoard = ({ drivers, companyId, onViewPOD, onResetDriver }) =
                   loadId: load.id,
                   from: leg.from || 'N/A',
                   to: leg.to || 'N/A',
-                  status: leg.tripStatus || leg.status || 'Planned',
+                  status: legStatus,
                   driverName: leg.driverName || null,
                   truckNo: leg.truckNo || null
                 });
@@ -110,7 +117,6 @@ const DriverActivityBoard = ({ drivers, companyId, onViewPOD, onResetDriver }) =
   }, [companyId, drivers]);
 
   // ========== UPDATE LOAD LEG STATUS FROM FLEET BOARD ==========
-  // ✅ FIX 3: Status update handler
   const handleUpdateLegStatus = async (loadId, driverName, truckNo, newStatus) => {
     if (!companyId || !loadId) return;
     
@@ -188,7 +194,7 @@ const DriverActivityBoard = ({ drivers, companyId, onViewPOD, onResetDriver }) =
     
     let loads = [];
     
-    // ✅ CHECK 1: Firestore loads FIRST (they have the latest trip status)
+    // ✅ CHECK 1: Firestore loads ONLY (they have the latest live trip status)
     if (driver.name && driverLoads[driver.name]) {
       const firestoreLoads = driverLoads[driver.name];
       firestoreLoads.forEach(load => {
@@ -207,35 +213,7 @@ const DriverActivityBoard = ({ drivers, companyId, onViewPOD, onResetDriver }) =
       });
     }
     
-    // ✅ CHECK 2: assignedContainers array (supplement with any missing)
-    if (driver.assignedContainers && Array.isArray(driver.assignedContainers)) {
-      driver.assignedContainers.forEach(container => {
-        if (!loads.find(l => l.containerNo === container.containerNo)) {
-          loads.push({
-            containerNo: container.containerNo,
-            workOrderNo: container.workOrderNo || 'N/A',
-            customerName: container.customerName || 'N/A',
-            loadId: container.loadId || null,
-            from: container.from || 'N/A',
-            to: container.to || 'N/A',
-            status: 'Planned'
-          });
-        }
-      });
-    }
-    
-    // ✅ CHECK 3: Fallback to currentContainerNo
-    if (loads.length === 0 && driver.currentContainerNo) {
-      loads.push({
-        containerNo: driver.currentContainerNo,
-        workOrderNo: driver.currentWorkOrderNo || 'N/A',
-        customerName: driver.currentCustomerName || 'N/A',
-        loadId: driver.currentLoadId || null,
-        from: driver.currentFrom || 'N/A',
-        to: driver.currentTo || 'N/A',
-        status: driver.tripStatus || 'Planned'
-      });
-    }
+    // ❌ CHECK 2 & 3 REMOVED: No longer pulling historical assignedContainers
     
     return loads;
   };
@@ -309,7 +287,6 @@ const DriverActivityBoard = ({ drivers, companyId, onViewPOD, onResetDriver }) =
     withLoads: drivers.filter(d => getDriverLoads(d).length > 0).length
   };
 
-  // ✅ FIX 4 & 5: Helper function for status badge colors
   const getStatusColor = (status) => {
     switch (status) {
       case 'Started': return { bg: 'bg-blue-100', text: 'text-blue-700', icon: 'text-blue-600' };
@@ -667,7 +644,7 @@ const DriverActivityBoard = ({ drivers, companyId, onViewPOD, onResetDriver }) =
                               </div>
                             </div>
                             
-                            {/* ✅ FIX 4: STATUS UPDATE BUTTONS */}
+                            {/* STATUS UPDATE BUTTONS */}
                             {load.status !== 'Completed' && load.status !== 'Delivered' && load.status !== 'POD Uploaded' && (
                               <div className="mb-3 p-2 bg-slate-50 rounded-lg">
                                 <div className="text-[9px] font-bold text-slate-400 uppercase mb-2">Update Status:</div>
