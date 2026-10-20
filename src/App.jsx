@@ -746,7 +746,6 @@ export const downloadPOD = (load, leg, setFeedback, companyName, companyDetails 
     const destName = leg?.to?.split(' - ')[0] || 'N/A';
     const destAddr = leg?.to || 'Address provided separately';
     
-    // Build the full address string for display
     const fullCompanyAddress = [
       companyDetails?.address,
       companyDetails?.city,
@@ -761,13 +760,13 @@ export const downloadPOD = (load, leg, setFeedback, companyName, companyDetails 
           .flex { display: flex; }
           .justify-between { justify-content: space-between; }
           .items-start { align-items: flex-start; }
-          .gap-4 { gap: 16px; }
+          .gap-4 { gap: 12px; }
           .w-1-2 { width: 50%; }
           .text-right { text-align: right; }
           .text-center { text-align: center; }
-          .mb-2 { margin-bottom: 8px; }
-          .mb-8 { margin-bottom: 32px; }
-          .mt-2 { margin-top: 8px; }
+          .mb-2 { margin-bottom: 4px; }
+          .mb-8 { margin-bottom: 16px; } /* ✅ REDUCED from 32px */
+          .mt-2 { margin-top: 4px; }
           .font-bold { font-weight: 700; }
           .font-black { font-weight: 900; }
           .text-blue { color: #1d4ed8; }
@@ -776,36 +775,36 @@ export const downloadPOD = (load, leg, setFeedback, companyName, companyDetails 
           .text-xs { font-size: 9px; text-transform: uppercase; font-weight: 800; letter-spacing: 0.5px; }
           .text-sm { font-size: 11px; }
           .text-base { font-size: 13px; }
-          .text-2xl { font-size: 24px; letter-spacing: -0.5px; }
-          .divider { border-bottom: 3px solid #111827; margin: 15px 0 25px 0; }
-          .dashed-divider { border-bottom: 1px dashed #cbd5e1; margin: 30px 0; }
-          .section-title { font-weight: 900; font-size: 12px; color: #1f2937; margin-bottom: 12px; display: flex; align-items: center; }
-          .section-title::before { content: ''; display: inline-block; width: 4px; height: 14px; background-color: #1d4ed8; margin-right: 8px; }
-          .card { border: 1px solid #e5e7eb; border-radius: 6px; padding: 14px; background: #fff; }
+          .text-2xl { font-size: 22px; letter-spacing: -0.5px; } /* ✅ Slightly smaller */
+          .divider { border-bottom: 3px solid #111827; margin: 10px 0 15px 0; } /* ✅ REDUCED */
+          .dashed-divider { border-bottom: 1px dashed #cbd5e1; margin: 15px 0; } /* ✅ REDUCED */
+          .section-title { font-weight: 900; font-size: 11px; color: #1f2937; margin-bottom: 8px; display: flex; align-items: center; }
+          .section-title::before { content: ''; display: inline-block; width: 4px; height: 12px; background-color: #1d4ed8; margin-right: 6px; }
+          .card { border: 1px solid #e5e7eb; border-radius: 6px; padding: 10px; background: #fff; } /* ✅ REDUCED padding */
           .card-blue { border-color: #bfdbfe; }
           .card-green { border-color: #bbf7d0; }
           .text-blue-label { color: #2563eb; }
           .text-green-label { color: #16a34a; }
-          .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+          .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; } /* ✅ REDUCED gap */
           .meta-table { width: auto; margin-left: auto; border-collapse: collapse; }
-          .meta-table td { padding: 3px 8px; font-size: 10px; }
+          .meta-table td { padding: 2px 6px; font-size: 10px; } /* ✅ REDUCED padding */
           .meta-table .label { font-weight: 800; text-align: right; text-transform: uppercase; color: #4b5563; }
           .meta-table .value { font-weight: 800; text-align: right; color: #111827; }
-          .sig-line { border-bottom: 1px solid #9ca3af; height: 20px; width: 100%; margin-top: 5px;}
+          .sig-line { border-bottom: 1px solid #9ca3af; height: 16px; width: 100%; margin-top: 2px;}
         </style>
         <div class="flex justify-between items-start">
           <!-- LEFT SIDE: Company Info -->
           <div>
             <div class="text-2xl font-black text-blue mb-2">${sanitizeInput(companyName || 'Company Name')}</div>
-            ${fullCompanyAddress ? `<div style="color: #374151; font-size: 11px; line-height: 1.4; font-weight: bold;">${sanitizeInput(fullCompanyAddress)}</div>` : ''}
-            ${companyDetails?.email ? `<div style="color: #374151; font-size: 11px; line-height: 1.4; font-weight: bold;">Email: ${sanitizeInput(companyDetails.email)}</div>` : ''}
-            ${companyDetails?.phone ? `<div style="color: #374151; font-size: 11px; line-height: 1.4; font-weight: bold;">Tel: ${sanitizeInput(companyDetails.phone)}</div>` : ''}
+            ${fullCompanyAddress ? `<div style="color: #374151; font-size: 10px; line-height: 1.3; font-weight: bold;">${sanitizeInput(fullCompanyAddress)}</div>` : ''}
+            ${companyDetails?.email ? `<div style="color: #374151; font-size: 10px; line-height: 1.3; font-weight: bold;">Email: ${sanitizeInput(companyDetails.email)}</div>` : ''}
+            ${companyDetails?.phone ? `<div style="color: #374151; font-size: 10px; line-height: 1.3; font-weight: bold;">Tel: ${sanitizeInput(companyDetails.phone)}</div>` : ''}
           </div>
           
           <!-- RIGHT SIDE: Logo and Work Order Details -->
           <div class="text-right">
-            ${companyDetails?.logoUrl ? `<img src="${sanitizeInput(companyDetails.logoUrl)}" style="max-height: 70px; max-width: 220px; margin-bottom: 10px; margin-left: auto; display: block;" alt="Company Logo" crossorigin="anonymous" />` : ''}
-            <div class="text-2xl font-black text-gray mb-2">WORK ORDER</div>
+            ${companyDetails?.logoUrl ? `<img src="${sanitizeInput(companyDetails.logoUrl)}" style="max-height: 60px; max-width: 200px; margin-bottom: 6px; margin-left: auto; display: block;" alt="Company Logo" crossorigin="anonymous" />` : ''}
+            <div class="text-2xl font-black text-gray mb-1">WORK ORDER</div>
             <table class="meta-table">
               <tr><td class="label">WO #</td><td class="value">${sanitizeInput(load.workOrderNo || String(load.id || '').substring(0,8).toUpperCase())}</td></tr>
               <tr><td class="label">DATE</td><td class="value">${currentDate}</td></tr>
@@ -819,37 +818,37 @@ export const downloadPOD = (load, leg, setFeedback, companyName, companyDetails 
         <div class="flex gap-4 mb-8">
           <div class="w-1-2">
             <div class="section-title">CUSTOMER</div>
-            <div class="card" style="height: 110px;">
-              <div class="font-black text-base mb-2">${sanitizeInput(load.customerName || 'N/A')}</div>
+            <div class="card" style="min-height: 80px;"> <!-- ✅ CHANGED height to min-height -->
+              <div class="font-black text-base mb-1">${sanitizeInput(load.customerName || 'N/A')}</div>
               <div class="text-sm text-dark">${sanitizeInput(load.customerAddress || 'Address on file')}</div>
-              <div class="text-sm text-dark mt-2">${sanitizeInput(load.customerEmail || load.customerPhone || '')}</div>
+              <div class="text-sm text-dark mt-1">${sanitizeInput(load.customerEmail || load.customerPhone || '')}</div>
             </div>
           </div>
           <div class="w-1-2">
             <div class="section-title">SHIPMENT DETAILS</div>
             <div class="grid-2">
-              <div class="card"><div class="text-xs text-dark mb-1">CONTAINER</div><div class="font-black text-base">${sanitizeInput(load.containerNo || 'N/A')}</div></div>
-              <div class="card"><div class="text-xs text-dark mb-1">SIZE / TYPE</div><div class="font-black text-base">${sanitizeInput(load.size || 'N/A')}</div></div>
-              <div class="card"><div class="text-xs text-dark mb-1">WEIGHT</div><div class="font-black text-base">${sanitizeInput(load.weight || 'N/A')}</div></div>
-              <div class="card"><div class="text-xs text-dark mb-1">LINE</div><div class="font-black text-base">${sanitizeInput(load.shippingLine || 'NON')}</div></div>
+              <div class="card"><div class="text-xs text-dark mb-1">CONTAINER</div><div class="font-black text-sm">${sanitizeInput(load.containerNo || 'N/A')}</div></div>
+              <div class="card"><div class="text-xs text-dark mb-1">SIZE / TYPE</div><div class="font-black text-sm">${sanitizeInput(load.size || 'N/A')}</div></div>
+              <div class="card"><div class="text-xs text-dark mb-1">WEIGHT</div><div class="font-black text-sm">${sanitizeInput(load.weight || 'N/A')}</div></div>
+              <div class="card"><div class="text-xs text-dark mb-1">LINE</div><div class="font-black text-sm">${sanitizeInput(load.shippingLine || 'NON')}</div></div>
             </div>
           </div>
         </div>
         <div class="section-title">ROUTING INSTRUCTIONS</div>
         <div class="flex gap-4 items-center mb-8">
-          <div class="card card-blue w-1-2" style="min-height: 120px;">
-            <div class="text-xs text-blue-label mb-2">PICK UP / ORIGIN</div>
-            <div class="font-black text-base mb-1">${sanitizeInput(originName)}</div>
-            <div class="text-sm text-dark mb-2">${sanitizeInput(originAddr)}</div>
-            <div class="text-xs text-dark mt-2 mb-1">INSTRUCTIONS</div>
+          <div class="card card-blue w-1-2" style="min-height: 80px;"> <!-- ✅ CHANGED height to min-height -->
+            <div class="text-xs text-blue-label mb-1">PICK UP / ORIGIN</div>
+            <div class="font-black text-sm mb-1">${sanitizeInput(originName)}</div>
+            <div class="text-sm text-dark mb-1">${sanitizeInput(originAddr)}</div>
+            <div class="text-xs text-dark mt-1 mb-1">INSTRUCTIONS</div>
             <div class="text-sm">Booking #: ${sanitizeInput(load.bookingNo || 'N/A')} | RV #: ${sanitizeInput(load.rvNo || 'N/A')}</div>
           </div>
           <div class="text-gray font-black">&rarr;</div>
-          <div class="card card-green w-1-2" style="min-height: 120px;">
-            <div class="text-xs text-green-label mb-2">DELIVERY / DESTINATION</div>
-            <div class="font-black text-base mb-1">${sanitizeInput(destName)}</div>
-            <div class="text-sm text-dark mb-2">${sanitizeInput(destAddr)}</div>
-            <div class="text-xs text-dark mt-2 mb-1">APPOINTMENT</div>
+          <div class="card card-green w-1-2" style="min-height: 80px;"> <!-- ✅ CHANGED height to min-height -->
+            <div class="text-xs text-green-label mb-1">DELIVERY / DESTINATION</div>
+            <div class="font-black text-sm mb-1">${sanitizeInput(destName)}</div>
+            <div class="text-sm text-dark mb-1">${sanitizeInput(destAddr)}</div>
+            <div class="text-xs text-dark mt-1 mb-1">APPOINTMENT</div>
             <div class="text-sm">${sanitizeInput(load.appointmentDate || 'N/A')} @ ${sanitizeInput(load.appointmentTime || 'TBD')}</div>
           </div>
         </div>
@@ -857,16 +856,20 @@ export const downloadPOD = (load, leg, setFeedback, companyName, companyDetails 
         <div class="card mb-8"><div class="text-sm" style="font-style: italic; white-space: pre-wrap;">${sanitizeInput(load.notes || 'No special instructions. Please drive safely and report any delays immediately.')}</div></div>
         <div class="dashed-divider"></div>
         <div class="flex gap-4">
-          <div style="width: 30%;"><div class="text-xs text-dark mb-2">DRIVER</div><div class="card text-center flex items-center justify-center" style="height: 100px; flex-direction: column;"><div class="font-black text-base">${sanitizeInput(leg?.driverName || '_________________')}</div><div class="text-xs mt-2 text-gray">Signature on File</div></div></div>
-          <div style="width: 70%;"><div class="text-xs text-dark mb-2">RECEIVER / CONSIGNEE</div><div class="card" style="height: 100px; display: flex; flex-direction: column; justify-content: space-around;"><div class="flex gap-4"><div class="w-1-2"><div class="text-xs text-center mb-1">ARRIVAL TIME</div><div class="sig-line"></div></div><div class="w-1-2"><div class="text-xs text-center mb-1">DEPARTURE TIME</div><div class="sig-line"></div></div></div><div class="flex gap-4 mt-2"><div class="w-1-2"><div class="text-xs text-center mb-1">RECEIVER NAME</div><div class="sig-line"></div></div><div class="w-1-2"><div class="text-xs text-center mb-1">SIGNATURE</div><div class="sig-line"></div></div></div></div></div>
+          <div style="width: 30%;"><div class="text-xs text-dark mb-1">DRIVER</div><div class="card text-center flex items-center justify-center" style="min-height: 70px; flex-direction: column;"><div class="font-black text-sm">${sanitizeInput(leg?.driverName || '_________________')}</div><div class="text-xs mt-1 text-gray">Signature on File</div></div></div>
+          <div style="width: 70%;"><div class="text-xs text-dark mb-1">RECEIVER / CONSIGNEE</div><div class="card" style="min-height: 70px; display: flex; flex-direction: column; justify-content: space-around;"><div class="flex gap-4"><div class="w-1-2"><div class="text-xs text-center mb-1">ARRIVAL TIME</div><div class="sig-line"></div></div><div class="w-1-2"><div class="text-xs text-center mb-1">DEPARTURE TIME</div><div class="sig-line"></div></div></div><div class="flex gap-4 mt-1"><div class="w-1-2"><div class="text-xs text-center mb-1">RECEIVER NAME</div><div class="sig-line"></div></div><div class="w-1-2"><div class="text-xs text-center mb-1">SIGNATURE</div><div class="sig-line"></div></div></div></div></div>
         </div>
-        <div class="text-center text-xs text-gray" style="margin-top: 40px;">Generated by ${sanitizeInput(companyName || 'System')} - ${new Date().toLocaleString()}</div>
+        <!-- ✅ REDUCED margin-top from 40px to 15px -->
+        <div class="text-center text-xs text-gray" style="margin-top: 15px;">Generated by ${sanitizeInput(companyName || 'System')} - ${new Date().toLocaleString()}</div>
       </div>
     `;
     const sanitizedHtml = DOMPurify.sanitize(podContent, { ALLOWED_TAGS: ['div','span','style','table','thead','tbody','tr','td','th','p','h3','h4','strong','b','i','em','br','hr','ul','li','pre','img','a','input','label','select','option'], ALLOWED_ATTR: ['class','style','href','src','alt','title','type','name','value','checked','for','id','colspan','rowspan','align','border','cellpadding','crossorigin'] });
     const element = document.createElement('div');
     element.innerHTML = sanitizedHtml;
-    const opt = { margin: 0.4, filename: `POD-${load.workOrderNo || 'WorkOrder'}.pdf`, image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2, useCORS: true }, jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' } };
+    
+    // ✅ REDUCED margin from 0.4 to 0.2 to give more space on the page
+    const opt = { margin: 0.4, filename: `POD-${load.workOrderNo || 'WorkOrder'}.pdf`, image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 1.5, useCORS: true }, jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' } };
+    
     html2pdf().set(opt).from(element).save().then(() => { if (setFeedback) setFeedback("POD Downloaded Successfully"); });
   } catch (error) { console.error("Error downloading POD:", error); if (setFeedback) setFeedback("Error downloading POD"); }
 };
@@ -962,7 +965,7 @@ export const downloadInvoice = (load, setFeedback, companyName, companyDetails =
     const sanitizedHtml = DOMPurify.sanitize(invoiceContent, { ALLOWED_TAGS: ['div','span','style','table','thead','tbody','tr','td','th','p','h3','h4','strong','b','i','em','br','hr','ul','li','pre','img','a','input','label','select','option'], ALLOWED_ATTR: ['class','style','href','src','alt','title','type','name','value','checked','for','id','colspan','rowspan','align','border','cellpadding','crossorigin'] });
     const element = document.createElement('div');
     element.innerHTML = sanitizedHtml;
-    const opt = { margin: 0.4, filename: `Invoice-${load.workOrderNo || 'WorkOrder'}.pdf`, image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2, useCORS: true }, jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' } };
+    const opt = { margin: 0.4, filename: `Invoice-${load.workOrderNo || 'WorkOrder'}.pdf`, image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 1.5, useCORS: true }, jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' } };
     html2pdf().set(opt).from(element).save().then(() => { if (setFeedback) setFeedback("Invoice Downloaded Successfully"); });
   } catch (error) { console.error("Error downloading invoice:", error); if (setFeedback) setFeedback("Error generating invoice"); }
 };
@@ -1811,6 +1814,7 @@ const importExcelData = async (file, companyId, setFeedback, onProgress) => {
 };
 
 // ========== LOAD FORM COMPONENT ==========
+// Find this block around line 985
 const LoadForm = ({
   isOpen,
   onClose,
@@ -1831,6 +1835,8 @@ const LoadForm = ({
   dataSharingMode,
   companyLocations = [],
   companyTerminals = [],
+  companyName,       // ✅ ADD THIS
+  companyDetails,    // ✅ ADD THIS
 }) => {
   // ===== DEBUG: LOG BASE PRICES =====
   useEffect(() => {
@@ -2346,6 +2352,57 @@ const LoadForm = ({
     setFeedback?.(`✅ Calculated ${completed} of ${legsWithAddresses.length} routes`);
   };
 
+    // ===== LEG TEMPLATES =====
+  const handleApplyTemplate = (templateType) => {
+    if (!formData.terminal) {
+      setFeedback?.("❌ Please fill in the Terminal location in Step 1 first.");
+      setActiveStep('step1');
+      return;
+    }
+    if (templateType !== 'prepull' && !formData.delivery) {
+      setFeedback?.("❌ Please fill in the Delivery location in Step 2 first.");
+      setActiveStep('step2');
+      return;
+    }
+
+    if (formData.legs && formData.legs.length > 0) {
+      if (!window.confirm("This will replace your existing trip legs. Are you sure?")) return;
+    }
+
+    // Try to find a yard in saved locations, otherwise default to "Company Yard"
+    let yardLocation = "Company Yard";
+    if (savedDestinations && savedDestinations.length > 0) {
+      const yardMatch = savedDestinations.find(d => d.name?.toLowerCase().includes('yard') || d.name?.toLowerCase().includes('depot'));
+      if (yardMatch) yardLocation = yardMatch.name + (yardMatch.address ? ` - ${yardMatch.address}` : '');
+    }
+
+    const today = new Date().toISOString().split('T')[0];
+    let newLegs = [];
+
+    const createLeg = (from, to, type, notes) => {
+      const leg = createDefaultLeg();
+      leg.legDate = formData.appointmentDate || today;
+      leg.from = from;
+      leg.to = to;
+      leg.legType = type;
+      leg.notes = notes;
+      leg.status = 'Planned';
+      return leg;
+    };
+
+    if (templateType === 'prepull') {
+      newLegs.push(createLeg(formData.terminal, yardLocation, 'prepull', 'Pre-Pull from Terminal to Yard'));
+    } else if (templateType === 'drop') {
+      newLegs.push(createLeg(formData.terminal, formData.delivery, 'delivery', 'Drop at Customer'));
+    } else if (templateType === 'live_terminate') {
+      newLegs.push(createLeg(formData.terminal, formData.delivery, 'delivery', 'Live Delivery to Customer'));
+      newLegs.push(createLeg(formData.delivery, formData.terminal, 'termination', 'Return empty container to Terminal'));
+    }
+
+    setFormData(prev => ({ ...prev, legs: newLegs }));
+    setFeedback?.(`✅ Applied template: ${templateType.replace('_', ' + ').toUpperCase()}`);
+  };
+
   // ===== SMART NOTES =====
   const handleSmartNotes = () => {
     clearTimeout(noteTimerRef.current);
@@ -2532,7 +2589,7 @@ const LoadForm = ({
     setFeedback?.(`✅ ${template.name} template applied - ${newLegs.length} leg(s) created`);
   };
 
-  // ===== RETURN EARLY IF NOT OPEN =====
+    // ===== RETURN EARLY IF NOT OPEN =====
   if (!isOpen) return null;
 
   // ===== RENDER =====
@@ -2541,32 +2598,62 @@ const LoadForm = ({
       <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-md" onClick={onClose}></div>
       <div className="bg-white w-full h-full rounded-none shadow-2xl relative z-10 overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
        
-                {/* HEADER */}
-        <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 shrink-0">
-          <h2 className="text-2xl font-black text-slate-900 flex items-center">
+        {/* HEADER - COMPACT */}
+        <div className="px-6 py-3 border-b border-slate-200 flex justify-between items-center bg-slate-50/50 shrink-0">
+          <h2 className="text-xl font-black text-slate-900 flex items-center">
             {initialData ? "Update Load Profile" : "Create New Load"}
             {formData.workOrderNo && (
-              <span className="ml-4 text-xs font-bold tracking-widest bg-blue-100 text-blue-800 px-3 py-1 rounded-full uppercase border border-blue-200 shadow-sm inline-flex items-center">
+              <span className="ml-3 text-[11px] font-black tracking-widest bg-blue-100 text-blue-800 px-2.5 py-1 rounded-md uppercase border border-blue-200 shadow-sm inline-flex items-center">
                 {formData.workOrderNo}
               </span>
             )}
             {isFinancialLocked && (
-              <span className="ml-3 flex items-center gap-1 text-[10px] font-black tracking-widest bg-slate-200 text-slate-600 px-3 py-1 rounded-full uppercase">
-                <ShieldCheck className="w-3 h-3" /> Financials Locked
+              <span className="ml-3 flex items-center gap-1 text-[10px] font-black tracking-widest bg-slate-200 text-slate-700 px-2.5 py-1 rounded-md uppercase border border-slate-300">
+                <ShieldCheck className="w-3.5 h-3.5" /> Locked
               </span>
             )}
           </h2>
-          <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-3">
+            
+            {/* ✅ NEW: DOWNLOAD POD BUTTONS */}
+            {formData.signedPodDoc?.url ? (
+              <a
+                href={formData.signedPodDoc.url}
+                download={formData.signedPodDoc.name || 'POD.pdf'}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center gap-1.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 px-3 py-1.5 rounded-lg font-bold text-xs transition-colors border border-emerald-200 shadow-sm"
+                title="Download Uploaded POD"
+              >
+                <Download className="w-3.5 h-3.5" /> Download POD
+              </a>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  const effectiveDetails = {
+                    ...companyDetails,
+                    address: companyDetails?.address || companyLocations?.[0]?.address || '',
+                    city: companyDetails?.city || companyLocations?.[0]?.city || '',
+                    province: companyDetails?.province || companyLocations?.[0]?.province || '',
+                    postalCode: companyDetails?.postalCode || companyLocations?.[0]?.postalCode || '',
+                  };
+                  downloadPOD(formData, formData.legs?.[0], setFeedback, companyName || 'Company', effectiveDetails, null);
+                }}
+                className="flex items-center gap-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 px-3 py-1.5 rounded-lg font-bold text-xs transition-colors border border-blue-200 shadow-sm"
+                title="Generate & Download POD from form data"
+              >
+                <FileDown className="w-3.5 h-3.5" /> Generate POD
+              </button>
+            )}
+
             <div className="flex flex-col">
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest" htmlFor="statusSelect">
-                Load Status
-              </label>
               <select
                 id="statusSelect"
                 name="status"
                 value={formData.status}
                 onChange={handleChange}
-                className="px-4 py-2 bg-white border border-slate-200 rounded-xl font-black text-xs uppercase text-blue-600 outline-none focus:ring-2 focus:ring-blue-100"
+                className="px-3 py-2 bg-white border-2 border-slate-300 rounded-lg font-black text-[11px] uppercase text-blue-700 outline-none focus:ring-2 focus:ring-blue-200 cursor-pointer"
               >
                 {(isAdmin || isDispatcher || isCustomerService) && <option value="Open">Open (Operations)</option>}
                 <option value="Ready for Billing">Ready for Billing</option>
@@ -2579,795 +2666,531 @@ const LoadForm = ({
                 {isAdmin && <option value="Completed">Completed</option>}
               </select>
             </div>
-            <button onClick={onClose} className="p-3 text-slate-400 hover:text-slate-900 hover:bg-slate-100 rounded-2xl transition-all">
-              <X />
+            <button onClick={onClose} className="p-2 text-slate-500 hover:text-slate-900 hover:bg-slate-200 rounded-xl transition-all">
+              <X className="w-6 h-6" />
             </button>
           </div>
         </div>
 
-                                {/* TAB SWITCHER / WIZARD NAVIGATION */}
-        <div className="flex gap-2 bg-slate-100 p-2 mx-8 mt-4 rounded-xl overflow-x-auto shrink-0">
-          <button type="button" onClick={() => setActiveStep('step1')} className={`flex-1 h-12 flex items-center justify-center px-3 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${activeStep === 'step1' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}>1. Shipment</button>
-          <button type="button" onClick={() => setActiveStep('step2')} className={`flex-1 h-12 flex items-center justify-center px-3 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${activeStep === 'step2' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}>2. Customer</button>
-          <button type="button" onClick={() => setActiveStep('step3')} className={`flex-1 h-12 flex items-center justify-center px-3 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${activeStep === 'step3' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}>3. Dispatch</button>
-          <button type="button" onClick={() => setActiveStep('step4')} className={`flex-1 h-12 flex items-center justify-center px-3 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${activeStep === 'step4' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}>4. Billing</button>
-          <button type="button" onClick={() => setActiveStep('step5')} className={`flex-1 h-12 flex items-center justify-center px-3 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${activeStep === 'step5' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}>5. Docs</button>
-          <button type="button" onClick={() => setActiveStep('lifecycle')} className={`flex-1 h-12 flex items-center justify-center px-3 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${activeStep === 'lifecycle' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}>🔄 Lifecycle</button>
+        {/* TAB SWITCHER - COMPACT */}
+        <div className="flex gap-2 bg-slate-100 p-1.5 mx-6 mt-3 rounded-xl overflow-x-auto shrink-0 border border-slate-200">
+          <button type="button" onClick={() => setActiveStep('step1')} className={`flex-1 h-10 flex items-center justify-center px-4 rounded-lg text-xs font-black transition-all whitespace-nowrap ${activeStep === 'step1' ? 'bg-white shadow-sm text-blue-700 border border-slate-200' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'}`}>1. Shipment</button>
+          <button type="button" onClick={() => setActiveStep('step2')} className={`flex-1 h-10 flex items-center justify-center px-4 rounded-lg text-xs font-black transition-all whitespace-nowrap ${activeStep === 'step2' ? 'bg-white shadow-sm text-blue-700 border border-slate-200' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'}`}>2. Customer</button>
+          <button type="button" onClick={() => setActiveStep('step3')} className={`flex-1 h-10 flex items-center justify-center px-4 rounded-lg text-xs font-black transition-all whitespace-nowrap ${activeStep === 'step3' ? 'bg-white shadow-sm text-blue-700 border border-slate-200' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'}`}>3. Dispatch</button>
+          <button type="button" onClick={() => setActiveStep('step4')} className={`flex-1 h-10 flex items-center justify-center px-4 rounded-lg text-xs font-black transition-all whitespace-nowrap ${activeStep === 'step4' ? 'bg-white shadow-sm text-blue-700 border border-slate-200' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'}`}>4. Billing</button>
+          <button type="button" onClick={() => setActiveStep('step5')} className={`flex-1 h-10 flex items-center justify-center px-4 rounded-lg text-xs font-black transition-all whitespace-nowrap ${activeStep === 'step5' ? 'bg-white shadow-sm text-blue-700 border border-slate-200' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'}`}>5. Docs</button>
+          <button type="button" onClick={() => setActiveStep('lifecycle')} className={`flex-1 h-10 flex items-center justify-center px-4 rounded-lg text-xs font-black transition-all whitespace-nowrap ${activeStep === 'lifecycle' ? 'bg-white shadow-sm text-blue-700 border border-slate-200' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'}`}>🔄 Lifecycle</button>
         </div>
 
         <form
-  onSubmit={async (e) => {
-    e.preventDefault();
-    if (isSaving) return; // ✅ Prevents double clicks
-    
-    // ===== EXISTING VALIDATIONS =====
-    if (!formData.shipmentType) {
-              setFeedback?.("❌ Please select Import or Export before saving");
-              return;
-            }
-            if (!formData.loadType) {
-              setFeedback?.("❌ Please select LIVE or DROP before saving this load");
-              return;
-            }
-            if (!formData.terminal) {
-              setFeedback?.("❌ Please enter a Terminal location");
-              return;
-            }
-            if (!formData.delivery) {
-              setFeedback?.("❌ Please enter a Delivery location");
-              return;
-            }
-            if (formData.legs && formData.legs.length > 0) {
-              for (let i = 0; i < formData.legs.length; i++) {
-                const leg = formData.legs[i];
-                if (!leg.from && !leg.to && !leg.driverName && !leg.truckNo) {
-                  continue;
-                }
-                if (!leg.from || !leg.from.trim()) {
-                  setFeedback?.(`❌ Please fill in Pickup location for leg ${i + 1}`);
-                  return;
-                }
-                if (!leg.to || !leg.to.trim()) {
-                  setFeedback?.(`❌ Please fill in Destination location for leg ${i + 1}`);
-                  return;
-                }
-              }
-            }
-
-                        // ===== ✅ NEW: DATA INTEGRITY GUARD (Lifecycle vs Trip Legs) =====
+          onSubmit={async (e) => {
+            e.preventDefault();
+            if (isSaving) return;
+            if (!formData.shipmentType) { setFeedback?.("❌ Please select Import or Export before saving"); return; }
+            if (!formData.loadType) { setFeedback?.("❌ Please select LIVE or DROP before saving this load"); return; }
+            if (!formData.terminal) { setFeedback?.("❌ Please enter a Terminal location"); return; }
+            if (!formData.delivery) { setFeedback?.("❌ Please enter a Delivery location"); return; }
             const legs = formData.legs || [];
-            
-            // 1. Verify "Dropped at Customer"
-            if (formData.isDroppedAtCustomer) {
-              const hasCompletedLeg = legs.some(l => 
-                (l.status === 'Completed' || l.status === 'Delivered')
-              );
-              if (!hasCompletedLeg) {
-                setFeedback?.("❌ Mismatch: You marked 'Dropped at Customer', but there is no completed Trip Leg. Please mark a leg as Completed first.");
-                return;
-              }
+            for (let i = 0; i < legs.length; i++) {
+              const leg = legs[i];
+              if (!leg.from && !leg.to && !leg.driverName && !leg.truckNo) continue;
+              if (!leg.from || !leg.from.trim()) { setFeedback?.(`❌ Please fill in Pickup location for leg ${i + 1}`); return; }
+              if (!leg.to || !leg.to.trim()) { setFeedback?.(`❌ Please fill in Destination location for leg ${i + 1}`); return; }
             }
-
-            // 2. Verify "Ready for Pickup"
-            if (formData.isReadyForPickup) {
-              const hasCompletedLeg = legs.some(l => 
-                (l.status === 'Completed' || l.status === 'Delivered')
-              );
-              if (!hasCompletedLeg) {
-                setFeedback?.("❌ Mismatch: You marked 'Ready for Pickup', but there is no completed Trip Leg. Please mark a leg as Completed first.");
-                return;
-              }
+            if (formData.isDroppedAtCustomer || formData.isReadyForPickup) {
+              const hasCompletedLeg = legs.some(l => (l.status === 'Completed' || l.status === 'Delivered'));
+              if (!hasCompletedLeg) { setFeedback?.("❌ Mismatch: No completed Trip Leg found."); return; }
             }
-
-            // 3. Verify "Container Terminated"
             if (formData.isTerminated || formData.isBillingComplete) {
-              const hasCompletedTermination = legs.some(l => 
-                l.legType === 'termination' && 
-                (l.status === 'Completed' || l.status === 'Delivered')
-              );
-              // Fallback: Allow saving if at least one leg is completed, even if type is missing
+              const hasCompletedTermination = legs.some(l => l.legType === 'termination' && (l.status === 'Completed' || l.status === 'Delivered'));
               const hasAnyCompletedLeg = legs.some(l => l.status === 'Completed' || l.status === 'Delivered');
-              
-              if (!hasCompletedTermination && !hasAnyCompletedLeg) {
-                setFeedback?.("❌ Mismatch: You marked 'Container Terminated', but there is no completed Trip Leg. Please update the Trip Legs first.");
-                return;
-              }
+              if (!hasCompletedTermination && !hasAnyCompletedLeg) { setFeedback?.("❌ Mismatch: Container Terminated without a completed leg."); return; }
             }
-
-            // 4. Verify "In Yard" (If no legs, it shouldn't be marked In Yard unless it's a prepull)
-            if (formData.isInYard && legs.length === 0) {
-                setFeedback?.("❌ Mismatch: You marked 'In Yard', but there are no Trip Legs. Please add a leg first.");
-                return;
-            }
-
-                        // If all checks pass, submit the form
-            setIsSaving(true); // ✅ Disables button
-            try {
-              await onSubmit(formData);
-            } finally {
-              setIsSaving(false); // ✅ Re-enables if it fails
-            }
+            if (formData.isInYard && legs.length === 0) { setFeedback?.("❌ Mismatch: 'In Yard' requires at least one Trip Leg."); return; }
+            setIsSaving(true);
+            try { await onSubmit(formData); } finally { setIsSaving(false); }
           }}
-                    className="p-8 pb-32 overflow-y-auto space-y-12"
+          className="p-5 pb-24 overflow-y-auto space-y-5 flex-1 bg-slate-50/30"
         >
-                    {/* ===== PAGE 1: SHIPMENT ===== */}
+          {/* ===== PAGE 1: SHIPMENT ===== */}
           {activeStep === 'step1' && (
-            <>
-              {/* Currency Settings */}
-              <div className="space-y-4 bg-blue-50/30 p-6 rounded-[32px] border border-blue-100">
-                <div className="flex items-center gap-2">
-                  <DollarSign className="w-4 h-4 text-blue-600" />
-                  <h3 className="font-black text-xs uppercase tracking-widest text-blue-900">Currency & Terminal</h3>
+            <div className="space-y-4 animate-in fade-in">
+              
+              {/* Row 1: Currency, Terminal, Location */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-blue-50/50 p-4 rounded-2xl border-2 border-blue-100 shadow-sm">
+                <div>
+                  <label className="text-[11px] font-black text-slate-700 uppercase block mb-1.5">Currency</label>
+                  <select name="currency" value={formData.currency || 'CAD'} onChange={handleChange} className="w-full px-3 py-2 bg-white border-2 border-slate-300 rounded-xl font-bold text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all">
+                    <option value="CAD">🇨🇦 CAD</option>
+                    <option value="USD">🇺🇸 USD</option>
+                  </select>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-blue-700/70 uppercase" htmlFor="currencySelect">Billing Currency</label>
-                    <select id="currencySelect" name="currency" value={formData.currency || 'CAD'} onChange={handleChange} className="w-full px-5 py-3 bg-white border border-blue-200/50 rounded-2xl font-bold outline-none focus:ring-2 focus:ring-blue-200 transition-all">
-                      <option value="CAD">🇨🇦 CAD - Canadian Dollar (C$)</option>
-                      <option value="USD">🇺🇸 USD - US Dollar (US$)</option>
-                    </select>
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-blue-700/70 uppercase" htmlFor="terminal">Terminal *</label>
-                    <input id="terminal" name="terminal" value={formData.terminal || ''} onChange={handleChange} className="w-full px-5 py-3 bg-white border border-blue-200/50 rounded-2xl font-bold outline-none focus:ring-2 focus:ring-blue-200 transition-all" list="terminalLocations" placeholder="Search saved terminals..." required autoComplete="off" />
-                    <datalist id="terminalLocations">
-                      {companyTerminals && companyTerminals.length > 0 ? (
-                        companyTerminals.map((t, i) => (<option key={t.id || i} value={t.name + (t.code ? ` (${t.code})` : '') + ' - ' + t.address}></option>))
-                      ) : (<option value="">No terminals saved yet</option>)}
-                    </datalist>
-                  </div>
-                </div>
-              </div>
-
-              {/* Location Assignment */}
-              {dataSharingMode === 'separate' && userAccessibleLocations?.length > 0 && (
-                <div className="space-y-4 bg-indigo-50/30 p-6 rounded-[32px] border border-indigo-100">
-                  <div className="flex items-center gap-2">
-                    <MapPin className="w-4 h-4 text-indigo-600" />
-                    <h3 className="font-black text-xs uppercase tracking-widest text-indigo-900">Location Assignment</h3>
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-indigo-700/70 uppercase">Assigned Location</label>
-                    <select name="locationId" value={formData.locationId || currentLocation || ''} onChange={handleChange} className="w-full px-5 py-3 bg-white border border-indigo-200/50 rounded-2xl font-bold outline-none focus:ring-2 focus:ring-indigo-200 transition-all">
-                      {userAccessibleLocations.map(locId => {
-                        const loc = companyLocations?.find(l => l.id === locId);
-                        return loc ? (<option key={loc.id} value={loc.id}>{loc.name} - {[loc.address, loc.city, loc.province].filter(Boolean).join(', ')}</option>) : null;
-                      }).filter(Boolean)}
-                    </select>
-                  </div>
-                </div>
-              )}
-
-              {/* Shipment Identity */}
-              <div className="space-y-4">
-                <div className="flex items-center gap-2">
-                  <Layers className="w-4 h-4 text-blue-600" />
-                  <h3 className="font-black text-xs uppercase tracking-widest">Shipment Identity</h3>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-slate-400 uppercase" htmlFor="containerNo">Container No.*</label>
-                    <input id="containerNo" required name="containerNo" value={formData.containerNo} onChange={handleChange} className="w-full px-5 py-3 bg-slate-50 border rounded-2xl font-black focus:ring-4 focus:ring-blue-100 outline-none transition-all" />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-slate-400 uppercase" htmlFor="shippingLine">Shipping Line</label>
-                    <input id="shippingLine" required name="shippingLine" value={formData.shippingLine} onChange={handleChange} className="w-full px-5 py-3 bg-slate-50 border rounded-2xl font-bold" list="lines" placeholder="e.g. CMA, COSCO, MAERSK" />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-slate-400 uppercase" htmlFor="sizeSelect">Size</label>
-                    <select id="sizeSelect" name="size" value={formData.size} onChange={handleChange} className="w-full px-5 py-3 bg-slate-50 border rounded-2xl font-bold transition-all">
-                      <option>20GE (General)</option><option>40GE (General)</option><option>40HC (High Cube)</option>
-                      <option>45EQ (High Cube)</option><option>53GE (General)</option><option>53RE (Reefer)</option>
-                      <option>20FL (Flat Rack)</option><option>20OT (Open Top)</option><option>20RE (Reefer)</option><option>40RE (Reefer)</option>
-                    </select>
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-slate-400 uppercase" htmlFor="weight">Weight</label>
-                    <input id="weight" name="weight" value={formData.weight || ''} onChange={handleChange} className="w-full px-5 py-3 bg-slate-50 border rounded-2xl font-bold" placeholder="Enter weight..." />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-slate-400 uppercase" htmlFor="sealNumber">Seal Number</label>
-                    <input id="sealNumber" name="sealNumber" value={formData.sealNumber || ''} onChange={handleChange} className="w-full px-5 py-3 bg-slate-50 border rounded-2xl font-bold" placeholder="Enter seal number..." />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-slate-400 uppercase" htmlFor="workOrderNo">WO #</label>
-                    <input id="workOrderNo" name="workOrderNo" value={formData.workOrderNo || ''} onChange={handleChange} className="w-full px-5 py-3 bg-slate-50 border rounded-2xl font-bold" placeholder="Auto-generated if blank" />
-                  </div>
-                </div>
-              </div>
-
-                            {/* Chassis Number */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4 pt-4 border-t border-slate-200">
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black text-slate-400 uppercase" htmlFor="chassisNumber">Chassis Number</label>
-                  <input id="chassisNumber" name="chassisNumber" value={formData.chassisNumber || ''} onChange={handleChange} className="w-full px-5 py-3 bg-slate-50 border rounded-2xl font-bold" placeholder="Enter chassis number..." />
-                </div>
-              </div>
-
-              {/* Load Type */}
-              <div className="space-y-4 bg-amber-50/30 p-6 rounded-[32px] border-2 border-amber-200">
-                <div className="flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 text-amber-600" />
-                  <h3 className="font-black text-xs uppercase tracking-widest text-amber-900">Load Type *</h3>
-                  <span className="text-[10px] font-bold text-red-500 ml-2">(Required)</span>
-                </div>
-                <div className="flex gap-6">
-                  <label className={`flex items-center gap-3 cursor-pointer px-6 py-4 rounded-2xl border-2 transition-all flex-1 justify-center ${formData.loadType === 'LIVE' ? 'border-blue-600 bg-blue-50 shadow-md' : 'border-slate-200 hover:border-blue-200 hover:bg-slate-50'}`}>
-                    <input type="radio" name="loadType" value="LIVE" checked={formData.loadType === 'LIVE'} onChange={(e) => setFormData(prev => ({ ...prev, loadType: e.target.value }))} className="w-4 h-4 text-blue-600" />
-                    <div className="flex items-center gap-2"><Clock className="w-5 h-5 text-blue-600" /><div><div className="font-black text-sm text-slate-800">LIVE LOAD</div><div className="text-[10px] text-slate-400">Immediate loading</div></div></div>
-                  </label>
-                  <label className={`flex items-center gap-3 cursor-pointer px-6 py-4 rounded-2xl border-2 transition-all flex-1 justify-center ${formData.loadType === 'DROP' ? 'border-green-600 bg-green-50 shadow-md' : 'border-slate-200 hover:border-green-200 hover:bg-slate-50'}`}>
-                    <input type="radio" name="loadType" value="DROP" checked={formData.loadType === 'DROP'} onChange={(e) => setFormData(prev => ({ ...prev, loadType: e.target.value }))} className="w-4 h-4 text-green-600" />
-                    <div className="flex items-center gap-2"><Package className="w-5 h-5 text-green-600" /><div><div className="font-black text-sm text-slate-800">DROP LOAD</div><div className="text-[10px] text-slate-400">Drop & go</div></div></div>
-                  </label>
-                </div>
-              </div>
-
-              {/* Import/Export */}
-              <div className="space-y-4 bg-blue-50/30 p-6 rounded-[32px] border-2 border-blue-200">
-                <div className="flex items-center gap-2">
-                  <Ship className="w-4 h-4 text-blue-600" />
-                  <h3 className="font-black text-xs uppercase tracking-widest text-blue-900">Shipment Type *</h3>
-                </div>
-                <div className="flex gap-6">
-                  <label className={`flex items-center gap-3 cursor-pointer px-6 py-4 rounded-2xl border-2 transition-all flex-1 justify-center ${formData.shipmentType === 'import' ? 'border-blue-600 bg-blue-50 shadow-md' : 'border-slate-200'}`}>
-                    <input type="radio" name="shipmentType" value="import" checked={formData.shipmentType === 'import'} onChange={(e) => setFormData(prev => ({ ...prev, shipmentType: e.target.value }))} className="w-4 h-4 text-blue-600" />
-                    <div className="font-black text-sm text-slate-800">IMPORT</div>
-                  </label>
-                  <label className={`flex items-center gap-3 cursor-pointer px-6 py-4 rounded-2xl border-2 transition-all flex-1 justify-center ${formData.shipmentType === 'export' ? 'border-green-600 bg-green-50 shadow-md' : 'border-slate-200'}`}>
-                    <input type="radio" name="shipmentType" value="export" checked={formData.shipmentType === 'export'} onChange={(e) => setFormData(prev => ({ ...prev, shipmentType: e.target.value }))} className="w-4 h-4 text-green-600" />
-                    <div className="font-black text-sm text-slate-800">EXPORT</div>
-                  </label>
-                </div>
-              </div>
-
-              {/* Export Specific Fields */}
-              {formData.shipmentType === 'export' && (
-                <div className="space-y-4 bg-teal-50/30 p-6 rounded-[32px] border-2 border-teal-200">
-                  <div className="flex items-center gap-2"><Ship className="w-4 h-4 text-teal-600" /><h3 className="font-black text-xs uppercase tracking-widest text-teal-900">Export Details</h3></div>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <div className="space-y-1"><label className="text-[10px] font-black text-teal-700/70 uppercase">Booking No.*</label><input name="bookingNo" value={formData.bookingNo || ''} onChange={handleChange} className="w-full px-5 py-3 bg-white border border-teal-200/50 rounded-2xl font-bold outline-none" required={formData.shipmentType === 'export'} /></div>
-                    <div className="space-y-1"><label className="text-[10px] font-black text-teal-700/70 uppercase">Vessel Name*</label><input name="vesselName" value={formData.vesselName || ''} onChange={handleChange} className="w-full px-5 py-3 bg-white border border-teal-200/50 rounded-2xl font-bold outline-none" required={formData.shipmentType === 'export'} /></div>
-                    <div className="space-y-1"><label className="text-[10px] font-black text-teal-700/70 uppercase">Port Name*</label><input name="portName" value={formData.portName || ''} onChange={handleChange} className="w-full px-5 py-3 bg-white border border-teal-200/50 rounded-2xl font-bold outline-none" required={formData.shipmentType === 'export'} /></div>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-4">
-                    <div className="space-y-1"><label className="text-[10px] font-black text-teal-700/70 uppercase">ERD Date*</label><input type="date" name="erdDate" value={formData.erdDate || ''} onChange={handleChange} className="w-full px-4 py-3 bg-white border border-teal-200/50 rounded-2xl font-bold outline-none" required={formData.shipmentType === 'export'} /></div>
-                    <div className="space-y-1"><label className="text-[10px] font-black text-teal-700/70 uppercase">Cut‑Off Date*</label><input type="date" name="cutoffDate" value={formData.cutoffDate || ''} onChange={handleChange} className="w-full px-4 py-3 bg-white border border-teal-200/50 rounded-2xl font-bold outline-none" required={formData.shipmentType === 'export'} /></div>
-                    <div className="space-y-1"><label className="text-[10px] font-black text-teal-700/70 uppercase">Loading Date</label><input type="date" name="loadingDate" value={formData.loadingDate || ''} onChange={handleChange} className="w-full px-4 py-3 bg-white border border-teal-200/50 rounded-2xl font-bold outline-none" /></div>
-                  </div>
-                </div>
-              )}
-
-              {/* Tracking & Reference Numbers */}
-              <div className="space-y-4 bg-slate-50/50 p-6 rounded-[32px] border border-slate-100">
-                <div className="flex items-center gap-2"><Hash className="w-4 h-4 text-slate-600" /><h3 className="font-black text-xs uppercase tracking-widest">Tracking & Reference Numbers</h3></div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase" htmlFor="poNumber">PO Number</label><input id="poNumber" name="poNumber" value={formData.poNumber} onChange={handleChange} className="w-full px-5 py-3 bg-white border border-slate-200 rounded-2xl font-bold outline-none" /></div>
-                  <div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase" htmlFor="pickupNo">Pick up Number</label><input id="pickupNo" name="pickupNo" value={formData.pickupNo} onChange={handleChange} className="w-full px-5 py-3 bg-white border border-slate-200 rounded-2xl font-bold outline-none" /></div>
-                  <div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase" htmlFor="customerRefNo">Customer Ref No.</label><input id="customerRefNo" name="customerRefNo" value={formData.customerRefNo} onChange={handleChange} className="w-full px-5 py-3 bg-white border border-slate-200 rounded-2xl font-bold outline-none" /></div>
-                </div>
-              </div>
-            </>
-          )}
-
-          {/* ===== PAGE 2: CUSTOMER & SCHEDULE ===== */}
-          {activeStep === 'step2' && (
-            <>
-              {/* Delivery Location */}
-              <div className="space-y-4 bg-emerald-50/30 p-6 rounded-[32px] border border-emerald-100">
-                <div className="flex items-center gap-2">
-                  <MapPin className="w-4 h-4 text-emerald-600" />
-                  <h3 className="font-black text-xs uppercase tracking-widest text-emerald-900">Delivery Location</h3>
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black text-emerald-700/70 uppercase" htmlFor="delivery">Delivery Location *</label>
-                  <input id="delivery" name="delivery" value={formData.delivery || ''} onChange={handleChange} className="w-full px-5 py-3 bg-white border border-emerald-200/50 rounded-2xl font-bold outline-none" placeholder="Customer delivery location" list="deliveryLocations" required autoComplete="off" />
-                  <datalist id="deliveryLocations">
-                    {savedDestinations && savedDestinations.map((d, i) => (<option key={d.id || i} value={d.name + ' - ' + d.address}></option>))}
-                    {savedBasePrices && savedBasePrices.map((bp, i) => (<option key={bp.id || 'bp-' + i} value={bp.location}></option>))}
+                <div>
+                  <label className="text-[11px] font-black text-slate-700 uppercase block mb-1.5">Terminal *</label>
+                  <input name="terminal" value={formData.terminal || ''} onChange={handleChange} className="w-full px-3 py-2 bg-white border-2 border-slate-300 rounded-xl font-bold text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all" list="terminalLocations" placeholder="Search..." required autoComplete="off" />
+                  <datalist id="terminalLocations">
+                    {companyTerminals?.map((t, i) => (<option key={t.id || i} value={t.name + (t.code ? ` (${t.code})` : '') + ' - ' + t.address}></option>))}
                   </datalist>
                 </div>
+                {dataSharingMode === 'separate' && userAccessibleLocations?.length > 0 ? (
+                  <div>
+                    <label className="text-[11px] font-black text-slate-700 uppercase block mb-1.5">Location</label>
+                    <select name="locationId" value={formData.locationId || currentLocation || ''} onChange={handleChange} className="w-full px-3 py-2 bg-white border-2 border-slate-300 rounded-xl font-bold text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all">
+                      {userAccessibleLocations.map(locId => {
+                        const loc = companyLocations?.find(l => l.id === locId);
+                        return loc ? (<option key={loc.id} value={loc.id}>{loc.name}</option>) : null;
+                      })}
+                    </select>
+                  </div>
+                ) : <div></div>}
               </div>
 
-              {/* Customer Profile */}
-              <div className="space-y-4 bg-slate-50/50 p-6 rounded-[32px] border border-slate-100 relative">
-                <div className="flex items-center gap-2">
-                  <Building className="text-blue-600 w-4 h-4" />
-                  <h3 className="font-black text-xs uppercase tracking-widest">Customer Profile</h3>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="relative">
-                    <label className="text-[10px] font-black text-slate-400 uppercase" htmlFor="customerName">Customer Name *</label>
-                    <select name="customerName" value={formData.customerName} onChange={(e) => {
-                      const selectedName = e.target.value;
-                      const cust = savedCustomers.find(c => c.name === selectedName);
-                      setFormData(prev => {
-                        if (cust) return { ...prev, customerName: cust.name, customerEmail: cust.email || '', customerPhone: cust.phone || '', customerAddress: cust.address || '' };
-                        return { ...prev, customerName: selectedName };
-                      });
-                    }} className="w-full px-4 py-3 bg-white border rounded-2xl font-bold outline-none appearance-none">
-                      <option value="" disabled>Select saved customer...</option>
-                      {savedCustomers.map((c, i) => (<option key={c.id || i} value={c.name}>{c.name}</option>))}
+              {/* Row 2: Shipment Identity */}
+              <div className="space-y-3">
+                <h3 className="font-black text-xs uppercase tracking-widest text-slate-800 flex items-center gap-1.5"><Layers className="w-4 h-4 text-blue-600" /> Shipment Identity</h3>
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                  <div className="col-span-2 md:col-span-1">
+                    <label className="text-[10px] font-black text-slate-700 uppercase block mb-1">Container No.*</label>
+                    <input required name="containerNo" value={formData.containerNo} onChange={handleChange} className="w-full px-3 py-2 bg-white border-2 border-slate-300 rounded-xl font-black text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all" />
+                  </div>
+                  <div className="col-span-2 md:col-span-1">
+                    <label className="text-[10px] font-black text-slate-700 uppercase block mb-1">Shipping Line</label>
+                    <input name="shippingLine" value={formData.shippingLine} onChange={handleChange} className="w-full px-3 py-2 bg-white border-2 border-slate-300 rounded-xl font-bold text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all" list="lines" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-black text-slate-700 uppercase block mb-1">Size</label>
+                    <select name="size" value={formData.size} onChange={handleChange} className="w-full px-3 py-2 bg-white border-2 border-slate-300 rounded-xl font-bold text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all">
+                      <option>20GE</option><option>40GE</option><option>40HC</option><option>45EQ</option><option>53GE</option><option>53RE</option><option>20FL</option><option>20OT</option><option>20RE</option><option>40RE</option>
                     </select>
-                    <ChevronDown className="absolute right-4 bottom-4 w-5 h-5 text-slate-400 pointer-events-none" />
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div><label className="text-[10px] font-black text-slate-400 uppercase" htmlFor="customerEmail">Billing Email</label><input id="customerEmail" name="customerEmail" value={formData.customerEmail} onChange={handleChange} className="w-full px-4 py-3 bg-white border rounded-xl font-bold text-sm outline-none" /></div>
-                    <div><label className="text-[10px] font-black text-slate-400 uppercase" htmlFor="customerPhone">Phone</label><input id="customerPhone" name="customerPhone" value={formData.customerPhone} onChange={handleChange} className="w-full px-4 py-3 bg-white border rounded-xl font-bold text-sm outline-none" /></div>
+                  <div>
+                    <label className="text-[10px] font-black text-slate-700 uppercase block mb-1">Weight</label>
+                    <input name="weight" value={formData.weight || ''} onChange={handleChange} className="w-full px-3 py-2 bg-white border-2 border-slate-300 rounded-xl font-bold text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all" placeholder="lbs" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-black text-slate-700 uppercase block mb-1">Seal No.</label>
+                    <input name="sealNumber" value={formData.sealNumber || ''} onChange={handleChange} className="w-full px-3 py-2 bg-white border-2 border-slate-300 rounded-xl font-bold text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-black text-slate-700 uppercase block mb-1">WO #</label>
+                    <input name="workOrderNo" value={formData.workOrderNo || ''} onChange={handleChange} className="w-full px-3 py-2 bg-white border-2 border-slate-300 rounded-xl font-bold text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all" placeholder="Auto" />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="text-[10px] font-black text-slate-700 uppercase block mb-1">Chassis #</label>
+                    <input name="chassisNumber" value={formData.chassisNumber || ''} onChange={handleChange} className="w-full px-3 py-2 bg-white border-2 border-slate-300 rounded-xl font-bold text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all" />
                   </div>
                 </div>
+              </div>
+
+              {/* Row 3: Load Type & Shipment Type (Side by Side) */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-amber-50 p-3 rounded-xl border-2 border-amber-200 flex items-center justify-between shadow-sm">
+                  <span className="text-[11px] font-black text-amber-900 uppercase">Load Type *</span>
+                  <div className="flex gap-2">
+                    <label className={`px-4 py-1.5 rounded-lg border-2 text-xs font-black cursor-pointer transition-all ${formData.loadType === 'LIVE' ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>
+                      <input type="radio" name="loadType" value="LIVE" checked={formData.loadType === 'LIVE'} onChange={(e) => setFormData(prev => ({ ...prev, loadType: e.target.value }))} className="hidden" /> LIVE
+                    </label>
+                    <label className={`px-4 py-1.5 rounded-lg border-2 text-xs font-black cursor-pointer transition-all ${formData.loadType === 'DROP' ? 'bg-green-600 text-white border-green-600 shadow-md' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>
+                      <input type="radio" name="loadType" value="DROP" checked={formData.loadType === 'DROP'} onChange={(e) => setFormData(prev => ({ ...prev, loadType: e.target.value }))} className="hidden" /> DROP
+                    </label>
+                  </div>
+                </div>
+                <div className="bg-blue-50 p-3 rounded-xl border-2 border-blue-200 flex items-center justify-between shadow-sm">
+                  <span className="text-[11px] font-black text-blue-900 uppercase">Shipment Type *</span>
+                  <div className="flex gap-2">
+                    <label className={`px-4 py-1.5 rounded-lg border-2 text-xs font-black cursor-pointer transition-all ${formData.shipmentType === 'import' ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>
+                      <input type="radio" name="shipmentType" value="import" checked={formData.shipmentType === 'import'} onChange={(e) => setFormData(prev => ({ ...prev, shipmentType: e.target.value }))} className="hidden" /> IMPORT
+                    </label>
+                    <label className={`px-4 py-1.5 rounded-lg border-2 text-xs font-black cursor-pointer transition-all ${formData.shipmentType === 'export' ? 'bg-green-600 text-white border-green-600 shadow-md' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>
+                      <input type="radio" name="shipmentType" value="export" checked={formData.shipmentType === 'export'} onChange={(e) => setFormData(prev => ({ ...prev, shipmentType: e.target.value }))} className="hidden" /> EXPORT
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              {/* Row 4: Export Specific (Conditional) */}
+              {formData.shipmentType === 'export' && (
+                <div className="space-y-3 bg-teal-50 p-4 rounded-xl border-2 border-teal-200 shadow-sm">
+                  <h3 className="font-black text-xs uppercase tracking-widest text-teal-900 flex items-center gap-1.5"><Ship className="w-4 h-4" /> Export Details</h3>
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                    <div><label className="text-[10px] font-black text-teal-800 uppercase block mb-1">Booking No.*</label><input name="bookingNo" value={formData.bookingNo || ''} onChange={handleChange} className="w-full px-3 py-2 bg-white border-2 border-teal-200 rounded-xl text-sm font-bold outline-none focus:border-teal-500" required /></div>
+                    <div><label className="text-[10px] font-black text-teal-800 uppercase block mb-1">Vessel Name*</label><input name="vesselName" value={formData.vesselName || ''} onChange={handleChange} className="w-full px-3 py-2 bg-white border-2 border-teal-200 rounded-xl text-sm font-bold outline-none focus:border-teal-500" required /></div>
+                    <div><label className="text-[10px] font-black text-teal-800 uppercase block mb-1">Port Name*</label><input name="portName" value={formData.portName || ''} onChange={handleChange} className="w-full px-3 py-2 bg-white border-2 border-teal-200 rounded-xl text-sm font-bold outline-none focus:border-teal-500" required /></div>
+                    <div><label className="text-[10px] font-black text-teal-800 uppercase block mb-1">ERD Date*</label><input type="date" name="erdDate" value={formData.erdDate || ''} onChange={handleChange} className="w-full px-3 py-2 bg-white border-2 border-teal-200 rounded-xl text-sm font-bold outline-none focus:border-teal-500" required /></div>
+                    <div><label className="text-[10px] font-black text-teal-800 uppercase block mb-1">Cut-Off Date*</label><input type="date" name="cutoffDate" value={formData.cutoffDate || ''} onChange={handleChange} className="w-full px-3 py-2 bg-white border-2 border-teal-200 rounded-xl text-sm font-bold outline-none focus:border-teal-500" required /></div>
+                  </div>
+                </div>
+              )}
+
+              {/* Row 5: Tracking & References */}
+              <div className="space-y-3 bg-slate-100 p-4 rounded-xl border-2 border-slate-200 shadow-sm">
+                <h3 className="font-black text-xs uppercase tracking-widest text-slate-700 flex items-center gap-1.5"><Hash className="w-4 h-4" /> Tracking & Reference</h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div><label className="text-[10px] font-black text-slate-600 uppercase block mb-1">PO Number</label><input name="poNumber" value={formData.poNumber} onChange={handleChange} className="w-full px-3 py-2 bg-white border-2 border-slate-300 rounded-xl text-sm font-bold outline-none focus:border-blue-500" /></div>
+                  <div><label className="text-[10px] font-black text-slate-600 uppercase block mb-1">Pick up Number</label><input name="pickupNo" value={formData.pickupNo} onChange={handleChange} className="w-full px-3 py-2 bg-white border-2 border-slate-300 rounded-xl text-sm font-bold outline-none focus:border-blue-500" /></div>
+                  <div><label className="text-[10px] font-black text-slate-600 uppercase block mb-1">Customer Ref No.</label><input name="customerRefNo" value={formData.customerRefNo} onChange={handleChange} className="w-full px-3 py-2 bg-white border-2 border-slate-300 rounded-xl text-sm font-bold outline-none focus:border-blue-500" /></div>
+                </div>
+              </div>
+
+            </div>
+          )}
+
+                    {/* ===== PAGE 2: CUSTOMER & SCHEDULE ===== */}
+          {activeStep === 'step2' && (
+            <div className="space-y-4 animate-in fade-in">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-emerald-50/50 p-4 rounded-xl border-2 border-emerald-100 shadow-sm">
+                {/* ✅ Customer Name is now FIRST */}
+                <div>
+                  <label className="text-[11px] font-black text-slate-700 uppercase block mb-1.5">Customer Name *</label>
+                  <select name="customerName" value={formData.customerName} onChange={(e) => {
+                    const cust = savedCustomers.find(c => c.name === e.target.value);
+                    setFormData(prev => cust ? { ...prev, customerName: cust.name, customerEmail: cust.email || '', customerPhone: cust.phone || '', customerAddress: cust.address || '' } : { ...prev, customerName: e.target.value });
+                  }} className="w-full px-3 py-2 bg-white border-2 border-slate-300 rounded-xl font-bold text-sm outline-none focus:border-blue-500">
+                    <option value="" disabled>Select saved customer...</option>
+                    {savedCustomers.map((c, i) => (<option key={c.id || i} value={c.name}>{c.name}</option>))}
+                  </select>
+                </div>
+                
+                {/* ✅ Delivery Location is now SECOND */}
+                <div>
+                  <label className="text-[11px] font-black text-emerald-800 uppercase block mb-1.5">Delivery Location *</label>
+                  <input name="delivery" value={formData.delivery || ''} onChange={handleChange} className="w-full px-3 py-2 bg-white border-2 border-slate-300 rounded-xl font-bold text-sm outline-none focus:border-emerald-500" list="deliveryLocations" required />
+                  <datalist id="deliveryLocations">{savedDestinations?.map((d, i) => (<option key={d.id || i} value={d.name + ' - ' + d.address}></option>))}{savedBasePrices?.map((bp, i) => (<option key={bp.id || 'bp-' + i} value={bp.location}></option>))}</datalist>
+                </div>
+
+                <div><label className="text-[10px] font-black text-slate-600 uppercase block mb-1">Billing Email</label><input name="customerEmail" value={formData.customerEmail} onChange={handleChange} className="w-full px-3 py-2 bg-white border-2 border-slate-300 rounded-xl text-sm font-bold outline-none focus:border-blue-500" /></div>
+                <div><label className="text-[10px] font-black text-slate-600 uppercase block mb-1">Phone</label><input name="customerPhone" value={formData.customerPhone} onChange={handleChange} className="w-full px-3 py-2 bg-white border-2 border-slate-300 rounded-xl text-sm font-bold outline-none focus:border-blue-500" /></div>
               </div>
 
               {/* Appointment Schedule */}
-              <div className="space-y-4 bg-orange-50/30 p-6 rounded-[32px] border border-orange-100">
-                <div className="flex items-center gap-2">
-                  <Clock className="w-4 h-4 text-orange-600" />
-                  <h3 className="font-black text-xs uppercase tracking-widest text-orange-900">Appointment Schedule</h3>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-4">
-                    <input type="date" name="appointmentDate" value={formData.appointmentDate && formData.appointmentDate.length === 10 ? formData.appointmentDate : ''} onChange={handleChange} className="w-full px-4 py-3 bg-white border border-orange-200 rounded-2xl font-black text-orange-700 outline-none" />
-                    <input type="time" name="appointmentTime" value={formData.appointmentTime || ''} onChange={handleChange} className="w-full px-4 py-3 bg-white border border-orange-200 rounded-2xl font-black text-orange-700 outline-none" />
+              <div className="space-y-3 bg-orange-50 p-4 rounded-xl border-2 border-orange-200 shadow-sm">
+                <h3 className="font-black text-xs uppercase tracking-widest text-orange-900 flex items-center gap-1.5"><Clock className="w-4 h-4" /> Appointment Schedule</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="flex gap-2">
+                    <input type="date" name="appointmentDate" value={formData.appointmentDate} onChange={handleChange} className="flex-1 px-3 py-2 bg-white border-2 border-orange-200 rounded-xl font-bold text-sm text-orange-800 outline-none focus:border-orange-500" />
+                    <input type="time" name="appointmentTime" value={formData.appointmentTime || ''} onChange={handleChange} className="flex-1 px-3 py-2 bg-white border-2 border-orange-200 rounded-xl font-bold text-sm text-orange-800 outline-none focus:border-orange-500" />
                   </div>
                   <div className="grid grid-cols-4 gap-2">
                     {['09:00', '10:00', '11:00', '14:00', '15:00', '16:00', '17:00', '18:00'].map((time) => (
-                      <button key={time} type="button" onClick={() => handleChange({ target: { name: 'appointmentTime', value: time } })} className={`px-3 py-2 text-xs font-bold rounded-xl border transition-all ${formData.appointmentTime === time ? 'bg-orange-600 text-white border-orange-600 shadow-lg' : 'bg-white border-slate-200 text-slate-600'}`}>{time}</button>
+                      <button key={time} type="button" onClick={() => handleChange({ target: { name: 'appointmentTime', value: time } })} className={`px-2 py-1.5 text-xs font-black rounded-lg border-2 transition-all ${formData.appointmentTime === time ? 'bg-orange-600 text-white border-orange-600 shadow-sm' : 'bg-white border-orange-200 text-orange-700 hover:bg-orange-100'}`}>{time}</button>
                     ))}
                   </div>
                 </div>
               </div>
-            </>
+            </div>
           )}
 
-                    {/* ===== PAGE 3: DISPATCH & LEGS ===== */}
+          {/* ===== PAGE 3: DISPATCH & LEGS ===== */}
           {activeStep === 'step3' && (
-            <div className="space-y-6 animate-in fade-in">
-              <div className="flex justify-between items-center flex-wrap gap-2">
-                <h3 className="font-black text-xs uppercase tracking-widest text-slate-700">Trip Legs & Dispatching</h3>
-                <div className="flex items-center gap-2">
-                  <button type="button" onClick={calculateAllLegs} className="text-xs font-black text-green-600 hover:underline transition-all flex items-center gap-1 px-2 py-1 bg-green-50 rounded-lg border border-green-200">
-                    <RefreshCw className="w-3 h-3" /> Calculate All
-                  </button>
-                  <button type="button" onClick={addLeg} className="text-xs font-black text-blue-600 hover:underline transition-all">+ Add Trip Leg</button>
+            <div className="space-y-4 animate-in fade-in">
+                            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-slate-100 p-3 rounded-xl border-2 border-slate-200 shadow-sm gap-2">
+                <h3 className="font-black text-xs uppercase tracking-widest text-slate-800">Trip Legs</h3>
+                
+                <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                  {/* Template Buttons */}
+                  <div className="flex bg-white rounded-lg border-2 border-slate-300 p-0.5 shadow-sm">
+                    <button type="button" onClick={() => handleApplyTemplate('prepull')} className="text-[10px] font-black text-slate-700 hover:bg-slate-100 px-2 py-1 rounded">Prepull</button>
+                    <div className="w-px bg-slate-200 mx-0.5"></div>
+                    <button type="button" onClick={() => handleApplyTemplate('live_terminate')} className="text-[10px] font-black text-slate-700 hover:bg-slate-100 px-2 py-1 rounded">Live + Term</button>
+                    <div className="w-px bg-slate-200 mx-0.5"></div>
+                    <button type="button" onClick={() => handleApplyTemplate('drop')} className="text-[10px] font-black text-slate-700 hover:bg-slate-100 px-2 py-1 rounded">Drop</button>
+                  </div>
+
+                  <button type="button" onClick={calculateAllLegs} className="text-[10px] font-black text-green-700 hover:underline flex items-center gap-1 px-3 py-1.5 bg-green-100 rounded-lg border border-green-200"><RefreshCw className="w-3.5 h-3.5" /> Calc All</button>
+                  <button type="button" onClick={addLeg} className="text-[10px] font-black text-white bg-blue-600 hover:bg-blue-700 px-4 py-1.5 rounded-lg shadow-sm transition-all">+ Add Leg</button>
                 </div>
               </div>
 
               {(!formData.legs || formData.legs.length === 0) && (
-                <div className="bg-amber-50 border-2 border-dashed border-amber-300 rounded-2xl p-8 text-center">
-                  <div className="flex flex-col items-center gap-3">
-                    <Truck className="w-12 h-12 text-amber-400" />
-                    <div className="font-black text-amber-800">No Trip Legs Added</div>
-                    <button type="button" onClick={addLeg} className="mt-2 px-6 py-2 bg-amber-600 text-white rounded-xl font-bold text-sm hover:bg-amber-700 transition-all shadow-lg shadow-amber-200">+ Add Your First Leg</button>
-                  </div>
+                <div className="bg-amber-50 border-2 border-dashed border-amber-300 rounded-xl p-8 text-center shadow-sm">
+                  <Truck className="w-10 h-10 text-amber-400 mx-auto mb-3" />
+                  <div className="font-black text-amber-900 text-sm">No Trip Legs Added</div>
+                  <button type="button" onClick={addLeg} className="mt-3 px-5 py-2 bg-amber-600 text-white rounded-lg font-bold text-sm hover:bg-amber-700 shadow-md">+ Add Your First Leg</button>
                 </div>
               )}
 
-              <div className="space-y-4">
+              <div className="space-y-3">
                 {(formData.legs || []).map((leg, index) => (
-                  <div key={leg.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 flex flex-col md:flex-row gap-4 items-start md:items-center justify-between group hover:border-blue-300 transition-colors">
-                    
+                  <div key={leg.id} className="bg-white rounded-xl border-2 border-slate-200 shadow-sm p-3 flex flex-col md:flex-row gap-3 items-start md:items-center justify-between group hover:border-blue-400 transition-colors">
                     {/* Left: Arrows & Actions */}
-                    <div className="flex items-center gap-3">
-                      <div className="flex flex-col gap-0.5">
-                        <button type="button" onClick={() => moveLegUp(index)} disabled={index === 0} className="p-0.5 text-slate-400 hover:text-slate-700 disabled:opacity-30"><ChevronUp className="w-3.5 h-3.5" /></button>
-                        <button type="button" onClick={() => moveLegDown(index)} disabled={index === formData.legs.length - 1} className="p-0.5 text-slate-400 hover:text-slate-700 disabled:opacity-30"><ChevronDown className="w-3.5 h-3.5" /></button>
+                    <div className="flex items-center gap-2">
+                      <div className="flex flex-col">
+                        <button type="button" onClick={() => moveLegUp(index)} disabled={index === 0} className="p-1 text-slate-400 hover:text-slate-800 disabled:opacity-30"><ChevronUp className="w-4 h-4" /></button>
+                        <button type="button" onClick={() => moveLegDown(index)} disabled={index === formData.legs.length - 1} className="p-1 text-slate-400 hover:text-slate-800 disabled:opacity-30"><ChevronDown className="w-4 h-4" /></button>
                       </div>
-                      
-                      <button type="button" onClick={() => setEditingLegId(leg.id)} className="p-2 bg-emerald-100 text-emerald-700 rounded-full hover:bg-emerald-200 transition-colors shadow-sm" title="Edit Leg">
-                        <Edit3 className="w-4 h-4" />
-                      </button>
-                      <button type="button" onClick={(e) => { e.stopPropagation(); copyDispatch(formData, leg, setFeedback); }} className="p-2 bg-blue-50 text-blue-600 rounded-full hover:bg-blue-100 transition-colors">
-                        <Copy className="w-4 h-4" />
-                      </button>
+                      <button type="button" onClick={() => setEditingLegId(leg.id)} className="p-2 bg-emerald-100 text-emerald-800 rounded-lg hover:bg-emerald-200 shadow-sm border border-emerald-200" title="Edit Leg"><Edit3 className="w-4 h-4" /></button>
+                      <button type="button" onClick={(e) => { e.stopPropagation(); copyDispatch(formData, leg, setFeedback); }} className="p-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 shadow-sm border border-blue-200"><Copy className="w-4 h-4" /></button>
                     </div>
 
-                    {/* Middle: Date, Time, Driver */}
-                    <div className="flex flex-col min-w-[150px]">
-                      <div className="flex items-center gap-2 text-sm font-bold text-slate-700">
-                        <Calendar className="w-4 h-4 text-slate-400" />
-                        {leg.legDate ? new Date(leg.legDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'No Date'}
-                        <span className="text-xs font-medium text-slate-500">({leg.arrivalTime || '00:00'} - {leg.departureTime || '00:00'})</span>
+                    {/* Middle: Date, Status, Driver */}
+                    <div className="flex flex-col min-w-[160px]">
+                      <div className="flex items-center gap-2 text-sm font-black text-slate-800">
+                        <Calendar className="w-4 h-4 text-slate-500" />
+                        {leg.legDate || 'No Date'}
+                        <span className="text-[11px] font-bold text-slate-500">({leg.arrivalTime || '00:00'} - {leg.departureTime || '00:00'})</span>
                       </div>
-                      <div className="flex items-center gap-2 mt-1">
-                         <span className={`px-2 py-0.5 text-[10px] font-black uppercase tracking-wider rounded-full ${
-                            leg.status === 'Dispatched' ? 'bg-blue-100 text-blue-700' :
-                            leg.status === 'Completed' ? 'bg-green-100 text-green-700' :
-                            'bg-yellow-100 text-yellow-700'
-                          }`}>
-                            {leg.status || 'Planned'}
-                          </span>
-                          <div className="flex items-center gap-1 text-xs font-bold text-slate-600">
-                            <User className="w-3.5 h-3.5 text-slate-400" /> {leg.driverName || 'Unassigned'}
-                          </div>
+                      <div className="flex items-center gap-2 mt-1.5">
+                         <span className={`px-2 py-0.5 text-[10px] font-black uppercase tracking-wider rounded border ${leg.status === 'Dispatched' ? 'bg-blue-100 text-blue-800 border-blue-200' : leg.status === 'Completed' ? 'bg-green-100 text-green-800 border-green-200' : 'bg-yellow-100 text-yellow-800 border-yellow-200'}`}>{leg.status || 'Planned'}</span>
+                         <span className="text-xs font-bold text-slate-700 flex items-center gap-1"><User className="w-3.5 h-3.5 text-slate-500" /> {leg.driverName || 'Unassigned'}</span>
                       </div>
                     </div>
 
-                    {/* Right: Pick and Drop summary */}
-                    <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4 w-full md:w-auto border-t md:border-t-0 md:border-l border-slate-100 pt-3 md:pt-0 md:pl-4">
+                    {/* Right: Locations */}
+                    <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-3 w-full md:w-auto border-t-2 md:border-t-0 md:border-l-2 border-slate-100 pt-3 md:pt-0 md:pl-4">
                       <div>
                         <span className="text-[10px] font-black text-emerald-600 uppercase tracking-widest flex items-center gap-1"><MapPin className="w-3 h-3"/> Pick</span>
-                        <div className="text-sm font-bold text-slate-800 mt-1 truncate max-w-[250px]">{leg.from || 'Not set'}</div>
+                        <div className="text-xs font-bold text-slate-800 truncate max-w-[220px] mt-0.5">{leg.from || 'Not set'}</div>
                       </div>
                       <div>
                         <span className="text-[10px] font-black text-rose-600 uppercase tracking-widest flex items-center gap-1"><MapPin className="w-3 h-3"/> Drop</span>
-                        <div className="text-sm font-bold text-slate-800 mt-1 truncate max-w-[250px]">{leg.to || 'Not set'}</div>
+                        <div className="text-xs font-bold text-slate-800 truncate max-w-[220px] mt-0.5">{leg.to || 'Not set'}</div>
                       </div>
                     </div>
 
-                    {/* Far Right: Delete */}
-                    <button type="button" onClick={() => { if(window.confirm('Remove this leg?')) removeLeg(leg.id); }} className="p-2 bg-red-50 text-red-500 rounded-full hover:bg-red-100 transition-colors">
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    <button type="button" onClick={() => { if(window.confirm('Remove this leg?')) removeLeg(leg.id); }} className="p-2 bg-red-50 text-red-500 rounded-lg hover:bg-red-100 border border-red-200"><Trash2 className="w-4 h-4" /></button>
                   </div>
                 ))}
               </div>
             </div>
           )}
 
-                    {/* ===== PAGE 4: BILLING & CHARGES ===== */}
+                    {/* ===== PAGE 4: BILLING ===== */}
           {activeStep === 'step4' && (
-            <div className="animate-in fade-in space-y-8">
-              
-              {/* Pre-Pull Option */}
-              <div className="space-y-4 bg-purple-50/30 p-6 rounded-[32px] border border-purple-100">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Clock className="w-4 h-4 text-purple-600" />
-                    <h3 className="font-black text-xs uppercase tracking-widest text-purple-900">Pre-Pull Option</h3>
-                  </div>
-                  <label className="flex items-center gap-2 cursor-pointer bg-white px-4 py-2 rounded-xl border border-purple-200">
-                    <input type="checkbox" name="isPrePull" checked={formData.isPrePull || false} onChange={(e) => {
-                        const checked = e.target.checked;
-                        setFormData(prev => ({ ...prev, isPrePull: checked }));
-                        if (checked) {
-                          const rateData = getCustomerRate(formData.customerName, 'prepull');
-                          if (rateData && rateData.rate > 0) {
-                            setFormData(prev => ({ ...prev, prePullRate: rateData.rate, prePullAmount: rateData.rate, prePullChargeAdded: true }));
-                            addExtraChargeItem('Pre-Pull Fee', rateData.rate);
-                          } else {
-                            const manualRate = prompt(`No pre-pull rate set for ${formData.customerName || 'this customer'}. Enter rate manually:`, '0');
-                            if (manualRate && parseFloat(manualRate) > 0) {
-                              setFormData(prev => ({
-                                ...prev,
-                                prePullRate: parseFloat(manualRate),
-                                prePullAmount: parseFloat(manualRate),
-                                prePullChargeAdded: true
-                              }));
-                              addExtraChargeItem('Pre-Pull Fee', parseFloat(manualRate));
-                            } else {
-                              setFormData(prev => ({ ...prev, isPrePull: false }));
-                              setFeedback('⚠️ Pre-Pull rate required. Please set it in the customer profile.');
-                            }
-                          }
-                        } else {
-                          removeExtraChargeItem('Pre-Pull Fee');
-                          setFormData(prev => ({ ...prev, prePullRate: 0, prePullAmount: 0, prePullChargeAdded: false }));
-                        }
-                      }} className="w-4 h-4 text-purple-600 rounded cursor-pointer" />
-                    <span className="text-[10px] font-black text-purple-700 uppercase">{formData.isPrePull ? '✅ Required' : 'Mark for Pre-Pull'}</span>
-                  </label>
-                </div>
-                {formData.isPrePull && (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 animate-in fade-in slide-in-from-top-2 duration-200">
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-black text-purple-700/70 uppercase">Pre-Pull Date</label>
-                      <input type="date" name="prePullDate" value={formData.prePullDate || ''} onChange={handleChange} className="w-full px-4 py-3 bg-white border border-purple-200/50 rounded-2xl font-bold outline-none" />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-black text-purple-700/70 uppercase">Pre-Pull Fee</label>
-                      <div className="bg-white p-3 rounded-2xl border border-purple-200/50 flex items-center justify-between">
-                        <span className="text-sm font-black text-purple-900">{currencySymbol}{formData.prePullAmount || formData.prePullRate || 0}</span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const newRate = prompt(`Enter new pre-pull rate (current: ${formData.prePullRate || 0}):`, formData.prePullRate || 0);
-                            if (newRate && parseFloat(newRate) > 0) {
-                              const rate = parseFloat(newRate);
-                              setFormData(prev => ({ ...prev, prePullRate: rate, prePullAmount: rate }));
-                              removeExtraChargeItem('Pre-Pull Fee');
-                              addExtraChargeItem('Pre-Pull Fee', rate);
-                              setFeedback(`✅ Pre-Pull rate updated to ${rate}`);
-                            }
-                          }}
-                          className="text-[10px] font-bold text-blue-600 hover:underline"
-                        >
-                          Edit Rate
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              
-              {/* Extra Charges */}
-              <div className="space-y-4 bg-teal-50/30 p-6 rounded-[32px] border border-teal-100">
-                <div className="flex items-center gap-2"><DollarSign className="w-4 h-4 text-teal-600" /><h3 className="font-black text-xs uppercase tracking-widest text-teal-900">Extra Charges</h3></div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <label className="flex items-center gap-3 cursor-pointer bg-white px-4 py-3 rounded-xl border border-teal-200">
+            <div className="animate-in fade-in space-y-4">
+              {/* Extra Charges Row */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-teal-50 p-4 rounded-xl border-2 border-teal-200 shadow-sm">
+                {/* Stop Off */}
+                <div className="flex items-center justify-between bg-white p-3 rounded-lg border-2 border-teal-100">
+                  <label className="flex items-center gap-2 text-[11px] font-black text-teal-800 uppercase cursor-pointer">
                     <input type="checkbox" checked={formData.isStopOff || false} onChange={(e) => {
-                        setFormData(prev => ({ ...prev, isStopOff: e.target.checked }));
-                        if (e.target.checked) {
-                          const rateData = getCustomerRate(formData.customerName, 'stopOff');
-                          if (rateData && rateData.rate > 0) { addExtraChargeItem('Stop Off Fee', rateData.rate); }
-                        } else { removeExtraChargeItem('Stop Off Fee'); }
-                      }} className="w-4 h-4 text-teal-600 rounded cursor-pointer" />
-                    <span className="text-[10px] font-black text-teal-700 uppercase">Stop Off</span>
+                      setFormData(prev => ({ ...prev, isStopOff: e.target.checked }));
+                      if (e.target.checked) { const r = getCustomerRate(formData.customerName, 'stopOff'); if (r?.rate) addExtraChargeItem('Stop Off Fee', r.rate); } else { removeExtraChargeItem('Stop Off Fee'); }
+                    }} className="w-4 h-4 rounded" /> Stop Off
                   </label>
-                  <div className="bg-white p-4 rounded-xl border border-teal-200">
-                    <div className="flex items-center gap-3">
-                      <input type="checkbox" checked={formData.isYardStorage || false} onChange={(e) => {
-                          const checked = e.target.checked;
-                          setFormData(prev => ({ ...prev, isYardStorage: checked }));
-                          if (checked) {
-                            const rateData = getCustomerRate(formData.customerName, 'yardStorage');
-                            if (rateData && rateData.rate > 0) {
-                              setFormData(prev => ({ ...prev, yardStorageStartDate: new Date().toISOString().split('T')[0], yardStorageDailyRate: rateData.rate, yardStorageRate: rateData.rate, yardStorageDays: 1 }));
-                              addExtraChargeItem('Yard Storage', rateData.rate);
-                            }
-                          } else {
-                            removeExtraChargeItem('Yard Storage');
-                            setFormData(prev => ({ ...prev, yardStorageDays: 0, yardStorageRate: 0, yardStorageAmount: 0, yardStorageStartDate: '' }));
-                          }
-                        }} className="w-4 h-4 text-teal-600 rounded cursor-pointer" />
-                      <span className="text-[10px] font-black text-teal-700 uppercase">Yard Storage</span>
-                    </div>
-                    {formData.isYardStorage && (
-                      <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
-                        <div className="bg-slate-50 p-2 rounded"><span className="text-slate-400">Days: </span><input type="number" min="1" value={formData.yardStorageDays || 1} onChange={(e) => { const days = parseInt(e.target.value) || 1; const amount = days * (formData.yardStorageDailyRate || 0); setFormData(prev => ({ ...prev, yardStorageDays: days, yardStorageAmount: amount })); removeExtraChargeItem('Yard Storage'); if (amount > 0) addExtraChargeItem('Yard Storage', amount); }} className="w-12 px-1 py-0.5 border rounded text-center font-bold" /></div>
-                        <div className="bg-slate-50 p-2 rounded"><span className="text-slate-400">Total: </span><span className="font-bold">{currencySymbol}{formData.yardStorageAmount || 0}</span></div>
-                      </div>
-                    )}
-                  </div>
-                  <div className="bg-white p-4 rounded-xl border border-teal-200 md:col-span-2">
-                    <div className="flex items-center gap-3">
-                      <input type="checkbox" checked={formData.isChassis || false} onChange={(e) => {
-                          const checked = e.target.checked;
-                          setFormData(prev => ({ ...prev, isChassis: checked }));
-                          if (checked) {
-                            const rateData = getCustomerRate(formData.customerName, 'chassis');
-                            if (rateData && rateData.rate > 0) {
-                              setFormData(prev => ({ ...prev, chassisStartDate: new Date().toISOString().split('T')[0], chassisDailyRate: rateData.rate, chassisRate: rateData.rate, chassisDays: 1 }));
-                              addExtraChargeItem('Chassis Rental', rateData.rate);
-                            }
-                          } else {
-                            removeExtraChargeItem('Chassis Rental');
-                            setFormData(prev => ({ ...prev, chassisDays: 0, chassisRate: 0, chassisAmount: 0, chassisStartDate: '' }));
-                          }
-                        }} className="w-4 h-4 text-teal-600 rounded cursor-pointer" />
-                      <span className="text-[10px] font-black text-teal-700 uppercase">Chassis Rental</span>
-                    </div>
-                    {formData.isChassis && (
-                      <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
-                        <div className="bg-slate-50 p-2 rounded"><span className="text-slate-400">Days: </span><input type="number" min="1" value={formData.chassisDays || 1} onChange={(e) => { const days = parseInt(e.target.value) || 1; const amount = days * (formData.chassisDailyRate || 0); setFormData(prev => ({ ...prev, chassisDays: days, chassisAmount: amount })); removeExtraChargeItem('Chassis Rental'); if (amount > 0) addExtraChargeItem('Chassis Rental', amount); }} className="w-12 px-1 py-0.5 border rounded text-center font-bold" /></div>
-                        <div className="bg-slate-50 p-2 rounded"><span className="text-slate-400">Total: </span><span className="font-bold">{currencySymbol}{formData.chassisAmount || 0}</span></div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* Financials */}
-              <div className="bg-slate-50 p-8 rounded-[32px] border border-slate-100 space-y-8">
-                <div className="flex justify-between items-center border-b border-slate-200 pb-4">
-                  <h3 className="font-black text-sm uppercase tracking-widest flex items-center gap-2 text-slate-800"><Wallet className="w-5 h-5 text-green-600"/> Financials (Rate & Cost)</h3>
-                  <div className="text-right flex items-center gap-6">
-                    <div><div className="text-[10px] font-bold text-slate-400 uppercase">Total Revenue</div><div className="text-sm font-black text-slate-800">{currencySymbol}{calculateTotal(formData)}</div></div>
-                    <div><div className="text-[10px] font-bold text-slate-400 uppercase">Total Cost</div><div className="text-sm font-black text-red-500">{currencySymbol}{calculateCost(formData)}</div></div>
-                    <div className="bg-green-100 px-4 py-2 rounded-xl"><div className="text-[10px] font-black text-green-600 uppercase">Net Profit</div><div className="text-xl font-black text-green-700 tracking-tighter">{currencySymbol}{calculateProfit(formData)}</div></div>
-                  </div>
-                </div>
-                <div className="space-y-4">
-                  <div className="flex justify-between items-end mb-3">
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Revenue Breakdown (Charged to Customer)</label>
-                    <button type="button" onClick={addRevenueItem} className="text-[10px] font-black text-blue-600 uppercase hover:underline" disabled={isFinancialLocked}>+ Add Item</button>
-                  </div>
-                  <div className="space-y-3">
-                    {(formData.revenueItems || []).map((item) => (
-                      <div key={item.id} className="flex flex-col md:flex-row gap-3 items-start md:items-center">
-                        <div className="flex-1 w-full"><input disabled={isFinancialLocked} value={item.item} onChange={e => handleLineItemChange('revenue', item.id, 'item', e.target.value)} placeholder="Item Description" className="w-full px-4 py-2.5 bg-white border border-green-200 rounded-xl font-bold text-sm outline-none" list="basePriceLocations" /></div>
-                        <div className="w-full md:w-24 shrink-0"><input disabled={isFinancialLocked} type="number" step="0.01" value={item.qty} onChange={e => handleLineItemChange('revenue', item.id, 'qty', e.target.value)} placeholder="Qty" className="w-full px-4 py-2.5 bg-white border border-green-200 rounded-xl font-bold text-sm outline-none text-center" /></div>
-                        <div className="w-full md:w-32 shrink-0"><input disabled={isFinancialLocked} type="number" step="0.01" value={item.rate} onChange={e => handleLineItemChange('revenue', item.id, 'rate', e.target.value)} placeholder={`Rate (${currencySymbol})`} className="w-full px-4 py-2.5 bg-white border border-green-200 rounded-xl font-bold text-sm outline-none text-right" /></div>
-                        <div className="w-full md:w-32 shrink-0"><input disabled={isFinancialLocked} type="number" step="0.01" value={item.amount} onChange={e => handleLineItemChange('revenue', item.id, 'amount', e.target.value)} placeholder={`Amount (${currencySymbol})`} className="w-full px-4 py-2.5 bg-white border border-green-300 rounded-xl font-black text-green-700 text-sm outline-none text-right" /></div>
-                        <button type="button" disabled={isFinancialLocked} onClick={() => removeRevenueItem(item.id)} className="p-2 text-slate-300 hover:text-red-500 rounded-xl"><Trash2 className="w-4 h-4" /></button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* ===== PAGE 5: DOCUMENTS & NOTES ===== */}
-          {activeStep === 'step5' && (
-            <div className="animate-in fade-in space-y-8">
-              <div className="space-y-4 bg-slate-50 p-6 rounded-[32px] border border-slate-100">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2"><FileText className="w-4 h-4 text-slate-600" /><h3 className="font-black text-xs uppercase tracking-widest">Documentation & Attachments</h3></div>
-                  <span className="text-[10px] font-bold text-slate-400 bg-white px-2 py-1 rounded-lg border border-slate-200">{(formData.documents || []).length} Files</span>
-                </div>
-                {(formData.documents || []).length > 0 && (
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                    {formData.documents.map((doc, idx) => {
-                      const isImage = doc.type?.startsWith('image/');
-                      return (
-                        <div key={idx} className="bg-white p-4 rounded-xl border border-slate-200 flex flex-col items-center justify-center gap-2 relative group">
-                          <button type="button" onClick={() => removeDocument(doc.url)} className="absolute top-2 right-2 p-1 bg-red-50 text-red-500 rounded-md opacity-0 group-hover:opacity-100"><X className="w-3.5 h-3.5" /></button>
-                          <div className="cursor-pointer" onClick={() => window.open(doc.url, '_blank')}>
-                            {isImage ? <div className="w-12 h-12 bg-blue-50 rounded-lg flex items-center justify-center text-blue-500"><Camera className="w-6 h-6" /></div> : <div className="w-12 h-12 bg-red-50 rounded-lg flex items-center justify-center text-red-500"><FileText className="w-6 h-6" /></div>}
-                          </div>
-                          <div className="text-center w-full"><p className="text-[10px] font-bold text-slate-700 truncate px-1">{doc.name}</p></div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-                                <div className="border-2 border-dashed border-slate-300 rounded-2xl bg-white p-8 text-center relative">
-                  <input type="file" multiple accept=".pdf,image/*,.xlsx,.csv" className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onChange={(e) => handleFileUpload(e, 'documents')} disabled={uploadingFile} />
-                  <div className="flex flex-col items-center justify-center gap-3 pointer-events-none">
-                    {uploadingFile ? <Loader2 className="w-8 h-8 text-blue-600 animate-spin" /> : <Upload className="w-8 h-8 text-slate-400" />}
-                    <div><p className="text-sm font-bold text-slate-700">{uploadingFile ? "Uploading..." : "Drop files here or click to upload"}</p></div>
-                  </div>
-                </div>
-              </div>
-
-              {/* ✅ NEW: POD SECTION */}
-              <div className="space-y-4 bg-emerald-50/30 p-6 rounded-[32px] border border-emerald-100">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <ClipboardCheck className="w-4 h-4 text-emerald-600" />
-                    <h3 className="font-black text-xs uppercase tracking-widest text-emerald-900">Proof of Delivery (POD)</h3>
-                  </div>
                 </div>
                 
+                {/* Pre-Pull */}
+                <div className="flex items-center justify-between bg-white p-3 rounded-lg border-2 border-teal-100">
+                  <label className="flex items-center gap-2 text-[11px] font-black text-teal-800 uppercase cursor-pointer">
+                    <input type="checkbox" checked={formData.isPrePull || false} onChange={(e) => {
+                      setFormData(prev => ({ ...prev, isPrePull: e.target.checked }));
+                      if (e.target.checked) { const r = getCustomerRate(formData.customerName, 'prepull'); if (r?.rate) addExtraChargeItem('Pre-Pull Fee', r.rate); } else { removeExtraChargeItem('Pre-Pull Fee'); }
+                    }} className="w-4 h-4 rounded" /> Pre-Pull
+                  </label>
+                </div>
+
+                {/* ✅ RESTORED: Yard Storage */}
+                <div className="bg-white p-3 rounded-lg border-2 border-teal-100">
+                  <div className="flex items-center gap-3">
+                    <input type="checkbox" checked={formData.isYardStorage || false} onChange={(e) => {
+                        const checked = e.target.checked;
+                        setFormData(prev => ({ ...prev, isYardStorage: checked }));
+                        if (checked) {
+                          const rateData = getCustomerRate(formData.customerName, 'yardStorage');
+                          if (rateData && rateData.rate > 0) {
+                            setFormData(prev => ({ ...prev, yardStorageStartDate: new Date().toISOString().split('T')[0], yardStorageDailyRate: rateData.rate, yardStorageRate: rateData.rate, yardStorageDays: 1 }));
+                            addExtraChargeItem('Yard Storage', rateData.rate);
+                          }
+                        } else {
+                          removeExtraChargeItem('Yard Storage');
+                          setFormData(prev => ({ ...prev, yardStorageDays: 0, yardStorageRate: 0, yardStorageAmount: 0, yardStorageStartDate: '' }));
+                        }
+                      }} className="w-4 h-4 text-teal-600 rounded cursor-pointer" />
+                    <span className="text-[11px] font-black text-teal-800 uppercase">Yard Storage</span>
+                  </div>
+                  {formData.isYardStorage && (
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                      <div className="bg-slate-50 p-2 rounded border border-slate-200"><span className="text-slate-500 font-bold">Days: </span><input type="number" min="1" value={formData.yardStorageDays || 1} onChange={(e) => { const days = parseInt(e.target.value) || 1; const amount = days * (formData.yardStorageDailyRate || 0); setFormData(prev => ({ ...prev, yardStorageDays: days, yardStorageAmount: amount })); removeExtraChargeItem('Yard Storage'); if (amount > 0) addExtraChargeItem('Yard Storage', amount); }} className="w-14 px-1 py-0.5 border rounded text-center font-bold" /></div>
+                      <div className="bg-slate-50 p-2 rounded border border-slate-200 flex justify-between"><span className="text-slate-500 font-bold">Total: </span><span className="font-black text-teal-700">{currencySymbol}{formData.yardStorageAmount || 0}</span></div>
+                    </div>
+                  )}
+                </div>
+
+                {/* ✅ RESTORED: Chassis Rental */}
+                <div className="bg-white p-3 rounded-lg border-2 border-teal-100">
+                  <div className="flex items-center gap-3">
+                    <input type="checkbox" checked={formData.isChassis || false} onChange={(e) => {
+                        const checked = e.target.checked;
+                        setFormData(prev => ({ ...prev, isChassis: checked }));
+                        if (checked) {
+                          const rateData = getCustomerRate(formData.customerName, 'chassis');
+                          if (rateData && rateData.rate > 0) {
+                            setFormData(prev => ({ ...prev, chassisStartDate: new Date().toISOString().split('T')[0], chassisDailyRate: rateData.rate, chassisRate: rateData.rate, chassisDays: 1 }));
+                            addExtraChargeItem('Chassis Rental', rateData.rate);
+                          }
+                        } else {
+                          removeExtraChargeItem('Chassis Rental');
+                          setFormData(prev => ({ ...prev, chassisDays: 0, chassisRate: 0, chassisAmount: 0, chassisStartDate: '' }));
+                        }
+                      }} className="w-4 h-4 text-teal-600 rounded cursor-pointer" />
+                    <span className="text-[11px] font-black text-teal-800 uppercase">Chassis Rental</span>
+                  </div>
+                  {formData.isChassis && (
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                      <div className="bg-slate-50 p-2 rounded border border-slate-200"><span className="text-slate-500 font-bold">Days: </span><input type="number" min="1" value={formData.chassisDays || 1} onChange={(e) => { const days = parseInt(e.target.value) || 1; const amount = days * (formData.chassisDailyRate || 0); setFormData(prev => ({ ...prev, chassisDays: days, chassisAmount: amount })); removeExtraChargeItem('Chassis Rental'); if (amount > 0) addExtraChargeItem('Chassis Rental', amount); }} className="w-14 px-1 py-0.5 border rounded text-center font-bold" /></div>
+                      <div className="bg-slate-50 p-2 rounded border border-slate-200 flex justify-between"><span className="text-slate-500 font-bold">Total: </span><span className="font-black text-teal-700">{currencySymbol}{formData.chassisAmount || 0}</span></div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Revenue Breakdown */}
+              <div className="bg-slate-50 p-4 rounded-xl border-2 border-slate-200 shadow-sm space-y-3">
+                <div className="flex justify-between items-center border-b-2 border-slate-200 pb-3">
+                  <h3 className="font-black text-xs uppercase tracking-widest flex items-center gap-1.5 text-slate-800"><Wallet className="w-4 h-4 text-green-600"/> Financials</h3>
+                  <div className="text-right flex items-center gap-4 text-xs">
+                    <div><span className="text-slate-500 font-bold">Rev: </span><span className="font-black text-slate-900">{currencySymbol}{calculateTotal(formData)}</span></div>
+                    <div><span className="text-slate-500 font-bold">Cost: </span><span className="font-black text-red-600">{currencySymbol}{calculateCost(formData)}</span></div>
+                    <div className="bg-green-100 px-3 py-1 rounded-lg border border-green-200"><span className="font-black text-green-800">Profit: </span><span className="font-black text-green-800">{currencySymbol}{calculateProfit(formData)}</span></div>
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center">
+                    <label className="text-[10px] font-black text-slate-600 uppercase tracking-wider">Charges (Customer)</label>
+                    <button type="button" onClick={addRevenueItem} className="text-[10px] font-black text-white bg-blue-600 hover:bg-blue-700 px-3 py-1 rounded-lg transition-colors" disabled={isFinancialLocked}>+ Add Item</button>
+                  </div>
+                  {(formData.revenueItems || []).map((item) => (
+                    <div key={item.id} className="flex gap-2 items-center">
+                      <input disabled={isFinancialLocked} value={item.item} onChange={e => handleLineItemChange('revenue', item.id, 'item', e.target.value)} placeholder="Description" className="flex-1 px-3 py-2 bg-white border-2 border-slate-300 rounded-xl text-sm font-bold text-slate-900 outline-none focus:border-blue-500" list="basePriceLocations" />
+                      <input disabled={isFinancialLocked} type="number" value={item.qty} onChange={e => handleLineItemChange('revenue', item.id, 'qty', e.target.value)} placeholder="Qty" className="w-16 px-2 py-2 bg-white border-2 border-slate-300 rounded-xl text-sm font-bold text-center outline-none focus:border-blue-500" />
+                      <input disabled={isFinancialLocked} type="number" value={item.rate} onChange={e => handleLineItemChange('revenue', item.id, 'rate', e.target.value)} placeholder="Rate" className="w-24 px-2 py-2 bg-white border-2 border-slate-300 rounded-xl text-sm font-bold text-right outline-none focus:border-blue-500" />
+                      <input disabled={isFinancialLocked} type="number" value={item.amount} onChange={e => handleLineItemChange('revenue', item.id, 'amount', e.target.value)} placeholder="Amt" className="w-24 px-2 py-2 bg-green-50 border-2 border-green-300 rounded-xl text-sm font-black text-green-800 text-right outline-none focus:border-green-500" />
+                      <button type="button" disabled={isFinancialLocked} onClick={() => removeRevenueItem(item.id)} className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg"><Trash2 className="w-4 h-4" /></button>
+                    </div>
+                  ))}
+                  <datalist id="basePriceLocations">{savedBasePrices?.map((bp, i) => (<option key={bp.id || 'bp-' + i} value={bp.location}></option>))}</datalist>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ===== PAGE 5: DOCS ===== */}
+          {activeStep === 'step5' && (
+            <div className="animate-in fade-in space-y-4">
+              {/* Documents */}
+              <div className="bg-slate-50 p-4 rounded-xl border-2 border-slate-200 shadow-sm">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="font-black text-xs uppercase tracking-widest flex items-center gap-1.5 text-slate-800"><FileText className="w-4 h-4" /> Documents</h3>
+                  <span className="text-[10px] font-bold text-slate-600 bg-white px-2 py-1 rounded-lg border-2 border-slate-200">{(formData.documents || []).length} Files</span>
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+                  {(formData.documents || []).map((doc, idx) => (
+                    <div key={idx} className="bg-white p-3 rounded-xl border-2 border-slate-200 flex items-center gap-3 relative group">
+                      <button type="button" onClick={() => removeDocument(doc.url)} className="absolute -top-2 -right-2 p-1 bg-red-100 text-red-600 rounded-full opacity-0 group-hover:opacity-100 border border-red-200"><X className="w-3.5 h-3.5" /></button>
+                      <div className="w-8 h-8 bg-blue-50 rounded-lg flex items-center justify-center text-blue-600 border border-blue-100" onClick={() => window.open(doc.url, '_blank')}><FileText className="w-4 h-4" /></div>
+                      <p className="text-[11px] font-bold text-slate-700 truncate">{doc.name}</p>
+                    </div>
+                  ))}
+                </div>
+                <div className="border-2 border-dashed border-slate-300 rounded-xl bg-white p-4 text-center relative hover:bg-slate-50 transition-colors">
+                  <input type="file" multiple accept=".pdf,image/*" className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onChange={(e) => handleFileUpload(e, 'documents')} disabled={uploadingFile} />
+                  <div className="flex flex-col items-center justify-center pointer-events-none">
+                    {uploadingFile ? <Loader2 className="w-5 h-5 text-blue-600 animate-spin" /> : <Upload className="w-5 h-5 text-slate-400" />}
+                    <p className="text-xs font-bold text-slate-600 mt-2">{uploadingFile ? "Uploading..." : "Click to Upload Documents"}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* POD Section */}
+              <div className="bg-emerald-50 p-4 rounded-xl border-2 border-emerald-200 shadow-sm">
+                <h3 className="font-black text-xs uppercase tracking-widest text-emerald-900 flex items-center gap-1.5 mb-3"><ClipboardCheck className="w-4 h-4" /> Proof of Delivery (POD)</h3>
                 {formData.signedPodDoc ? (
-                  <div className="bg-white p-4 rounded-xl border border-emerald-200 flex items-center justify-between">
+                  <div className="bg-white p-3 rounded-xl border-2 border-emerald-200 flex items-center justify-between">
                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-emerald-50 rounded-lg flex items-center justify-center text-emerald-600">
-                          <FileText className="w-5 h-5" />
-                        </div>
+                        <FileText className="w-5 h-5 text-emerald-600" />
                         <div>
-                          <p className="text-sm font-bold text-slate-700">{formData.signedPodDoc.name || 'POD Document'}</p>
-                          <a href={formData.signedPodDoc.url} target="_blank" rel="noreferrer" className="text-[10px] text-blue-500 font-medium hover:underline">View Document</a>
+                          <p className="text-xs font-bold text-slate-800 truncate max-w-[200px]">{formData.signedPodDoc.name || 'POD.pdf'}</p>
+                          <a href={formData.signedPodDoc.url} target="_blank" rel="noreferrer" className="text-[10px] text-blue-600 font-bold hover:underline">View Document</a>
                         </div>
                      </div>
-                     <button type="button" onClick={() => setFormData(prev => ({ ...prev, signedPodDoc: null }))} className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors">
-                        <Trash2 className="w-4 h-4" />
-                     </button>
+                     <button type="button" onClick={() => setFormData(prev => ({ ...prev, signedPodDoc: null }))} className="p-2 text-red-500 hover:bg-red-50 rounded-lg border border-red-100"><Trash2 className="w-4 h-4" /></button>
                   </div>
                 ) : (
-                  <div className="border-2 border-dashed border-emerald-300 rounded-2xl bg-white p-8 text-center relative hover:bg-emerald-50/50 transition-colors">
+                  <div className="border-2 border-dashed border-emerald-300 rounded-xl bg-white p-4 text-center relative hover:bg-emerald-50 transition-colors">
                     <input type="file" accept=".pdf,image/*" className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onChange={(e) => handleFileUpload(e, 'signedPodDoc')} disabled={uploadingFile} />
-                    <div className="flex flex-col items-center justify-center gap-3 pointer-events-none">
-                      {uploadingFile ? <Loader2 className="w-8 h-8 text-emerald-600 animate-spin" /> : <ClipboardCheck className="w-8 h-8 text-emerald-400" />}
-                      <div>
-                        <p className="text-sm font-bold text-slate-700">{uploadingFile ? "Uploading..." : "Drop POD here or click to upload"}</p>
-                        <p className="text-[10px] text-slate-400 font-medium mt-1">Supports PDF and Images</p>
-                      </div>
+                    <div className="flex flex-col items-center justify-center pointer-events-none">
+                      {uploadingFile ? <Loader2 className="w-5 h-5 text-emerald-600 animate-spin" /> : <ClipboardCheck className="w-5 h-5 text-emerald-500" />}
+                      <p className="text-xs font-bold text-slate-600 mt-2">{uploadingFile ? "Uploading..." : "Click to Upload POD"}</p>
                     </div>
                   </div>
                 )}
               </div>
 
-              <div className="space-y-4">
-                <div className="flex justify-between items-center">
-                  <div className="flex items-center gap-2"><MessageSquare className="w-4 h-4 text-purple-600" /><h3 className="font-black text-xs uppercase tracking-widest">Notes & Instructions</h3></div>
-                  <button type="button" onClick={handleSmartNotes} disabled={generatingNotes} className="flex items-center gap-2 px-4 py-2 bg-purple-100 text-purple-700 rounded-xl text-[10px] font-black uppercase hover:bg-purple-200">
-                    {generatingNotes ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />} Generate Notes
+              {/* Notes */}
+              <div>
+                <div className="flex justify-between items-center mb-2">
+                  <h3 className="font-black text-xs uppercase tracking-widest flex items-center gap-1.5 text-slate-800"><MessageSquare className="w-4 h-4 text-purple-600" /> Notes</h3>
+                  <button type="button" onClick={handleSmartNotes} disabled={generatingNotes} className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-100 text-purple-800 rounded-lg text-[10px] font-black uppercase hover:bg-purple-200 transition-colors">
+                    {generatingNotes ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />} Generate
                   </button>
                 </div>
-                <textarea name="notes" value={formData.notes} onChange={handleChange} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-medium text-sm min-h-[120px] outline-none" placeholder="Driver instructions..." />
+                <textarea name="notes" value={formData.notes} onChange={handleChange} className="w-full p-3 bg-white border-2 border-slate-300 rounded-xl text-sm font-medium min-h-[80px] outline-none focus:border-purple-500" placeholder="Driver instructions..." />
               </div>
             </div>
           )}
 
-          {/* ===== PAGE 6: LIFECYCLE ===== */}
+          {/* ===== PAGE 6: LIFECYCLE (LARGER & BOLDER) ===== */}
           {activeStep === 'lifecycle' && (
-            <div className="animate-in fade-in">
-              <div className="space-y-6 bg-gradient-to-br from-slate-50 to-gray-50 p-8 rounded-[32px] border-2 border-slate-300 shadow-inner">
-                <div className="flex items-center justify-between border-b border-slate-200 pb-4 flex-wrap gap-3">
+            <div className="animate-in fade-in space-y-4">
+              <div className="bg-gradient-to-br from-slate-100 to-gray-50 p-5 rounded-2xl border-2 border-slate-300 shadow-inner">
+                <div className="flex items-center justify-between border-b-2 border-slate-300 pb-3 mb-4">
                   <div className="flex items-center gap-3">
-                    <div className="bg-purple-600 p-2.5 rounded-xl text-white"><Target className="w-5 h-5" /></div>
-                    <div><h3 className="font-black text-sm uppercase tracking-widest text-slate-800">Container Lifecycle</h3><p className="text-[10px] font-bold text-purple-600">Updates Board automatically</p></div>
+                    <div className="bg-purple-700 p-2 rounded-xl text-white shadow-md"><Target className="w-5 h-5" /></div>
+                    <div><h3 className="font-black text-sm uppercase tracking-widest text-slate-900">Container Lifecycle</h3></div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-bold text-slate-400">CURRENT:</span>
-                    {!formData.etaDate ? (<span className="px-4 py-2 bg-pink-500 text-white rounded-xl text-xs font-black shadow-lg">🟣 PENDING ETA</span>) : formData.isTerminated ? (<span className="px-4 py-2 bg-gray-900 text-white rounded-xl text-xs font-black shadow-lg">⚫ TERMINATED</span>) : formData.isReadyForPickup ? (<span className="px-4 py-2 bg-red-600 text-white rounded-xl text-xs font-black shadow-lg">🔴 READY PICKUP</span>) : formData.isDroppedAtCustomer ? (<span className="px-4 py-2 bg-yellow-500 text-white rounded-xl text-xs font-black shadow-lg">🟡 AT CUSTOMER</span>) : formData.lfdDate ? (<span className="px-4 py-2 bg-emerald-800 text-white rounded-xl text-xs font-black shadow-lg">🟢 LFD SET</span>) : formData.isInYard ? (<span className="px-4 py-2 bg-blue-500 text-white rounded-xl text-xs font-black shadow-lg">🔵 IN YARD</span>) : formData.isGrounded ? (<span className="px-4 py-2 bg-green-600 text-white rounded-xl text-xs font-black shadow-lg">🟢 GROUNDED</span>) : formData.etaDate ? (<span className="px-4 py-2 bg-orange-500 text-white rounded-xl text-xs font-black shadow-lg">🟠 ETA RECEIVED</span>) : (<span className="px-4 py-2 bg-slate-400 text-white rounded-xl text-xs font-black">⚪ NEW</span>)}
-                  </div>
+                  <span className="text-xs font-black text-purple-800 bg-purple-100 px-3 py-1 rounded-lg border-2 border-purple-200">Current: {formData.isTerminated ? 'Terminated' : formData.isReadyForPickup ? 'Ready Pickup' : formData.isDroppedAtCustomer ? 'At Cust' : formData.lfdDate ? 'LFD Set' : formData.isInYard ? 'In Yard' : formData.isGrounded ? 'Grounded' : formData.etaDate ? 'ETA Recv' : 'New'}</span>
                 </div>
 
-                                {/* Step 1: ETA */}
-                <div className={`p-5 rounded-2xl border-2 transition-all ${!formData.etaDate ? 'bg-pink-50 border-pink-400 shadow-md' : 'bg-green-50/30 border-green-200'}`}>
-                  <div className="flex items-center gap-2 mb-3">
-                    <span className="w-8 h-8 rounded-full bg-pink-500 text-white flex items-center justify-center text-sm font-black">1</span>
-                    <div><h4 className="font-black text-sm text-slate-800">ETA Date & Time {!formData.etaDate && <span className="text-pink-600 text-xs">- REQUIRED</span>}</h4></div>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="text-[10px] font-black text-slate-500 uppercase mb-1 block">ETA Date</label>
-                      <input type="date" name="etaDate" value={formData.etaDate || ''} onChange={handleChange} className={`w-full px-4 py-3 rounded-xl font-bold text-sm outline-none ${!formData.etaDate ? 'bg-white border-2 border-pink-400' : 'bg-white border border-slate-200'}`} />
-                    </div>
-                    <div>
-                      <label className="text-[10px] font-black text-slate-500 uppercase mb-1 block">ETA Time</label>
-                      <input type="time" name="etaTime" value={formData.etaTime || ''} onChange={handleChange} className={`w-full px-4 py-3 rounded-xl font-bold text-sm outline-none ${!formData.etaDate ? 'bg-white border-2 border-pink-400' : 'bg-white border border-slate-200'}`} />
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                  {/* ETA */}
+                  <div className={`p-4 rounded-xl border-2 transition-all ${!formData.etaDate ? 'bg-pink-50 border-pink-400 shadow-md' : 'bg-white border-slate-300 shadow-sm'}`}>
+                    <label className="text-[11px] font-black text-slate-800 uppercase block mb-2">ETA Date/Time</label>
+                    <div className="flex gap-2">
+                      <input type="date" name="etaDate" value={formData.etaDate || ''} onChange={handleChange} className="w-full px-2 py-1.5 rounded-lg text-xs font-bold border-2 border-slate-300 outline-none focus:border-pink-500" />
+                      <input type="time" name="etaTime" value={formData.etaTime || ''} onChange={handleChange} className="w-full px-2 py-1.5 rounded-lg text-xs font-bold border-2 border-slate-300 outline-none focus:border-pink-500" />
                     </div>
                   </div>
-                </div>
 
-                {/* Step 2: Grounded */}
-                <div className={`p-5 rounded-2xl border-2 transition-all ${formData.isGrounded ? 'bg-green-50 border-green-400 shadow-md' : 'bg-white border-slate-200'}`}>
-                  <div className="flex items-center justify-between flex-wrap gap-3">
-                    <div className="flex items-center gap-3"><span className="w-8 h-8 rounded-full bg-green-600 text-white flex items-center justify-center text-sm font-black">2</span><div><h4 className="font-black text-sm text-slate-800">Container Grounded</h4></div></div>
-                    <label className={`flex items-center gap-2 cursor-pointer px-5 py-3 rounded-xl border-2 ${formData.isGrounded ? 'bg-green-600 text-white border-green-600' : 'bg-white border-slate-300'}`}><input type="checkbox" checked={formData.isGrounded || false} onChange={(e) => setFormData(prev => ({ ...prev, isGrounded: e.target.checked }))} className="w-4 h-4 rounded" /><span className="text-xs font-black uppercase">Mark Grounded</span></label>
+                  {/* Grounded */}
+                  <div className={`p-4 rounded-xl border-2 flex items-center justify-between transition-all ${formData.isGrounded ? 'bg-green-100 border-green-500 shadow-md' : 'bg-white border-slate-300 shadow-sm'}`}>
+                    <span className="text-xs font-black text-slate-800 uppercase">Grounded</span>
+                    <input type="checkbox" checked={formData.isGrounded || false} onChange={(e) => setFormData(prev => ({ ...prev, isGrounded: e.target.checked }))} className="w-6 h-6 rounded border-2 border-slate-400 accent-green-600 cursor-pointer" />
                   </div>
-                </div>
 
-                {/* Step 2.5: In Yard */}
-                <div className={`p-5 rounded-2xl border-2 transition-all ${formData.isInYard ? 'bg-blue-50 border-blue-400 shadow-md' : 'bg-white border-slate-200'}`}>
-                  <div className="flex items-center justify-between flex-wrap gap-3">
-                    <div className="flex items-center gap-3"><span className="w-8 h-8 rounded-full bg-blue-500 text-white flex items-center justify-center text-sm font-black">2.5</span><div><h4 className="font-black text-sm text-slate-800">Container in Yard</h4></div></div>
-                    <label className={`flex items-center gap-2 cursor-pointer px-5 py-3 rounded-xl border-2 ${formData.isInYard ? 'bg-blue-500 text-white border-blue-500' : 'bg-white border-slate-300'}`}><input type="checkbox" checked={formData.isInYard || false} onChange={(e) => setFormData(prev => ({ ...prev, isInYard: e.target.checked }))} className="w-4 h-4 rounded" /><span className="text-xs font-black uppercase">Mark In Yard</span></label>
+                  {/* In Yard */}
+                  <div className={`p-4 rounded-xl border-2 flex items-center justify-between transition-all ${formData.isInYard ? 'bg-blue-100 border-blue-500 shadow-md' : 'bg-white border-slate-300 shadow-sm'}`}>
+                    <span className="text-xs font-black text-slate-800 uppercase">In Yard</span>
+                    <input type="checkbox" checked={formData.isInYard || false} onChange={(e) => setFormData(prev => ({ ...prev, isInYard: e.target.checked }))} className="w-6 h-6 rounded border-2 border-slate-400 accent-blue-600 cursor-pointer" />
                   </div>
-                </div>
 
-                {/* Step 2.5a: Pre-pulled */}
-                <div className={`p-5 rounded-2xl border-2 transition-all ${formData.isInYardPrePull ? 'bg-emerald-50 border-emerald-400 shadow-md' : 'bg-white border-slate-200'}`}>
-                  <div className="flex items-center justify-between flex-wrap gap-3">
-                    <div className="flex items-center gap-3"><span className="w-8 h-8 rounded-full bg-emerald-500 text-white flex items-center justify-center text-sm font-black">2.5a</span><div><h4 className="font-black text-sm text-slate-800">Pre‑pulled & In Yard</h4></div></div>
-                    <label className={`flex items-center gap-2 cursor-pointer px-5 py-3 rounded-xl border-2 ${formData.isInYardPrePull ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white border-slate-300'}`}><input type="checkbox" checked={formData.isInYardPrePull || false} onChange={(e) => setFormData(prev => ({ ...prev, isInYardPrePull: e.target.checked }))} className="w-4 h-4 rounded" /><span className="text-xs font-black uppercase">Mark Pre‑pulled</span></label>
+                  {/* LFD */}
+                  <div className={`p-4 rounded-xl border-2 transition-all ${formData.lfdDate ? 'bg-emerald-100 border-emerald-500 shadow-md' : 'bg-white border-slate-300 shadow-sm'}`}>
+                    <label className="text-[11px] font-black text-slate-800 uppercase block mb-2">LFD Date</label>
+                    <input type="date" name="lfdDate" value={formData.lfdDate || ''} onChange={handleChange} className="w-full px-2 py-1.5 rounded-lg text-xs font-bold border-2 border-slate-300 outline-none focus:border-emerald-500" />
                   </div>
-                </div>
 
-                {/* Step 2.5b: Returned to Yard */}
-                <div className={`p-5 rounded-2xl border-2 transition-all ${formData.isInYardReturn ? 'bg-amber-50 border-amber-400 shadow-md' : 'bg-white border-slate-200'}`}>
-                  <div className="flex items-center justify-between flex-wrap gap-3">
-                    <div className="flex items-center gap-3"><span className="w-8 h-8 rounded-full bg-amber-600 text-white flex items-center justify-center text-sm font-black">2.5b</span><div><h4 className="font-black text-sm text-slate-800">Returned to Yard</h4></div></div>
-                    <label className={`flex items-center gap-2 cursor-pointer px-5 py-3 rounded-xl border-2 ${formData.isInYardReturn ? 'bg-amber-600 text-white border-amber-600' : 'bg-white border-slate-300'}`}><input type="checkbox" checked={formData.isInYardReturn || false} onChange={(e) => setFormData(prev => ({ ...prev, isInYardReturn: e.target.checked }))} className="w-4 h-4 rounded" /><span className="text-xs font-black uppercase">Mark Returned</span></label>
+                  {/* Dropped */}
+                  <div className={`p-4 rounded-xl border-2 flex items-center justify-between transition-all ${formData.isDroppedAtCustomer ? 'bg-yellow-100 border-yellow-500 shadow-md' : 'bg-white border-slate-300 shadow-sm'}`}>
+                    <span className="text-xs font-black text-slate-800 uppercase">Dropped at Cust</span>
+                    <input type="checkbox" checked={formData.isDroppedAtCustomer || false} onChange={(e) => setFormData(prev => ({ ...prev, isDroppedAtCustomer: e.target.checked }))} className="w-6 h-6 rounded border-2 border-slate-400 accent-yellow-600 cursor-pointer" />
                   </div>
-                </div>
 
-                {/* Step 3: LFD */}
-                <div className={`p-5 rounded-2xl border-2 transition-all ${formData.lfdDate ? 'bg-emerald-50 border-emerald-400 shadow-md' : 'bg-white border-slate-200'}`}>
-                  <div className="flex items-center gap-2 mb-3"><span className="w-8 h-8 rounded-full bg-emerald-700 text-white flex items-center justify-center text-sm font-black">3</span><div><h4 className="font-black text-sm text-slate-800">Last Free Day (LFD)</h4></div></div>
-                  <input type="date" name="lfdDate" value={formData.lfdDate || ''} onChange={handleChange} className={`w-full px-4 py-3 rounded-xl font-bold text-sm outline-none ${formData.lfdDate ? 'bg-white border-2 border-emerald-400' : 'bg-white border border-slate-200'}`} />
-                </div>
-
-                {/* Step 4: Dropped at Customer */}
-                <div className={`p-5 rounded-2xl border-2 transition-all ${formData.isDroppedAtCustomer ? 'bg-yellow-50 border-yellow-400 shadow-md' : 'bg-white border-slate-200'}`}>
-                  <div className="flex items-center justify-between flex-wrap gap-3">
-                    <div className="flex items-center gap-3"><span className="w-8 h-8 rounded-full bg-yellow-500 text-white flex items-center justify-center text-sm font-black">4</span><div><h4 className="font-black text-sm text-slate-800">Dropped at Customer</h4></div></div>
-                    <label className={`flex items-center gap-2 cursor-pointer px-5 py-3 rounded-xl border-2 ${formData.isDroppedAtCustomer ? 'bg-yellow-500 text-white border-yellow-500' : 'bg-white border-slate-300'}`}><input type="checkbox" checked={formData.isDroppedAtCustomer || false} onChange={(e) => {
-  const checked = e.target.checked;
-  setFormData(prev => ({
-    ...prev,
-    isDroppedAtCustomer: checked,
-    deliveryDate: checked ? (prev.deliveryDate || new Date().toISOString().split('T')[0]) : prev.deliveryDate
-  }));
-}} className="w-4 h-4 rounded" /><span className="text-xs font-black uppercase">Mark Dropped</span></label>
+                  {/* Ready for Pickup */}
+                  <div className={`p-4 rounded-xl border-2 flex items-center justify-between transition-all ${formData.isReadyForPickup ? 'bg-red-100 border-red-500 shadow-md' : 'bg-white border-slate-300 shadow-sm'}`}>
+                    <span className="text-xs font-black text-slate-800 uppercase">Ready Pickup</span>
+                    <input type="checkbox" checked={formData.isReadyForPickup || false} onChange={(e) => setFormData(prev => ({ ...prev, isReadyForPickup: e.target.checked }))} className="w-6 h-6 rounded border-2 border-slate-400 accent-red-600 cursor-pointer" />
                   </div>
-                </div>
 
-                {/* Step 5: Ready for Pickup */}
-                <div className={`p-5 rounded-2xl border-2 transition-all ${formData.isReadyForPickup ? 'bg-red-50 border-red-400 shadow-md' : 'bg-white border-slate-200'}`}>
-                  <div className="flex items-center justify-between flex-wrap gap-3">
-                    <div className="flex items-center gap-3"><span className="w-8 h-8 rounded-full bg-red-600 text-white flex items-center justify-center text-sm font-black">5</span><div><h4 className="font-black text-sm text-slate-800">Ready for Pickup</h4></div></div>
-                    <label className={`flex items-center gap-2 cursor-pointer px-5 py-3 rounded-xl border-2 ${formData.isReadyForPickup ? 'bg-red-600 text-white border-red-600' : 'bg-white border-slate-300'}`}><input type="checkbox" checked={formData.isReadyForPickup || false} onChange={(e) => setFormData(prev => ({ ...prev, isReadyForPickup: e.target.checked }))} className="w-4 h-4 rounded" /><span className="text-xs font-black uppercase">Mark Ready</span></label>
+                  {/* Terminated */}
+                  <div className={`p-4 rounded-xl border-2 flex items-center justify-between transition-all ${formData.isTerminated ? 'bg-gray-800 border-gray-900 shadow-md text-white' : 'bg-white border-slate-300 shadow-sm'}`}>
+                    <span className={`text-xs font-black uppercase ${formData.isTerminated ? 'text-white' : 'text-slate-800'}`}>Terminated</span>
+                    <input type="checkbox" checked={formData.isTerminated || false} onChange={(e) => setFormData(prev => ({ ...prev, isTerminated: e.target.checked }))} className="w-6 h-6 rounded border-2 border-slate-400 accent-gray-900 cursor-pointer" />
                   </div>
-                </div>
 
-                {/* Step 6: Terminated */}
-                <div className={`p-5 rounded-2xl border-2 transition-all ${formData.isTerminated ? 'bg-gray-900 border-gray-700 shadow-md' : 'bg-white border-slate-200'}`}>
-                  <div className="flex items-center justify-between flex-wrap gap-3">
-                    <div className="flex items-center gap-3"><span className="w-8 h-8 rounded-full bg-gray-900 text-white flex items-center justify-center text-sm font-black">6</span><div><h4 className={`font-black text-sm ${formData.isTerminated ? 'text-white' : 'text-slate-800'}`}>Container Terminated</h4></div></div>
-                    <label className={`flex items-center gap-2 cursor-pointer px-5 py-3 rounded-xl border-2 ${formData.isTerminated ? 'bg-gray-700 text-white border-gray-600' : 'bg-white border-slate-300'}`}><input type="checkbox" checked={formData.isTerminated || false} onChange={(e) => setFormData(prev => ({ ...prev, isTerminated: e.target.checked }))} className="w-4 h-4 rounded" /><span className="text-xs font-black uppercase">Mark Terminated</span></label>
-                  </div>
-                </div>
-
-                {/* Step 7: Send to Billing */}
-                <div className={`p-5 rounded-2xl border-2 transition-all ${formData.isBillingComplete ? 'bg-gray-100 border-gray-400' : 'bg-white border-slate-200'}`}>
-                  <div className="flex items-center justify-between flex-wrap gap-3">
-                    <div className="flex items-center gap-3"><span className="w-8 h-8 rounded-full bg-gray-500 text-white flex items-center justify-center text-sm font-black">7</span><div><h4 className="font-black text-sm text-slate-800">Send to Billing</h4></div></div>
-                    <button type="button" onClick={() => { if (window.confirm('Send to billing?')) setFormData(prev => ({ ...prev, isBillingComplete: true, status: 'Ready for Billing' })); }} disabled={!formData.isTerminated || formData.isBillingComplete} className={`px-5 py-3 rounded-xl text-xs font-black uppercase transition-all ${formData.isBillingComplete ? 'bg-gray-300 text-gray-500' : !formData.isTerminated ? 'bg-gray-200 text-gray-400' : 'bg-gray-600 text-white hover:bg-gray-700'}`}>{formData.isBillingComplete ? '✅ Billed' : !formData.isTerminated ? '🔒 Terminate First' : 'Send to Billing →'}</button>
+                  {/* Billing */}
+                  <div className={`p-4 rounded-xl border-2 flex items-center justify-between transition-all ${formData.isBillingComplete ? 'bg-gray-200 border-gray-400 shadow-inner' : 'bg-white border-slate-300 shadow-sm'}`}>
+                    <span className="text-xs font-black text-slate-800 uppercase">Billed</span>
+                    <button type="button" onClick={() => { if(window.confirm('Send to billing?')) setFormData(prev => ({ ...prev, isBillingComplete: true, status: 'Ready for Billing' })); }} disabled={!formData.isTerminated || formData.isBillingComplete} className="px-4 py-1.5 bg-gray-800 text-white rounded-lg text-[10px] font-black uppercase disabled:opacity-50 hover:bg-gray-900 transition-colors">Send</button>
                   </div>
                 </div>
               </div>
@@ -3404,7 +3227,7 @@ const LoadForm = ({
                       <div><label className="text-[10px] font-black text-slate-500 uppercase block mb-1">Leg Type</label><select value={legToEdit.legType || 'delivery'} onChange={e => updateLeg(legToEdit.id, 'legType', e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm font-bold bg-white outline-none focus:ring-2 focus:ring-blue-200"><option value="delivery">📦 Delivery</option><option value="pickup">🏗️ Pickup</option><option value="prepull">⏳ Pre-pull</option><option value="termination">🏁 Termination</option></select></div>
                     </div>
 
-                                        {/* Locations */}
+                    {/* Locations */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-200">
                       <div>
                         <label className="text-[10px] font-black text-emerald-600 uppercase block mb-1">Pickup Location</label>
@@ -3447,10 +3270,10 @@ const LoadForm = ({
             );
           })()}
 
-                    {/* ===== STICKY BOTTOM NAVIGATION ===== */}
-          <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 p-4 px-8 shadow-[0_-10px_20px_-10px_rgba(0,0,0,0.1)] flex items-center justify-between z-50">
+          {/* ===== STICKY BOTTOM NAVIGATION ===== */}
+          <div className="fixed bottom-0 left-0 right-0 bg-white border-t-2 border-slate-200 p-4 px-8 shadow-[0_-10px_20px_-10px_rgba(0,0,0,0.1)] flex items-center justify-between z-50">
             <div>
-              <button type="button" onClick={onClose} className="px-6 py-3 border-2 border-slate-200 rounded-xl font-black text-slate-500 uppercase tracking-widest text-xs hover:bg-slate-50 transition-all">Discard</button>
+              <button type="button" onClick={onClose} className="px-6 py-2.5 border-2 border-slate-300 rounded-xl font-black text-slate-600 uppercase tracking-widest text-xs hover:bg-slate-100 transition-all">Discard</button>
             </div>
             
             <div className="flex gap-3">
@@ -3460,7 +3283,7 @@ const LoadForm = ({
                   if (activeStep === 'step3') setActiveStep('step2');
                   if (activeStep === 'step4') setActiveStep('step3');
                   if (activeStep === 'step5') setActiveStep('step4');
-                }} className="px-6 py-3 bg-slate-100 text-slate-700 rounded-xl font-black uppercase tracking-widest text-xs hover:bg-slate-200 transition-all flex items-center gap-2">
+                }} className="px-6 py-2.5 bg-slate-200 text-slate-800 rounded-xl font-black uppercase tracking-widest text-xs hover:bg-slate-300 flex items-center gap-1 transition-all">
                   ← Back
                 </button>
               )}
@@ -3471,24 +3294,24 @@ const LoadForm = ({
                   if (activeStep === 'step2') setActiveStep('step3');
                   if (activeStep === 'step3') setActiveStep('step4');
                   if (activeStep === 'step4') setActiveStep('step5');
-                }} className="px-6 py-3 bg-blue-600 text-white rounded-xl font-black uppercase tracking-widest text-xs hover:bg-blue-700 transition-all shadow-lg shadow-blue-200 flex items-center gap-2">
-                  Next Step →
+                }} className="px-8 py-2.5 bg-blue-600 text-white rounded-xl font-black uppercase tracking-widest text-xs hover:bg-blue-700 shadow-lg shadow-blue-200 flex items-center gap-1 transition-all">
+                  Next →
                 </button>
               )}
 
-                                        {(activeStep === 'step5' || activeStep === 'lifecycle') && (
-                            <button type="submit" disabled={isSaving} className="px-8 py-3 bg-green-600 text-white rounded-xl font-black uppercase tracking-widest text-xs hover:bg-green-700 transition-all shadow-lg shadow-green-200 disabled:opacity-50 flex items-center gap-2">
-                              <CheckCircle className="w-4 h-4" />
-                              {isSaving ? 'Saving...' : 'Save Load Record'}
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    </form>
-                  </div>
-                </div>
-              );
-            };
+              {(activeStep === 'step5' || activeStep === 'lifecycle') && (
+                <button type="submit" disabled={isSaving} className="px-8 py-2.5 bg-green-600 text-white rounded-xl font-black uppercase tracking-widest text-xs hover:bg-green-700 shadow-lg shadow-green-200 disabled:opacity-50 flex items-center gap-1 transition-all">
+                  <CheckCircle className="w-4 h-4" />
+                  {isSaving ? 'Saving...' : 'Save Load'}
+                </button>
+              )}
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
 
         // ========== TABLE COMPONENTS (CONTINUED) ==========
 const LoadTable = React.memo(({ loads, onEdit, onDelete, onStatusChange, onViewDoc, onSign, onCopy, onDownload, onDownloadLoadConfirmation, onDownloadPOD, onTrack, onQuickAssign, companyName, currentPage, pageSize, isLoadingMore, onNextPage, onPrevPage, hasNextPage, bulkDeleteMode = false, selectedLoadIds = [], onToggleSelection }) => (
@@ -3755,7 +3578,7 @@ const LoadTable = React.memo(({ loads, onEdit, onDelete, onStatusChange, onViewD
 const BillingTable = ({ 
   loads, 
   onStatusChange, 
-  onGenerateInvoice,      // ✅ ADD
+  onGenerateInvoice,
   onDraftEmail, 
   onEdit, 
   onPrint, 
@@ -3764,7 +3587,8 @@ const BillingTable = ({
   onApprove, 
   setFeedback,
   companyName, 
-  companyEmail 
+  companyEmail,
+  onSendViaInvoicesTab // ✅ ADD THIS LINE
 }) => {
   const BillingRow = ({ load }) => {
     const currencySymbol = load?.currency === 'USD' ? 'US$' : 'C$';
@@ -3856,11 +3680,12 @@ const BillingTable = ({
   </button>
 )}
 
-            {/* 3. INVOICED → Send to Customer (redirects to Invoices tab) */}
+                        {/* 3. INVOICED → Send to Customer (redirects to Invoices tab) */}
             {isInvoiced && (
               <button
                 onClick={() => {
-                  setFeedback?.('📧 Go to the Invoices tab to email this invoice');
+                  if (onSendViaInvoicesTab) onSendViaInvoicesTab(load);
+                  else setFeedback?.('📧 Go to the Invoices tab to email this invoice');
                 }}
                 className="px-4 py-2 bg-green-600 text-white rounded-xl text-[10px] font-black uppercase hover:bg-green-700 transition-all shadow-sm flex items-center gap-1"
                 title="Go to Invoices tab to send"
@@ -11373,7 +11198,7 @@ if (appState === 'dashboard' && !authReady) {
       )}
 
             {activeTab === 'billing' && (
-        <BillingTable
+                <BillingTable
           loads={paginatedLoads}
           onStatusChange={quickUpdateStatus}
           onGenerateInvoice={handleGenerateInvoice}
@@ -11386,6 +11211,11 @@ if (appState === 'dashboard' && !authReady) {
           setFeedback={setCopyFeedback}
           companyName={companyName}
           companyEmail={companyDetails.email}
+          onSendViaInvoicesTab={(load) => {
+            setPendingInvoiceLoadId(load.id);
+            setActiveTab('invoices');
+            setCopyFeedback("📧 Opening invoice for editing...");
+          }}
         />
       )}
 
@@ -11532,31 +11362,33 @@ if (appState === 'dashboard' && !authReady) {
     }));
   }}
 />
-        <LoadForm
-  isOpen={isFormOpen}
-  onClose={() => { 
-    setIsFormOpen(false); 
-    setEditingId(null); 
-    setEditingLoadData(null); // ✅ Clears the data on close
-  }}
-  onSubmit={handleSubmitLoad}
-  initialData={loadToEdit}
-  savedCustomers={savedCustomers}
-  savedDestinations={savedDestinations}
-  savedDrivers={savedDrivers}
-  savedBasePrices={savedBasePrices}  // ✅ ADD THIS LINE
-  apiKey={GEMINI_API_KEY}
-  companyId={companyId}
-  userId={user?.uid}
-  userRole={userRole}
-  userEmail={userEmail}
-  setFeedback={setCopyFeedback}
-  currentLocation={currentLocation}
-  userAccessibleLocations={userAccessibleLocations}
-  dataSharingMode={dataSharingMode}
-  companyLocations={companyLocations}
-  companyTerminals={savedTerminals}
-/>
+          <LoadForm
+          isOpen={isFormOpen}
+          onClose={() => { 
+            setIsFormOpen(false); 
+            setEditingId(null); 
+            setEditingLoadData(null); 
+          }}
+          onSubmit={handleSubmitLoad}
+          initialData={loadToEdit}
+          savedCustomers={savedCustomers}
+          savedDestinations={savedDestinations}
+          savedDrivers={savedDrivers}
+          savedBasePrices={savedBasePrices}
+          apiKey={GEMINI_API_KEY}
+          companyId={companyId}
+          userId={user?.uid}
+          userRole={userRole}
+          userEmail={userEmail}
+          setFeedback={setCopyFeedback}
+          currentLocation={currentLocation}
+          userAccessibleLocations={userAccessibleLocations}
+          dataSharingMode={dataSharingMode}
+          companyLocations={companyLocations}
+          companyTerminals={savedTerminals}
+          companyName={companyName}           // ✅ ADD THIS
+          companyDetails={companyDetails}     // ✅ ADD THIS
+        />
             </div>
     </ErrorBoundary>
   );

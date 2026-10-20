@@ -12,6 +12,8 @@ import { db, storage } from '../firebase';
 const MAX_LOGO_SIZE = 2 * 1024 * 1024; // 2 MB
 const ALLOWED_LOGO_TYPES = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/svg+xml'];
 
+const DEFAULT_EMAIL_TEMPLATE = 'Hello,\n\nPlease see attached invoice {invoiceNumber} and POD for your reference For container {containerNo}.\nShould you have any questions please feel free to reach out.\n\nOffice Administrator| {companyName}\n\n{phone}\n{email}\n{website}\n{address}\n\nThis email contains confidential information and is for the exclusive use of the addressee/s. Any unauthorized copying, distribution or use of information\ncontained in this email is prohibited. If received in error, please advise the sender and delete immediately. International Freight Transport accepts no liability\nfor any loss or damage suffered from use of this email.';
+
 const EmailSettingsModal = ({
   isOpen,
   onClose,
@@ -70,7 +72,7 @@ const EmailSettingsModal = ({
       phone: companyDetails?.phone || '',
       email: companyDetails?.email || '',
       website: companyDetails?.website || '',
-      emailTemplate: companyDetails?.emailTemplate || 'Hello,\n\nPlease see attached invoice {invoiceNumber} and POD for your reference For container {containerNo}\nShould you have any questions please feel free to reach out.\n\nOffice Administrator| {companyName}\n\n{phone}\n{email}\n{website}\n{address}\n\nThis email contains confidential information and is for the exclusive use of the addressee/s. Any unauthorized copying, distribution or use of information\ncontained in this email is prohibited. If received in error, please advise the sender and delete immediately. International Freight Transport accepts no liability\nfor any loss or damage suffered from use of this email.'
+      emailTemplate: companyDetails?.emailTemplate || DEFAULT_EMAIL_TEMPLATE
     });
   }, [isOpen, companyName, companyDetails]);
 
@@ -82,7 +84,7 @@ const EmailSettingsModal = ({
   }, [isOpen, companyId]);
 
   // ===== SAVE COMPANY PROFILE =====
-    const handleSaveProfile = async () => {
+  const handleSaveProfile = async () => {
     if (!companyId) return;
     if (!profile.name.trim()) {
       setFeedback?.('❌ Company name is required');
@@ -114,7 +116,7 @@ const EmailSettingsModal = ({
         emailTemplate: profile.emailTemplate,
       });
       setFeedback?.('✅ Company profile saved');
-      onClose(); // ✅ ADD THIS LINE TO CLOSE THE MODAL
+      onClose(); 
     } catch (err) {
       console.error('Profile save error:', err);
       setFeedback?.('❌ ' + (err.message || 'Save failed'));
@@ -124,7 +126,7 @@ const EmailSettingsModal = ({
   };
 
   // ===== SAVE SMTP =====
-    const handleSave = async () => {
+  const handleSave = async () => {
     if (!form.email || !form.appPassword) {
       setFeedback?.('❌ Email and App Password are required');
       return;
@@ -136,7 +138,7 @@ const EmailSettingsModal = ({
       setFeedback?.('✅ Email settings saved');
       setExisting({ email: form.email, provider: form.provider });
       setForm(prev => ({ ...prev, appPassword: '' }));
-      onClose(); // ✅ ADD THIS LINE TO CLOSE THE MODAL
+      onClose(); 
     } catch (err) {
       setFeedback?.('❌ ' + (err.message || 'Save failed'));
     } finally {
@@ -351,7 +353,21 @@ const EmailSettingsModal = ({
               </div>
 
               <div className="pt-2">
-                <label className="text-[10px] font-black text-slate-500 uppercase">Invoice Email Message Template</label>
+                <div className="flex justify-between items-center">
+                  <label className="text-[10px] font-black text-slate-500 uppercase">Invoice Email Message Template</label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setProfile(prev => ({
+                        ...prev,
+                        emailTemplate: DEFAULT_EMAIL_TEMPLATE
+                      }));
+                    }}
+                    className="text-[10px] font-bold text-blue-600 hover:underline"
+                  >
+                    Reset to Default
+                  </button>
+                </div>
                 <textarea
                   value={profile.emailTemplate}
                   onChange={e => setProfile({ ...profile, emailTemplate: e.target.value })}

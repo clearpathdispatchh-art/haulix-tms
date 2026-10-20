@@ -190,6 +190,23 @@ const getTerminationStatus = (container) => {
   return { canComplete: true, reason: 'ready', label: 'Confirm Terminated' };
 };
 
+// ────────────── DATE HELPER ──────────────
+const getDaysBetween = (date1, date2 = new Date()) => {
+  if (!date1) return 0;
+  try {
+    const d1 = new Date(date1);
+    const d2 = new Date(date2);
+    if (isNaN(d1.getTime()) || isNaN(d2.getTime())) return 0;
+    
+    const diffTime = Math.abs(d2 - d1);
+    return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  } catch (error) {
+    console.error("Error calculating days:", error);
+    return 0;
+  }
+};
+
+
 // ========== MAIN COMPONENT ==========
 const DailyDispatchBoard = ({
   companyId,
@@ -431,54 +448,40 @@ const DailyDispatchBoard = ({
     let filtered = [...containers];
     const today = selectedDate || todayStr;
 
-            filtered = filtered.filter(c => {
-      if (c.status === 'Completed' || c.status === 'Paid' || c.status === 'Closed' || c.status === 'Ready for Billing' || c.isTerminated === true) {
-        return false;
-      }
+                filtered = filtered.filter(c => {
+      // ✅ 1. Check for a completed termination leg in the trip legs
+      const hasCompletedTerminationLeg = (c.legs || []).some(
+        (l) => l.legType === 'termination' && (l.status === 'Completed' || l.status === 'Delivered')
+      );
 
-            // ✅ Use appointmentDate as fallback if deliveryDate is missing
-      const effectiveDeliveryDate = c.deliveryDate || c.appointmentDate;
+      // ✅ 2. Determine if it is completely finished and should be removed from the board
+      const isFinished =
+        c.isTerminated ||
+        c.status === 'Completed' ||
+        c.status === 'Paid' ||
+        c.status === 'Closed' ||
+        c.status === 'Ready for Billing' ||
+        hasCompletedTerminationLeg;
 
-      // ✅ HIDE TODAY'S DROPS COMPLETELY FROM TODAY'S BOARD
-      // If dropped today, it disappears from here and will show up on Tomorrow's Board for follow-up.
-      if ((c.isDelivered || c.isDroppedAtCustomer) && effectiveDeliveryDate && isSameDay(effectiveDeliveryDate, today)) {
-        return false;
-      }
+      if (isFinished) return false;
 
-      const isActuallyDelivered = c.isDelivered || c.isDroppedAtCustomer;
+      // ✅ 3. If it's dropped or ready for pickup, it STAYS on the board until terminated
+      const needsTermination = c.isDroppedAtCustomer || c.isReadyForPickup || c.workType === WORK_TYPES.PENDING_FOLLOWUP || c.workType === WORK_TYPES.BACKDATE_DROPPED;
 
-      const isBackdatedDrop = isActuallyDelivered && !c.isTerminated &&
-                              c.status !== 'Ready for Billing' &&
-                              effectiveDeliveryDate &&
-                              isSameDay(effectiveDeliveryDate, today) === false;
+      if (needsTermination) {
+        // If the user explicitly filters by a specific status, respect it
+        if (workTypeFilter === WORK_TYPES.PENDING_FOLLOWUP) return c.workType === WORK_TYPES.PENDING_FOLLOWUP;
+        if (workTypeFilter === WORK_TYPES.BACKDATE_DROPPED) return c.workType === WORK_TYPES.BACKDATE_DROPPED;
+        if (workTypeFilter === WORK_TYPES.TERMINATION) return c.workType === WORK_TYPES.TERMINATION;
 
-            let isBeforeToday = false;
-      if (isBackdatedDrop) {
-        try {
-          const d1 = new Date(effectiveDeliveryDate);
-          const d2 = new Date(today);
-          isBeforeToday = d1 < d2;
-        } catch (e) {
-          isBeforeToday = false;
+        // If filter is 'all', we SHOW IT so it stays on Today's Board
+        if (workTypeFilter === 'all') {
+          return true;
         }
+        return false;
       }
 
-      const isPendingFollowup = isActuallyDelivered && !c.isTerminated &&
-                                c.status !== 'Ready for Billing' &&
-                                effectiveDeliveryDate &&
-                                isSameDay(effectiveDeliveryDate, today);
-
-      // ✅ FIX: Hide Pending Follow-Up and Backdated from the main active grid.
-      // They will still appear in the top Alert Banners so dispatchers can plan the termination.
-      if (workTypeFilter === 'all') {
-        if (isBackdatedDrop && isBeforeToday) return false;
-        if (isPendingFollowup) return false;
-      }
-
-      // If the user explicitly filters to see them, keep them.
-      if (workTypeFilter === WORK_TYPES.BACKDATE_DROPPED) return isBackdatedDrop && isBeforeToday;
-      if (workTypeFilter === WORK_TYPES.PENDING_FOLLOWUP) return isPendingFollowup;
-
+      // ✅ 4. For normal active containers, check if they have an event today
       const hasAppointmentToday = isSameDay(c.appointmentDate, today);
       const hasPrepullToday = isSameDay(c.prepullDate, today) && c.isPrePull === true;
       const hasDeliveryToday = isSameDay(c.deliveryDate, today);
@@ -489,7 +492,7 @@ const DailyDispatchBoard = ({
       const hasLfdToday = isSameDay(c.lfdDate, today);
       const hasLegToday = (c.legs || []).some(leg => isSameDay(leg.legDate, today));
 
-      return hasAppointmentToday ||
+      const hasEventToday = hasAppointmentToday ||
              hasPrepullToday ||
              hasDeliveryToday ||
              hasReturnToday ||
@@ -498,6 +501,15 @@ const DailyDispatchBoard = ({
              hasReadyForPickupToday ||
              hasLfdToday ||
              hasLegToday;
+
+      if (!hasEventToday) return false;
+
+      // ✅ 5. Apply the specific filter for the rest
+      if (workTypeFilter !== 'all' && c.workType !== workTypeFilter) {
+        return false;
+      }
+
+      return true;
     });
 
     if (workTypeFilter !== 'all') {

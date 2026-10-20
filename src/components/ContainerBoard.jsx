@@ -70,21 +70,24 @@ const getSortPriority = (load) => {
 };
 
 // 👇 PASTE THE NEW FUNCTION HERE 👇
-// ────────────── DERIVE RAIL CARRIER ──────────────
+// ────────────── DERIVE RAIL CARRIER & LOCATION ──────────────
 const getRailCarrier = (load) => {
-  // 1. If explicitly saved in the DB, use it
-  if (load.railCarrier && load.railCarrier.trim() !== '') return load.railCarrier;
+  // 1. PRIORITIZE TERMINAL: Check the terminal field first to get the specific location
+  const terminal = (load.terminal || '').toUpperCase().trim();
   
-  // 2. Otherwise, extract it from the terminal name
-  const terminal = (load.terminal || '').toUpperCase();
-  
-  if (terminal.includes('CPKC') || /\bCP\b/.test(terminal)) return 'CPKC';
-  if (/\bCN\b/.test(terminal) || terminal.includes('CANADIAN NATIONAL')) return 'CN';
-  if (terminal.includes('BNSF')) return 'BNSF';
-  if (terminal.includes('UP') || terminal.includes('UNION PACIFIC')) return 'UP';
-  
-  // 3. Fallback: Show the first part of the terminal name, or a dash
-  return terminal ? terminal.split(' - ')[0] : '—';
+  if (terminal && terminal !== 'N/A' && terminal !== 'NONE') {
+    // Splits "CN EDMONTON - 12311 - 184th Street" and grabs "CN EDMONTON"
+    const shortTerminal = terminal.split(' - ')[0].trim();
+    if (shortTerminal) return shortTerminal;
+  }
+
+  // 2. FALLBACK: If terminal is empty, use the saved railCarrier
+  if (load.railCarrier && load.railCarrier.trim() !== '') {
+    return load.railCarrier;
+  }
+
+  // 3. Default
+  return '—';
 };
 // 👆 END OF NEW FUNCTION 👆
 

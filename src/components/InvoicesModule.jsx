@@ -1,5 +1,5 @@
 // src/components/InvoicesModule.jsx
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   FileText, Search, Plus, X, Send, Printer, Trash2, Edit3,
   Loader2, AlertCircle, CheckCircle, DollarSign, Mail, Paperclip,
@@ -81,73 +81,71 @@ const buildInvoiceHTML = (invoice, companyName, companyDetails, locationAddress,
   const addressStr = locationAddress
     || [companyDetails?.address, companyDetails?.city, companyDetails?.postalCode].filter(Boolean).join(', ');
 
-  const rowsHtml = (invoice.items || []).map(item =>
-    `<tr>
-      <td style="padding: 12px; border-bottom: 1px solid #e5e7eb;"><div style="font-weight: 700;">${item.item || 'Service'}</div>${item.details ? `<div style="font-size: 10px; color:#6b7280;">${item.details}</div>` : ''}</td>
-      <td style="padding: 12px; border-bottom: 1px solid #e5e7eb; text-align: center;">${item.qty || 1}</td>
-      <td style="padding: 12px; border-bottom: 1px solid #e5e7eb; text-align: center;">${item.uom || ''}</td>
-      <td style="padding: 12px; border-bottom: 1px solid #e5e7eb; text-align: right;">${currencySymbol}${safeFloat(item.rate).toFixed(2)}</td>
-      <td style="padding: 12px; border-bottom: 1px solid #e5e7eb; text-align: right; font-weight: 700;">${currencySymbol}${safeFloat(item.amount).toFixed(2)}</td>
-    </tr>`
-  ).join('');
+  let rowsHtml = '';
+  if (invoice.items && Array.isArray(invoice.items) && invoice.items.length > 0) {
+    invoice.items.forEach(item => {
+      if (safeFloat(item?.amount) > 0 || safeFloat(item?.rate) > 0) {
+        rowsHtml += `<tr><td style="padding: 12px; border-bottom: 1px solid #e5e7eb;"><div class="font-bold text-base">${item.item || 'Service Charge'}</div></td><td style="padding: 12px; border-bottom: 1px solid #e5e7eb; text-align: center;">${item.qty || 1}</td><td style="padding: 12px; border-bottom: 1px solid #e5e7eb; text-align: right;">${currencySymbol}${safeFloat(item.rate).toFixed(2)}</td><td style="padding: 12px; border-bottom: 1px solid #e5e7eb; text-align: right;" class="font-black text-base">${currencySymbol}${safeFloat(item.amount).toFixed(2)}</td></tr>`;
+      }
+    });
+  }
 
   return `
-    <div style="font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 12px; color: #111827; line-height: 1.4; width: 100%; box-sizing: border-box;">
-      <style>* { box-sizing: border-box; }</style>
-      <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+    <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 12px; color: #111827; background: #fff; line-height: 1.4; box-sizing: border-box; width: 100%;">
+      <style>
+        * { box-sizing: border-box; }
+        .flex { display: flex; }
+        .justify-between { justify-content: space-between; }
+        .items-start { align-items: flex-start; }
+        .gap-4 { gap: 16px; }
+        .w-1-2 { width: 50%; }
+        .text-right { text-align: right; }
+        .mb-8 { margin-bottom: 32px; }
+        .font-bold { font-weight: 700; }
+        .font-black { font-weight: 900; }
+        .text-blue { color: #1d4ed8; }
+        .text-gray { color: #9ca3af; }
+        .text-xs { font-size: 10px; text-transform: uppercase; font-weight: 800; letter-spacing: 0.5px; }
+        .text-base { font-size: 13px; }
+        .text-2xl { font-size: 26px; letter-spacing: -0.5px; }
+        .divider { border-bottom: 3px solid #111827; margin: 15px 0 25px 0; }
+        .section-title { font-weight: 900; font-size: 12px; color: #1f2937; margin-bottom: 12px; display: flex; align-items: center; }
+        .section-title::before { content: ''; display: inline-block; width: 4px; height: 14px; background-color: #1d4ed8; margin-right: 8px; }
+        .card { border: 1px solid #e5e7eb; border-radius: 6px; padding: 16px; background: #f9fafb; }
+        .meta-table { width: auto; margin-left: auto; border-collapse: collapse; }
+        .meta-table td { padding: 4px 8px; font-size: 11px; }
+        .meta-table .label { font-weight: 800; text-align: right; text-transform: uppercase; color: #4b5563; }
+        .meta-table .value { font-weight: 800; text-align: right; color: #111827; }
+        .invoice-table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        .invoice-table th { background: #f3f4f6; border-bottom: 2px solid #d1d5db; padding: 12px; text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: #4b5563;}
+        .invoice-table td { color: #111827; }
+        .totals-box { border: 1px solid #e5e7eb; border-radius: 6px; overflow: hidden; }
+        .totals-row { display: flex; justify-content: space-between; padding: 10px 16px; border-bottom: 1px solid #e5e7eb; }
+        .totals-row.grand { background: #1d4ed8; color: #fff; border-bottom: none; }
+        .totals-row.grand .label, .totals-row.grand .value { color: #fff; font-weight: 900; font-size: 16px; }
+      </style>
+      <div class="flex justify-between items-start">
+        <!-- LEFT SIDE: Company Info -->
         <div>
-          <div style="font-size: 26px; font-weight: 900; color: #1d4ed8; margin-bottom: 8px;">${companyName || 'Company'}</div>
-          <div style="color: #374151;">${addressStr}</div>
-          ${companyDetails?.phone ? `<div style="color: #374151;">Tel: ${companyDetails.phone}</div>` : ''}
-          ${companyDetails?.email ? `<div style="color: #374151;">Email: ${companyDetails.email}</div>` : ''}
+          <div class="text-2xl font-black text-blue mb-2">${companyName || 'Company Name'}</div>
+          ${addressStr ? `<div style="color: #374151; font-size: 11px; line-height: 1.4; font-weight: bold;">${addressStr}</div>` : ''}
+          ${companyDetails?.phone ? `<div style="color: #374151; font-size: 11px; line-height: 1.4; font-weight: bold;">Tel: ${companyDetails.phone}</div>` : ''}
+          ${companyDetails?.email ? `<div style="color: #374151; font-size: 11px; line-height: 1.4; font-weight: bold;">Email: ${companyDetails.email}</div>` : ''}
         </div>
-        <div style="text-align: right;">
-          <div style="font-size: 26px; font-weight: 900; color: #9ca3af; margin-bottom: 8px;">INVOICE</div>
-          <table style="border-collapse: collapse; margin-left: auto;">
-            <tr><td style="padding: 3px 8px; font-weight: 800; text-transform: uppercase; color: #4b5563;">INVOICE #</td><td style="padding: 3px 8px; font-weight: 800; text-align: right;">${invoice.invoiceNumber}</td></tr>
-            <tr><td style="padding: 3px 8px; font-weight: 800; text-transform: uppercase; color: #4b5563;">DATE</td><td style="padding: 3px 8px; font-weight: 800; text-align: right;">${invoice.invoiceDate}</td></tr>
-            <tr><td style="padding: 3px 8px; font-weight: 800; text-transform: uppercase; color: #4b5563;">DUE</td><td style="padding: 3px 8px; font-weight: 800; text-align: right;">${invoice.dueDate || 'On Receipt'}</td></tr>
-            <tr><td style="padding: 3px 8px; font-weight: 800; text-transform: uppercase; color: #4b5563;">TERMS</td><td style="padding: 3px 8px; font-weight: 800; text-align: right;">${invoice.paymentTerms || 'NET 30'}</td></tr>
-          </table>
-        </div>
+        
+        <!-- RIGHT SIDE: Logo and Invoice Details -->
+        <div class="text-right">
+          ${companyDetails?.logoUrl ? `<img src="${companyDetails.logoUrl}" style="max-height: 70px; max-width: 220px; margin-bottom: 10px; margin-left: auto; display: block;" alt="Company Logo" crossorigin="anonymous" />` : ''}
+          <div class="text-2xl font-black text-gray mb-2">INVOICE</div>
+          <table class="meta-table"><tr><td class="label">INVOICE #</td><td class="value">${invoice.invoiceNumber}</td></tr><tr><td class="label">DATE</td><td class="value">${invoice.invoiceDate || new Date().toISOString().split('T')[0]}</td></tr><tr><td class="label">PO #</td><td class="value">${invoice.poNumber || 'N/A'}</td></tr><tr><td class="label">CURRENCY</td><td class="value">${invoice.currency || 'CAD'}</td></tr><tr><td class="label">TERMS</td><td class="value">${invoice.paymentTerms || 'Due on Receipt'}</td></tr></table></div>
       </div>
-      <div style="border-bottom: 3px solid #111827; margin: 15px 0 25px;"></div>
-      <div style="display: flex; gap: 16px; margin-bottom: 32px;">
-        <div style="width: 50%;">
-          <div style="font-weight: 900; font-size: 12px; color: #1f2937; margin-bottom: 8px;">BILL TO</div>
-          <div style="border: 1px solid #e5e7eb; border-radius: 6px; padding: 16px; background: #f9fafb;">
-            <div style="font-weight: 900; font-size: 14px;">${invoice.billTo || invoice.customerName || 'N/A'}</div>
-            <div style="color: #374151; line-height: 1.5; margin-top: 4px;">${invoice.customerAddress || ''}</div>
-          </div>
-        </div>
-        <div style="width: 50%;">
-          <div style="font-weight: 900; font-size: 12px; color: #1f2937; margin-bottom: 8px;">SHIPMENT</div>
-          <div style="border: 1px solid #e5e7eb; border-radius: 6px; padding: 16px; background: #f9fafb; display: flex; gap: 12px; flex-wrap: wrap;">
-            <div style="width: 45%;"><div style="font-size: 10px; color:#6b7280; text-transform: uppercase; font-weight: 800;">Container</div><div style="font-weight: 700;">${invoice.containerNo || '—'}</div></div>
-            <div style="width: 45%;"><div style="font-size: 10px; color:#6b7280; text-transform: uppercase; font-weight: 800;">WO #</div><div style="font-weight: 700;">${invoice.workOrderNo || '—'}</div></div>
-          </div>
-        </div>
+      <div class="divider"></div>
+      <div class="flex gap-4 mb-8">
+        <div class="w-1-2"><div class="section-title">BILL TO</div><div class="card" style="height: 120px; background: #fff;"><div class="font-black text-base mb-1">${invoice.billTo || invoice.customerName || 'N/A'}</div><div style="color: #374151; line-height: 1.5;">${invoice.customerAddress || 'Address on file'}</div><div style="color: #374151; margin-top: 4px;">${invoice.customerEmail || ''}</div></div></div>
+        <div class="w-1-2"><div class="section-title">SHIPMENT SUMMARY</div><div class="card flex" style="height: 120px; flex-wrap: wrap; gap: 15px;"><div style="width: 45%;"><div class="text-xs" style="color: #6b7280;">CONTAINER #</div><div class="font-bold">${invoice.containerNo || 'N/A'}</div></div><div style="width: 45%;"><div class="text-xs" style="color: #6b7280;">SIZE / TYPE</div><div class="font-bold">${invoice.size || 'N/A'}</div></div><div style="width: 45%;"><div class="text-xs" style="color: #6b7280;">WEIGHT</div><div class="font-bold">${invoice.weight || 'N/A'}</div></div><div style="width: 45%;"><div class="text-xs" style="color: #6b7280;">REF NO</div><div class="font-bold">${invoice.customerRefNo || 'N/A'}</div></div></div></div>
       </div>
-      <table style="width: 100%; border-collapse: collapse; margin-top: 20px;">
-        <thead>
-          <tr style="background: #f3f4f6; border-bottom: 2px solid #d1d5db;">
-            <th style="padding: 12px; text-align: left; font-size: 10px; text-transform: uppercase; color: #4b5563;">Description</th>
-            <th style="padding: 12px; text-align: center; font-size: 10px; text-transform: uppercase; color: #4b5563;">Qty</th>
-            <th style="padding: 12px; text-align: center; font-size: 10px; text-transform: uppercase; color: #4b5563;">UOM</th>
-            <th style="padding: 12px; text-align: right; font-size: 10px; text-transform: uppercase; color: #4b5563;">Rate</th>
-            <th style="padding: 12px; text-align: right; font-size: 10px; text-transform: uppercase; color: #4b5563;">Amount</th>
-          </tr>
-        </thead>
-        <tbody>${rowsHtml}</tbody>
-      </table>
-      <div style="display: flex; justify-content: flex-end; margin-top: 24px;">
-        <div style="width: 260px; border: 1px solid #e5e7eb; border-radius: 6px; overflow: hidden;">
-          <div style="display: flex; justify-content: space-between; padding: 10px 16px; border-bottom: 1px solid #e5e7eb;"><span style="font-weight: 700; color:#4b5563;">Subtotal</span><span style="font-weight: 700;">${currencySymbol}${safeFloat(invoice.subtotal).toFixed(2)}</span></div>
-          <div style="display: flex; justify-content: space-between; padding: 10px 16px; border-bottom: 1px solid #e5e7eb;"><span style="font-weight: 700; color:#4b5563;">Taxes</span><span style="font-weight: 700;">${currencySymbol}${safeFloat(invoice.taxes).toFixed(2)}</span></div>
-          <div style="display: flex; justify-content: space-between; padding: 10px 16px; background: #1d4ed8; color: #fff;"><span style="font-weight: 900; font-size: 16px;">TOTAL DUE</span><span style="font-weight: 900; font-size: 16px;">${currencySymbol}${safeFloat(invoice.total).toFixed(2)}</span></div>
-        </div>
-      </div>
-      <div style="margin-top: 40px; text-align: center; font-size: 10px; color: #9ca3af;">${companyName || ''} — ${new Date().toLocaleString()}</div>
+      <table class="invoice-table"><thead><tr><th style="width: 50%;">Description</th><th style="width: 15%; text-align: center;">Qty</th><th style="width: 15%; text-align: right;">Rate</th><th style="width: 20%; text-align: right;">Amount</th></tr></thead><tbody>${rowsHtml || `<tr><td style="padding: 12px; border-bottom: 1px solid #e5e7eb;"><div class="font-bold text-base">Freight Charge</div></td><td style="padding: 12px; border-bottom: 1px solid #e5e7eb; text-align: center;">1</td><td style="padding: 12px; border-bottom: 1px solid #e5e7eb; text-align: right;">${currencySymbol}${safeFloat(invoice.total).toFixed(2)}</td><td style="padding: 12px; border-bottom: 1px solid #e5e7eb; text-align: right;" class="font-black text-base">${currencySymbol}${safeFloat(invoice.total).toFixed(2)}</td></tr>`}</tbody></table>
+      <div class="flex justify-between" style="margin-top: 30px; align-items: flex-start;"><div style="width: 50%; color: #6b7280; font-size: 11px; padding-right: 20px;"><p>Thank you for your business.</p><p>Please include invoice number on your check or remittance advice.</p></div><div style="width: 40%;"><div class="totals-box"><div class="totals-row"><span class="label font-bold" style="color: #4b5563;">Subtotal</span><span class="value font-bold">${currencySymbol}${safeFloat(invoice.subtotal).toFixed(2)}</span></div><div class="totals-row"><span class="label font-bold" style="color: #4b5563;">Tax (0%)</span><span class="value font-bold">${currencySymbol}${safeFloat(invoice.taxes).toFixed(2)}</span></div><div class="totals-row grand"><span class="label">TOTAL DUE</span><span class="value">${currencySymbol}${safeFloat(invoice.total).toFixed(2)}</span></div></div></div></div>
     </div>
   `;
 };
@@ -157,8 +155,8 @@ const generateInvoicePDFBlob = async (invoice, companyName, companyDetails, loca
   const html = buildInvoiceHTML(invoice, companyName, companyDetails, locationAddress, currencySymbol);
   const element = document.createElement('div');
   element.innerHTML = DOMPurify.sanitize(html, {
-    ALLOWED_TAGS: ['div','span','style','table','thead','tbody','tr','td','th','p','strong','b','i','em','br','hr'],
-    ALLOWED_ATTR: ['style','colspan','rowspan','align','border','cellpadding']
+    ALLOWED_TAGS: ['div','span','style','table','thead','tbody','tr','td','th','p','strong','b','i','em','br','hr','img'],
+    ALLOWED_ATTR: ['class','style','src','alt','crossorigin','colspan','rowspan','align','border','cellpadding']
   });
   const opt = {
     margin: 0.4,
@@ -196,6 +194,7 @@ const InvoicesModule = ({
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [bulkProgress, setBulkProgress] = useState(null);
   const [sendingBatchFor, setSendingBatchFor] = useState(null);
+  const pendingAutoCreateRef = useRef(null); 
 
   // ---- Listen to invoices ----
   useEffect(() => {
@@ -215,7 +214,7 @@ const InvoicesModule = ({
     return () => unsub();
   }, [companyId]);
 
-  // ---- Listen to loads (approved + invoiced only, for NewInvoiceModal) ----
+  // ---- Listen to loads ----
   useEffect(() => {
     if (!companyId) return;
     const q = query(
@@ -239,15 +238,47 @@ const InvoicesModule = ({
     return () => unsub();
   }, [companyId]);
 
-  // ✅ Auto-open invoice when navigating from History tab
+      // ✅ Auto-open invoice when navigating from History or Billing tab
   useEffect(() => {
-    if (!pendingLoadId || invoices.length === 0) return;
-    const inv = invoices.find(i => i.loadId === pendingLoadId);
-    if (inv) {
-      setSelectedInvoice(inv);
-      onPendingLoadConsumed?.();
+    if (!pendingLoadId) {
+      pendingAutoCreateRef.current = null;
+      return;
     }
-  }, [pendingLoadId, invoices, onPendingLoadConsumed]);
+
+    // ✅ Automatically switch the filter to show all invoices so it doesn't get hidden
+    setStatusFilter('all');
+
+    // 1. Try to find the invoice in the invoices list
+    const existingInvoice = invoices.find(i => i.loadId === pendingLoadId);
+    if (existingInvoice) {
+      setSelectedInvoice(existingInvoice);
+      onPendingLoadConsumed?.();
+      return;
+    }
+
+    // 2. If not found, check if the load exists and needs the invoice generated
+    if (loads.length > 0) {
+      const load = loads.find(l => l.id === pendingLoadId);
+      
+      if (load && load.billingApproved) {
+        // Check if we already tried to create it for this specific loadId
+        if (pendingAutoCreateRef.current !== pendingLoadId) {
+          pendingAutoCreateRef.current = pendingLoadId;
+          setFeedback?.('⏳ Recovering missing invoice record...');
+          
+          handleCreateInvoice(pendingLoadId).then((newInvoiceId) => {
+             if (!newInvoiceId) {
+               onPendingLoadConsumed?.();
+             }
+          }).catch(() => {
+             onPendingLoadConsumed?.();
+          });
+        }
+      } else {
+        onPendingLoadConsumed?.();
+      }
+    }
+  }, [pendingLoadId, invoices, loads, onPendingLoadConsumed]); 
 
   const filtered = useMemo(() => {
     let list = [...invoices];
@@ -281,7 +312,6 @@ const InvoicesModule = ({
     return { total, draft, sent, paid, overdue, totalAmount };
   }, [invoices]);
 
-  // ✅ Group pending invoices by customer (only customers with 2+ pending)
   const customerBatches = useMemo(() => {
     const groups = {};
     invoices
@@ -390,6 +420,11 @@ const InvoicesModule = ({
         billingApprovedAt: load.billingApprovedAt || null,
         createdAt: new Date().toISOString(),
         createdBy: userEmail || 'N/A',
+        // ✅ COPY MISSING FIELDS FROM LOAD FOR PDF
+        poNumber: load.poNumber || 'N/A',
+        size: load.size || 'N/A',
+        weight: load.weight || 'N/A',
+        customerRefNo: load.customerRefNo || 'N/A',
       };
 
       const ref = await addDoc(collection(db, 'companies', companyId, 'invoices'), newInvoice);
@@ -453,7 +488,6 @@ const InvoicesModule = ({
     }
   };
 
-  // ---- SEND SINGLE INVOICE (used by both single + bulk) ----
   const sendSingleInvoice = async (inv, { silent = false } = {}) => {
     let locationAddress = null;
     if (inv.loadId) {
@@ -534,7 +568,6 @@ const InvoicesModule = ({
     return { success: true, invoiceNumber: inv.invoiceNumber };
   };
 
-  // ---- BULK SEND (parallel) ----
   const handleBulkSend = async () => {
     const selected = invoices.filter(inv => selectedIds.has(inv.id));
     if (selected.length === 0) {
@@ -594,7 +627,6 @@ const InvoicesModule = ({
     setFeedback?.(`✅ Bulk send complete: ${sent} sent, ${failed} failed`);
   };
 
-  // ✅ FAST — Send every pending invoice for one customer in parallel
   const sendAllForCustomer = async (batch) => {
     const customerName = batch.customerName;
 

@@ -166,7 +166,6 @@ const ExportBatchesModule = ({
   }, [companyId]);
 
   // ---- Eligible invoices: any invoice that hasn't been batched yet ----
-  // ✅ Includes Draft, Sent, Paid, Overdue — everything except Cancelled.
   const eligibleInvoices = useMemo(() => {
     const batchedIds = new Set();
     batches.forEach(b => {
@@ -280,13 +279,19 @@ const ExportBatchesModule = ({
     }
   };
 
-  // ---- Delete batch ----
+  // ---- Delete Batch (with Invoice Cleanup Option) ----
   const handleDeleteBatch = async (batch) => {
-    if (!window.confirm(
+    const confirmDelete = window.confirm(
       `Delete batch ${batch.batchNumber}?\n\n` +
-      `This will UN-mark the ${batch.invoiceCount} invoices in it, so they can be re-batched.\n` +
-      `This does NOT delete the invoices themselves.`
-    )) return;
+      `This will UN-mark the ${batch.invoiceCount} invoices in it, so they can be re-batched.`
+    );
+    if (!confirmDelete) return;
+
+    const deleteInvoicesAlso = window.confirm(
+      `⚠️ IMPORTANT:\n\nDo you ALSO want to permanently DELETE the ${batch.invoiceCount} invoice(s) inside this batch?\n\n` +
+      `Click OK to DELETE the invoices from the system too.\n` +
+      `Click CANCEL to keep the invoices (they will go back to the "Eligible to Batch" list).`
+    );
 
     try {
       if (batch.loadIds && batch.loadIds.length > 0) {
@@ -302,11 +307,38 @@ const ExportBatchesModule = ({
         await firestoreBatch.commit();
       }
 
+      // Delete the batch itself
       await deleteDoc(doc(db, 'companies', companyId, 'exportBatches', batch.id));
-      setFeedback?.(`✅ Batch ${batch.batchNumber} deleted`);
+
+      // If they selected OK on the second prompt, delete the invoices too
+      if (deleteInvoicesAlso && batch.invoices && batch.invoices.length > 0) {
+        const invoiceBatch = writeBatch(db);
+        batch.invoices.forEach(inv => {
+          if (inv.invoiceId) {
+            const invRef = doc(db, 'companies', companyId, 'invoices', inv.invoiceId);
+            invoiceBatch.delete(invRef);
+          }
+        });
+        await invoiceBatch.commit();
+        setFeedback?.(`✅ Batch deleted AND ${batch.invoiceCount} invoices permanently removed`);
+      } else {
+        setFeedback?.(`✅ Batch ${batch.batchNumber} deleted (invoices kept)`);
+      }
     } catch (err) {
       console.error('Delete batch error:', err);
       setFeedback?.('❌ Failed to delete batch: ' + err.message);
+    }
+  };
+
+  // ---- Delete Individual Invoice (for cleaning up test data) ----
+  const handleDeleteInvoice = async (invoiceId) => {
+    if (!window.confirm("Are you sure you want to PERMANENTLY delete this invoice?\nThis cannot be undone.")) return;
+    try {
+      await deleteDoc(doc(db, 'companies', companyId, 'invoices', invoiceId));
+      setFeedback?.('✅ Invoice permanently deleted');
+    } catch (err) {
+      console.error("Delete invoice error:", err);
+      setFeedback?.('❌ Failed to delete invoice: ' + err.message);
     }
   };
 
@@ -479,6 +511,7 @@ const ExportBatchesModule = ({
           eligibleInvoices={eligibleInvoices}
           onClose={() => setShowCreateModal(false)}
           onCreate={handleCreateBatch}
+          onDeleteInvoice={handleDeleteInvoice}
           companyName={companyName}
         />
       )}
@@ -496,7 +529,7 @@ const ExportBatchesModule = ({
 };
 
 // ---------- CREATE BATCH MODAL ----------
-const CreateBatchModal = ({ eligibleInvoices, onClose, onCreate, companyName }) => {
+const CreateBatchModal = ({ eligibleInvoices, onClose, onCreate, onDeleteInvoice, companyName }) => {
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [batchDate, setBatchDate] = useState(getTodayStr());
   const [notes, setNotes] = useState('');
@@ -623,6 +656,7 @@ const CreateBatchModal = ({ eligibleInvoices, onClose, onCreate, companyName }) 
                   <th className="px-3 py-3">Date</th>
                   <th className="px-3 py-3">Status</th>
                   <th className="px-3 py-3 text-right">Total</th>
+                  <th className="px-3 py-3 text-center">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -655,6 +689,18 @@ const CreateBatchModal = ({ eligibleInvoices, onClose, onCreate, companyName }) 
                     </td>
                     <td className="px-3 py-3 text-right font-bold text-emerald-700">
                       {formatCurrency(inv.total, inv.currency)}
+                    </td>
+                    <td className="px-3 py-3 text-center">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDeleteInvoice && onDeleteInvoice(inv.id);
+                        }}
+                        className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                        title="Delete Invoice Permanently"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </td>
                   </tr>
                 ))}
