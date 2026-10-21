@@ -228,8 +228,7 @@ const sanitizeInput = (input) => {
   return input
     .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
     .replace(/javascript:/gi, '')
-    .replace(/on\w+=/gi, '')
-    .trim();
+    .replace(/on\w+=/gi, '');
 };
 
 const isValidEmail = (email) => {
@@ -1835,8 +1834,9 @@ const LoadForm = ({
   dataSharingMode,
   companyLocations = [],
   companyTerminals = [],
-  companyName,       // ✅ ADD THIS
-  companyDetails,    // ✅ ADD THIS
+  companyName,
+  companyDetails,
+  downloadDocument, // ✅ ADD THIS
 }) => {
   // ===== DEBUG: LOG BASE PRICES =====
   useEffect(() => {
@@ -1854,6 +1854,11 @@ const LoadForm = ({
   const [selectedTemplate, setSelectedTemplate] = useState('');
   const [showTemplateDropdown, setShowTemplateDropdown] = useState(false);
   const [activeStep, setActiveStep] = useState('step1');
+  useEffect(() => {
+  if (isOpen) {
+    setActiveStep('step1');
+  }
+}, [isOpen, initialData]);
   const [editingLegId, setEditingLegId] = useState(null); // ✅ Replaces expandedLegId
   const [isSaving, setIsSaving] = useState(false); // ✅ Prevent double submit
 
@@ -1960,8 +1965,11 @@ const LoadForm = ({
   }, []);
  
   const addRevenueItem = useCallback(() => {
-    setFormData(prev => ({ ...prev, revenueItems: [...(prev.revenueItems || []), { id: Date.now().toString(), item: '', qty: 1, rate: '', amount: '' }] }));
-  }, []);
+  setFormData(prev => ({ 
+    ...prev, 
+    revenueItems: [...(prev.revenueItems || []), { id: Date.now().toString(), item: '', details: '', qty: 1, rate: '', amount: '' }] 
+  }));
+}, []);
  
   const addExpenseItem = useCallback(() => {
     setFormData(prev => ({ ...prev, expenseItems: [...(prev.expenseItems || []), { id: Date.now().toString(), item: '', qty: 1, rate: '', amount: '' }] }));
@@ -2051,6 +2059,16 @@ const LoadForm = ({
   }, [formData.customerName, companyId]);
 
   // ===== HANDLERS =====
+
+    // ✅ Auto-formats "1620" to "16:20"
+  const formatTimeString = (value) => {
+    let cleaned = String(value).replace(/\D/g, '').slice(0, 4);
+    if (cleaned.length > 2) {
+      return `${cleaned.slice(0, 2)}:${cleaned.slice(2)}`;
+    }
+    return cleaned;
+  };
+
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: sanitizeInput(value) }));
@@ -2108,24 +2126,46 @@ const LoadForm = ({
   };
 
   const updateLeg = (id, field, value) => {
-    if (field === 'driverName') {
-      const selectedDriver = savedDrivers.find(d => d.name === value);
-      setFormData(prev => ({
-        ...prev,
-        legs: (prev.legs || []).map(leg => {
-          if (leg.id === id) {
-            const updatedLeg = { ...leg, driverName: sanitizeInput(value) };
-            if (selectedDriver) {
-              updatedLeg.truckNo = selectedDriver.truckNo || '';
-              updatedLeg.payRate = selectedDriver.payRate || 0;
-              updatedLeg.payType = selectedDriver.payType || 'flat';
-              updatedLeg.driverType = selectedDriver.type || 'Company Driver';
-              updatedLeg.fuelEfficiency = selectedDriver.fuelEfficiency || null;
-              const calculated = calculateLegCost(
-                updatedLeg,
-                leg.totalDistance || 0,
-                leg.totalHours || 0
-              );
+  if (field === 'driverName') {
+    const selectedDriver = savedDrivers.find(d => d.name === value);
+    setFormData(prev => ({
+      ...prev,
+      legs: (prev.legs || []).map(leg => {
+        if (leg.id === id) {
+          const updatedLeg = { ...leg, driverName: sanitizeInput(value) };
+          
+          if (selectedDriver) {
+            updatedLeg.truckNo = selectedDriver.truckNo || '';
+            updatedLeg.payRate = selectedDriver.payRate || 0;
+            updatedLeg.payType = selectedDriver.payType || 'flat';
+            updatedLeg.driverType = selectedDriver.type || 'Company Driver';
+            updatedLeg.fuelEfficiency = selectedDriver.fuelEfficiency || null;
+
+            // ✅ NEW LOGIC: Owner Operator Location-Based Pricing
+            if (selectedDriver.type === 'Owner Operator') {
+              const destName = (leg.to || '').toLowerCase();
+              const originName = (leg.from || '').toLowerCase();
+              let matchedBasePrice = null;
+
+              if (savedBasePrices) {
+                // Try to find a matching base price for the destination or origin
+                matchedBasePrice = savedBasePrices.find(bp => {
+                  const bpLoc = (bp.location || '').toLowerCase();
+                  return bpLoc && (destName.includes(bpLoc) || bpLoc.includes(destName) || originName.includes(bpLoc));
+                });
+              }
+
+                            if (matchedBasePrice && matchedBasePrice.price) {
+                updatedLeg.driverPay = matchedBasePrice.price; // Auto-fill with location price (e.g., $350)
+              } else {
+                updatedLeg.driverPay = selectedDriver.payRate || 0; // Fallback to default ($100)
+              }
+            } else if (selectedDriver.type === 'Third-Party Driver') {
+              // ✅ NEW: Set base cost to their default flat rate (e.g. $300)
+              updatedLeg.driverPay = selectedDriver.payRate || 0;
+            } else {
+              // Company Driver logic
+              const calculated = calculateLegCost(updatedLeg, leg.totalDistance || 0, leg.totalHours || 0);
               if (calculated) {
                 updatedLeg.driverPay = calculated.driverWage;
                 updatedLeg.fuelCost = calculated.fuelCost;
@@ -2133,37 +2173,47 @@ const LoadForm = ({
                 updatedLeg.costBreakdown = calculated.breakdown;
               }
             }
-            return updatedLeg;
           }
-          return leg;
-        })
-      }));
-    } else {
-      setFormData(prev => ({
-        ...prev,
-        legs: (prev.legs || []).map(leg => {
-          if (leg.id === id) {
-            const updatedLeg = { ...leg, [field]: sanitizeInput(value) };
-            if (['totalDistance', 'totalHours', 'fuelPrice', 'driverPay', 'fuelCost'].includes(field)) {
-              const calculated = calculateLegCost(
-                updatedLeg,
-                updatedLeg.totalDistance || 0,
-                updatedLeg.totalHours || 0
-              );
-              if (calculated && updatedLeg.driverType && updatedLeg.driverType !== 'Not Set') {
-                updatedLeg.driverPay = calculated.driverWage;
-                updatedLeg.fuelCost = calculated.fuelCost;
-                updatedLeg.calculatedCost = calculated.total;
-                updatedLeg.costBreakdown = calculated.breakdown;
-              }
-            }
-            return updatedLeg;
+          return updatedLeg;
+        }
+        return leg;
+      })
+    }));
+  } else {
+    setFormData(prev => ({
+      ...prev,
+      legs: (prev.legs || []).map(leg => {
+        if (leg.id === id) {
+          const updatedLeg = { ...leg, [field]: sanitizeInput(value) };
+          
+          // ✅ NEW LOGIC: If the address changes, re-check the Owner Operator price
+          if (['from', 'to'].includes(field) && updatedLeg.driverType === 'Owner Operator') {
+             const destName = (updatedLeg.to || '').toLowerCase();
+             const originName = (updatedLeg.from || '').toLowerCase();
+             let matched = null;
+             if (savedBasePrices) {
+               matched = savedBasePrices.find(bp => {
+                 const bpLoc = (bp.location || '').toLowerCase();
+                 return bpLoc && (destName.includes(bpLoc) || bpLoc.includes(destName) || originName.includes(bpLoc));
+               });
+             }
+             if (matched && matched.price) updatedLeg.driverPay = matched.price;
+          } else if (['totalDistance', 'totalHours', 'fuelPrice'].includes(field) && updatedLeg.driverType === 'Company Driver') {
+             const calculated = calculateLegCost(updatedLeg, updatedLeg.totalDistance || 0, updatedLeg.totalHours || 0);
+             if (calculated && updatedLeg.driverType && updatedLeg.driverType !== 'Not Set') {
+               updatedLeg.driverPay = calculated.driverWage;
+               updatedLeg.fuelCost = calculated.fuelCost;
+               updatedLeg.calculatedCost = calculated.total;
+               updatedLeg.costBreakdown = calculated.breakdown;
+             }
           }
-          return leg;
-        })
-      }));
-    }
-  };
+          return updatedLeg;
+        }
+        return leg;
+      })
+    }));
+  }
+};
 
   const updateMultipleLegFields = (legId, updates) => {
     setFormData(prev => ({
@@ -2615,37 +2665,24 @@ const LoadForm = ({
           </h2>
                     <div className="flex items-center gap-3">
             
-            {/* ✅ NEW: DOWNLOAD POD BUTTONS */}
-            {formData.signedPodDoc?.url ? (
-              <a
-                href={formData.signedPodDoc.url}
-                download={formData.signedPodDoc.name || 'POD.pdf'}
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center gap-1.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 px-3 py-1.5 rounded-lg font-bold text-xs transition-colors border border-emerald-200 shadow-sm"
-                title="Download Uploaded POD"
-              >
-                <Download className="w-3.5 h-3.5" /> Download POD
-              </a>
-            ) : (
-              <button
-                type="button"
-                onClick={() => {
-                  const effectiveDetails = {
-                    ...companyDetails,
-                    address: companyDetails?.address || companyLocations?.[0]?.address || '',
-                    city: companyDetails?.city || companyLocations?.[0]?.city || '',
-                    province: companyDetails?.province || companyLocations?.[0]?.province || '',
-                    postalCode: companyDetails?.postalCode || companyLocations?.[0]?.postalCode || '',
-                  };
-                  downloadPOD(formData, formData.legs?.[0], setFeedback, companyName || 'Company', effectiveDetails, null);
-                }}
-                className="flex items-center gap-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 px-3 py-1.5 rounded-lg font-bold text-xs transition-colors border border-blue-200 shadow-sm"
-                title="Generate & Download POD from form data"
-              >
-                <FileDown className="w-3.5 h-3.5" /> Generate POD
-              </button>
-            )}
+                        {/* ✅ ALWAYS SHOW GENERATE POD BUTTON */}
+            <button
+              type="button"
+              onClick={() => {
+                const effectiveDetails = {
+                  ...companyDetails,
+                  address: companyDetails?.address || companyLocations?.[0]?.address || '',
+                  city: companyDetails?.city || companyLocations?.[0]?.city || '',
+                  province: companyDetails?.province || companyLocations?.[0]?.province || '',
+                  postalCode: companyDetails?.postalCode || companyLocations?.[0]?.postalCode || '',
+                };
+                downloadPOD(formData, formData.legs?.[0], setFeedback, companyName || 'Company', effectiveDetails, null);
+              }}
+              className="flex items-center gap-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 px-3 py-1.5 rounded-lg font-bold text-xs transition-colors border border-blue-200 shadow-sm"
+              title="Generate & Download POD from form data"
+            >
+              <FileDown className="w-3.5 h-3.5" /> Generate POD
+            </button>
 
             <div className="flex flex-col">
               <select
@@ -2764,9 +2801,15 @@ const LoadForm = ({
                     </select>
                   </div>
                   <div>
-                    <label className="text-[10px] font-black text-slate-700 uppercase block mb-1">Weight</label>
-                    <input name="weight" value={formData.weight || ''} onChange={handleChange} className="w-full px-3 py-2 bg-white border-2 border-slate-300 rounded-xl font-bold text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all" placeholder="lbs" />
-                  </div>
+  <label className="text-[10px] font-black text-slate-700 uppercase block mb-1">Weight</label>
+  <div className="flex gap-1">
+    <input name="weight" value={formData.weight || ''} onChange={handleChange} className="w-full px-3 py-2 bg-white border-2 border-slate-300 rounded-l-xl font-bold text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all" placeholder="Weight..." />
+    <select name="weightUnit" value={formData.weightUnit || 'lbs'} onChange={handleChange} className="px-2 py-2 bg-white border-2 border-l-0 border-slate-300 rounded-r-xl font-bold text-sm text-slate-900 outline-none focus:border-blue-500 transition-all cursor-pointer">
+      <option value="lbs">lbs</option>
+      <option value="kg">kg</option>
+    </select>
+  </div>
+</div>
                   <div>
                     <label className="text-[10px] font-black text-slate-700 uppercase block mb-1">Seal No.</label>
                     <input name="sealNumber" value={formData.sealNumber || ''} onChange={handleChange} className="w-full px-3 py-2 bg-white border-2 border-slate-300 rounded-xl font-bold text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all" />
@@ -2868,13 +2911,8 @@ const LoadForm = ({
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="flex gap-2">
                     <input type="date" name="appointmentDate" value={formData.appointmentDate} onChange={handleChange} className="flex-1 px-3 py-2 bg-white border-2 border-orange-200 rounded-xl font-bold text-sm text-orange-800 outline-none focus:border-orange-500" />
-                    <input type="time" name="appointmentTime" value={formData.appointmentTime || ''} onChange={handleChange} className="flex-1 px-3 py-2 bg-white border-2 border-orange-200 rounded-xl font-bold text-sm text-orange-800 outline-none focus:border-orange-500" />
-                  </div>
-                  <div className="grid grid-cols-4 gap-2">
-                    {['09:00', '10:00', '11:00', '14:00', '15:00', '16:00', '17:00', '18:00'].map((time) => (
-                      <button key={time} type="button" onClick={() => handleChange({ target: { name: 'appointmentTime', value: time } })} className={`px-2 py-1.5 text-xs font-black rounded-lg border-2 transition-all ${formData.appointmentTime === time ? 'bg-orange-600 text-white border-orange-600 shadow-sm' : 'bg-white border-orange-200 text-orange-700 hover:bg-orange-100'}`}>{time}</button>
-                    ))}
-                  </div>
+<input type="text" placeholder="HH:MM" name="appointmentTime" value={formData.appointmentTime || ''} onChange={(e) => setFormData(prev => ({ ...prev, appointmentTime: formatTimeString(e.target.value) }))} className="flex-1 px-3 py-2 bg-white border-2 border-orange-200 rounded-xl font-bold text-sm text-orange-800 outline-none focus:border-orange-500" />                  </div>
+
                 </div>
               </div>
             </div>
@@ -3050,15 +3088,48 @@ const LoadForm = ({
                     <button type="button" onClick={addRevenueItem} className="text-[10px] font-black text-white bg-blue-600 hover:bg-blue-700 px-3 py-1 rounded-lg transition-colors" disabled={isFinancialLocked}>+ Add Item</button>
                   </div>
                   {(formData.revenueItems || []).map((item) => (
+  <div key={item.id} className="flex flex-col gap-2 p-3 bg-white rounded-xl border border-slate-200 shadow-sm">
+    <div className="flex gap-2 items-center">
+      <input disabled={isFinancialLocked} value={item.item} onChange={e => handleLineItemChange('revenue', item.id, 'item', e.target.value)} placeholder="Description" className="flex-1 px-3 py-2 bg-white border-2 border-slate-300 rounded-xl text-sm font-bold text-slate-900 outline-none focus:border-blue-500" list="basePriceLocations" />
+      <input disabled={isFinancialLocked} type="number" value={item.qty} onChange={e => handleLineItemChange('revenue', item.id, 'qty', e.target.value)} placeholder="Qty" className="w-16 px-2 py-2 bg-white border-2 border-slate-300 rounded-xl text-sm font-bold text-center outline-none focus:border-blue-500" />
+      <input disabled={isFinancialLocked} type="number" value={item.rate} onChange={e => handleLineItemChange('revenue', item.id, 'rate', e.target.value)} placeholder="Rate" className="w-24 px-2 py-2 bg-white border-2 border-slate-300 rounded-xl text-sm font-bold text-right outline-none focus:border-blue-500" />
+      <input disabled={isFinancialLocked} type="number" value={item.amount} onChange={e => handleLineItemChange('revenue', item.id, 'amount', e.target.value)} placeholder="Amt" className="w-24 px-2 py-2 bg-green-50 border-2 border-green-300 rounded-xl text-sm font-black text-green-800 text-right outline-none focus:border-green-500" />
+      <button type="button" disabled={isFinancialLocked} onClick={() => removeRevenueItem(item.id)} className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg"><Trash2 className="w-4 h-4" /></button>
+    </div>
+    
+    {/* ✅ NEW: Notes field for the invoice */}
+    <input 
+      disabled={isFinancialLocked} 
+      value={item.details || ''} 
+      onChange={e => handleLineItemChange('revenue', item.id, 'details', e.target.value)} 
+      placeholder="Add invoice notes here (e.g., 1 hour wait time at delivery)..." 
+      className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-600 outline-none focus:border-blue-500" 
+    />
+  </div>
+))}
+                  <datalist id="basePriceLocations">{savedBasePrices?.map((bp, i) => (<option key={bp.id || 'bp-' + i} value={bp.location}></option>))}</datalist>
+                </div>
+
+                {/* ✅ NEW: EXPENSES / DRIVER COSTS */}
+                <div className="space-y-3 mt-4 pt-4 border-t border-slate-200">
+                  <div className="flex justify-between items-center">
+                    <label className="text-[10px] font-black text-red-600 uppercase tracking-wider flex items-center gap-1">
+                      <Wallet className="w-3.5 h-3.5" /> Expenses (Driver / Other)
+                    </label>
+                    <button type="button" onClick={addExpenseItem} className="text-[10px] font-black text-white bg-red-600 hover:bg-red-700 px-3 py-1 rounded-lg transition-colors" disabled={isFinancialLocked}>+ Add Expense</button>
+                  </div>
+                  {(formData.expenseItems || []).map((item) => (
                     <div key={item.id} className="flex gap-2 items-center">
-                      <input disabled={isFinancialLocked} value={item.item} onChange={e => handleLineItemChange('revenue', item.id, 'item', e.target.value)} placeholder="Description" className="flex-1 px-3 py-2 bg-white border-2 border-slate-300 rounded-xl text-sm font-bold text-slate-900 outline-none focus:border-blue-500" list="basePriceLocations" />
-                      <input disabled={isFinancialLocked} type="number" value={item.qty} onChange={e => handleLineItemChange('revenue', item.id, 'qty', e.target.value)} placeholder="Qty" className="w-16 px-2 py-2 bg-white border-2 border-slate-300 rounded-xl text-sm font-bold text-center outline-none focus:border-blue-500" />
-                      <input disabled={isFinancialLocked} type="number" value={item.rate} onChange={e => handleLineItemChange('revenue', item.id, 'rate', e.target.value)} placeholder="Rate" className="w-24 px-2 py-2 bg-white border-2 border-slate-300 rounded-xl text-sm font-bold text-right outline-none focus:border-blue-500" />
-                      <input disabled={isFinancialLocked} type="number" value={item.amount} onChange={e => handleLineItemChange('revenue', item.id, 'amount', e.target.value)} placeholder="Amt" className="w-24 px-2 py-2 bg-green-50 border-2 border-green-300 rounded-xl text-sm font-black text-green-800 text-right outline-none focus:border-green-500" />
-                      <button type="button" disabled={isFinancialLocked} onClick={() => removeRevenueItem(item.id)} className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg"><Trash2 className="w-4 h-4" /></button>
+                      <input disabled={isFinancialLocked} value={item.item} onChange={e => handleLineItemChange('expense', item.id, 'item', e.target.value)} placeholder="Expense Description" className="flex-1 px-3 py-2 bg-white border-2 border-slate-300 rounded-xl text-sm font-bold text-slate-900 outline-none focus:border-red-500" />
+                      <input disabled={isFinancialLocked} type="number" value={item.amount} onChange={e => handleLineItemChange('expense', item.id, 'amount', e.target.value)} placeholder="Amt" className="w-24 px-2 py-2 bg-red-50 border-2 border-red-300 rounded-xl text-sm font-black text-red-800 text-right outline-none focus:border-red-500" />
+                      <button type="button" disabled={isFinancialLocked} onClick={() => removeExpenseItem(item.id)} className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg"><Trash2 className="w-4 h-4" /></button>
                     </div>
                   ))}
-                  <datalist id="basePriceLocations">{savedBasePrices?.map((bp, i) => (<option key={bp.id || 'bp-' + i} value={bp.location}></option>))}</datalist>
+                  {(formData.expenseItems || []).length === 0 && (
+                    <div className="text-xs text-slate-400 italic text-center py-2 bg-slate-50 rounded-lg border border-slate-100">
+                      No expenses added. Add items here to track third-party driver costs accurately.
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -3074,11 +3145,40 @@ const LoadForm = ({
                   <span className="text-[10px] font-bold text-slate-600 bg-white px-2 py-1 rounded-lg border-2 border-slate-200">{(formData.documents || []).length} Files</span>
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
-                  {(formData.documents || []).map((doc, idx) => (
-                    <div key={idx} className="bg-white p-3 rounded-xl border-2 border-slate-200 flex items-center gap-3 relative group">
-                      <button type="button" onClick={() => removeDocument(doc.url)} className="absolute -top-2 -right-2 p-1 bg-red-100 text-red-600 rounded-full opacity-0 group-hover:opacity-100 border border-red-200"><X className="w-3.5 h-3.5" /></button>
-                      <div className="w-8 h-8 bg-blue-50 rounded-lg flex items-center justify-center text-blue-600 border border-blue-100" onClick={() => window.open(doc.url, '_blank')}><FileText className="w-4 h-4" /></div>
-                      <p className="text-[11px] font-bold text-slate-700 truncate">{doc.name}</p>
+                                    {(formData.documents || []).map((doc, idx) => (
+                    <div key={idx} className="bg-white p-3 rounded-xl border-2 border-slate-200 flex items-center justify-between gap-3 relative group">
+                      
+                      {/* Delete Button */}
+                      <button 
+                        type="button" 
+                        onClick={() => removeDocument(doc.url)} 
+                        className="absolute -top-2 -right-2 p-1 bg-red-100 text-red-600 rounded-full opacity-0 group-hover:opacity-100 border border-red-200 z-10"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+
+                      {/* File Icon & Details */}
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <div className="w-8 h-8 bg-blue-50 rounded-lg flex items-center justify-center text-blue-600 border border-blue-100 shrink-0">
+                          <FileText className="w-4 h-4" />
+                        </div>
+                        <div className="flex flex-col min-w-0">
+                          <p className="text-[11px] font-bold text-slate-700 truncate">{doc.name}</p>
+                          
+                          {/* ✅ NEW: View & Download Buttons */}
+                          <div className="flex items-center gap-3 mt-0.5">
+                            <a href={doc.url} target="_blank" rel="noreferrer" className="text-[9px] text-blue-600 font-bold hover:underline">View</a>
+                            <button 
+                              type="button" 
+                              onClick={() => downloadDocument(doc, doc.name || `Document_${idx}`)} 
+                              className="text-[9px] text-emerald-600 font-bold hover:underline"
+                            >
+                              Download
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
                     </div>
                   ))}
                 </div>
@@ -3100,7 +3200,16 @@ const LoadForm = ({
                         <FileText className="w-5 h-5 text-emerald-600" />
                         <div>
                           <p className="text-xs font-bold text-slate-800 truncate max-w-[200px]">{formData.signedPodDoc.name || 'POD.pdf'}</p>
-                          <a href={formData.signedPodDoc.url} target="_blank" rel="noreferrer" className="text-[10px] text-blue-600 font-bold hover:underline">View Document</a>
+                                                    <div className="flex items-center gap-3 mt-1">
+                            <a href={formData.signedPodDoc.url} target="_blank" rel="noreferrer" className="text-[10px] text-blue-600 font-bold hover:underline">View</a>
+                            <button 
+                            type="button" // ✅ ADD THIS
+                              onClick={() => downloadDocument(formData.signedPodDoc, formData.signedPodDoc.name || `POD_${formData.workOrderNo || 'load'}`)} 
+                              className="text-[10px] text-emerald-600 font-bold hover:underline"
+                            >
+                              Download
+                            </button>
+                          </div>
                         </div>
                      </div>
                      <button type="button" onClick={() => setFormData(prev => ({ ...prev, signedPodDoc: null }))} className="p-2 text-red-500 hover:bg-red-50 rounded-lg border border-red-100"><Trash2 className="w-4 h-4" /></button>
@@ -3147,8 +3256,7 @@ const LoadForm = ({
                     <label className="text-[11px] font-black text-slate-800 uppercase block mb-2">ETA Date/Time</label>
                     <div className="flex gap-2">
                       <input type="date" name="etaDate" value={formData.etaDate || ''} onChange={handleChange} className="w-full px-2 py-1.5 rounded-lg text-xs font-bold border-2 border-slate-300 outline-none focus:border-pink-500" />
-                      <input type="time" name="etaTime" value={formData.etaTime || ''} onChange={handleChange} className="w-full px-2 py-1.5 rounded-lg text-xs font-bold border-2 border-slate-300 outline-none focus:border-pink-500" />
-                    </div>
+<input type="text" placeholder="HH:MM" name="etaTime" value={formData.etaTime || ''} onChange={(e) => setFormData(prev => ({ ...prev, etaTime: formatTimeString(e.target.value) }))} className="w-full px-2 py-1.5 rounded-lg text-xs font-bold border-2 border-slate-300 outline-none focus:border-pink-500" />                    </div>
                   </div>
 
                   {/* Grounded */}
@@ -3217,8 +3325,8 @@ const LoadForm = ({
                     {/* Status & Driver */}
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       <div><label className="text-[10px] font-black text-slate-500 uppercase block mb-1">Date</label><input type="date" value={legToEdit.legDate || ''} onChange={e => updateLeg(legToEdit.id, 'legDate', e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm font-bold bg-white outline-none focus:ring-2 focus:ring-blue-200" /></div>
-                      <div><label className="text-[10px] font-black text-slate-500 uppercase block mb-1">Time (In)</label><input type="time" value={legToEdit.arrivalTime || ''} onChange={e => updateLeg(legToEdit.id, 'arrivalTime', e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm font-bold bg-white outline-none focus:ring-2 focus:ring-blue-200" /></div>
-                      <div><label className="text-[10px] font-black text-slate-500 uppercase block mb-1">Time (Out)</label><input type="time" value={legToEdit.departureTime || ''} onChange={e => updateLeg(legToEdit.id, 'departureTime', e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm font-bold bg-white outline-none focus:ring-2 focus:ring-blue-200" /></div>
+                      <div><label className="text-[10px] font-black text-slate-500 uppercase block mb-1">Time (In)</label><input type="text" placeholder="HH:MM" value={legToEdit.arrivalTime || ''} onChange={e => updateLeg(legToEdit.id, 'arrivalTime', formatTimeString(e.target.value))} className="w-full px-3 py-2 border rounded-xl text-sm font-bold bg-white outline-none focus:ring-2 focus:ring-blue-200" /></div>
+                      <div><label className="text-[10px] font-black text-slate-500 uppercase block mb-1">Time (Out)</label><input type="text" placeholder="HH:MM" value={legToEdit.departureTime || ''} onChange={e => updateLeg(legToEdit.id, 'departureTime', formatTimeString(e.target.value))} className="w-full px-3 py-2 border rounded-xl text-sm font-bold bg-white outline-none focus:ring-2 focus:ring-blue-200" /></div>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -4349,7 +4457,7 @@ const AddressBook = ({
         )}
 
         {/* ===== CUSTOMER LIST ===== */}
-        <div className="space-y-2 max-h-[500px] overflow-y-auto pr-2">
+        <div key={customerSearchTerm} className="space-y-2 max-h-[500px] overflow-y-auto pr-2">
           {filteredCustomers.length === 0 ? (
             <div className="text-center py-8 text-slate-400 font-bold italic text-sm">
               {customerSearchTerm ? `No customers match "${customerSearchTerm}"` : 'No customers saved yet'}
@@ -4680,7 +4788,8 @@ const AddressBook = ({
         )}
 
         {/* ===== LOCATION LIST ===== */}
-        <div className="space-y-2 max-h-[500px] overflow-y-auto pr-2">
+        <div key={locationSearchTerm} className="space-y-2 max-h-[500px] overflow-y-auto pr-2">
+
           {filteredLocations.length === 0 ? (
             <div className="text-center py-8 text-slate-400 font-bold italic text-sm">
               {locationSearchTerm ? `No locations match "${locationSearchTerm}"` : 'No locations saved yet'}
@@ -4900,27 +5009,23 @@ const AddressBook = ({
             </select>
           </div>
 
-          {/* ✅ ONLY SHOW THESE FOR COMPANY / OWNER OPERATOR */}
-          {newDriver.type !== 'Third-Party Driver' && (
-            <>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase">Pay Type</label>
-                  <select className="w-full p-3 border rounded-xl text-sm bg-white" value={newDriver.payType || 'flat'} onChange={e => setNewDriver({...newDriver, payType: e.target.value})}>
-                    <option value="flat">💰 Per Leg</option>
-                    <option value="hourly">⏱️ Per Hour</option>
-                    <option value="mileage">📏 Per Mile</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase">Pay Rate ($)</label>
-                  <input type="number" step="0.01" className="w-full p-3 border rounded-xl text-sm font-bold" placeholder="0.00" value={newDriver.payRate || ''} onChange={e => setNewDriver({...newDriver, payRate: parseFloat(e.target.value) || 0})} />
-                </div>
-              </div>
-              {newDriver.type === 'Company Driver' && (
-                <input type="number" step="0.1" className="w-full p-3 border rounded-xl text-sm" placeholder="⛽ Fuel Efficiency (km/L)" value={newDriver.fuelEfficiency || ''} onChange={e => setNewDriver({...newDriver, fuelEfficiency: parseFloat(e.target.value) || null})} />
-              )}
-            </>
+          {/* ✅ SHOW PAY RATES FOR ALL DRIVERS */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-[10px] font-black text-slate-400 uppercase">Pay Type</label>
+              <select className="w-full p-3 border rounded-xl text-sm bg-white" value={newDriver.payType || 'flat'} onChange={e => setNewDriver({...newDriver, payType: e.target.value})}>
+                <option value="flat">💰 Per Leg (Flat)</option>
+                <option value="hourly">⏱️ Per Hour</option>
+                <option value="mileage">📏 Per Mile</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-[10px] font-black text-slate-400 uppercase">Default Pay Rate ($)</label>
+              <input type="number" step="0.01" className="w-full p-3 border rounded-xl text-sm font-bold" placeholder="0.00" value={newDriver.payRate || ''} onChange={e => setNewDriver({...newDriver, payRate: parseFloat(e.target.value) || 0})} />
+            </div>
+          </div>
+          {newDriver.type === 'Company Driver' && (
+            <input type="number" step="0.1" className="w-full p-3 border rounded-xl text-sm" placeholder="⛽ Fuel Efficiency (km/L)" value={newDriver.fuelEfficiency || ''} onChange={e => setNewDriver({...newDriver, fuelEfficiency: parseFloat(e.target.value) || null})} />
           )}
 
           {/* ✅ APP LOGIN IS ALWAYS OPTIONAL */}
@@ -6034,19 +6139,17 @@ const AddressBook = ({
                 </select>
               </div>
 
-              {/* ✅ HIDE PAY RATES FOR THIRD PARTY */}
-              {driverEditFormData.type !== 'Third-Party Driver' && (
-                <div className="grid grid-cols-2 gap-4">
-                  <div><label className="text-[10px] font-black text-slate-500 uppercase">Pay Rate ($)</label><input type="number" step="0.01" className="w-full p-3 border rounded-xl text-sm font-bold" value={driverEditFormData.payRate || ''} onChange={e => setDriverEditFormData({...driverEditFormData, payRate: parseFloat(e.target.value) || 0})} placeholder="0.00" /></div>
-                  <div><label className="text-[10px] font-black text-slate-500 uppercase">Pay Type</label>
-                    <select className="w-full p-3 border rounded-xl text-sm bg-white" value={driverEditFormData.payType || 'flat'} onChange={e => setDriverEditFormData({...driverEditFormData, payType: e.target.value})}>
-                      <option value="flat">💰 Per Leg</option>
-                      <option value="hourly">⏱️ Per Hour</option>
-                      <option value="mileage">📏 Per Mile</option>
-                    </select>
-                  </div>
+              {/* ✅ SHOW PAY RATES FOR ALL DRIVERS */}
+              <div className="grid grid-cols-2 gap-4">
+                <div><label className="text-[10px] font-black text-slate-500 uppercase">Default Pay Rate ($)</label><input type="number" step="0.01" className="w-full p-3 border rounded-xl text-sm font-bold" value={driverEditFormData.payRate || ''} onChange={e => setDriverEditFormData({...driverEditFormData, payRate: parseFloat(e.target.value) || 0})} placeholder="0.00" /></div>
+                <div><label className="text-[10px] font-black text-slate-500 uppercase">Pay Type</label>
+                  <select className="w-full p-3 border rounded-xl text-sm bg-white" value={driverEditFormData.payType || 'flat'} onChange={e => setDriverEditFormData({...driverEditFormData, payType: e.target.value})}>
+                    <option value="flat">💰 Per Leg (Flat)</option>
+                    <option value="hourly">⏱️ Per Hour</option>
+                    <option value="mileage">📏 Per Mile</option>
+                  </select>
                 </div>
-              )}
+              </div>
 
               {driverEditFormData.type === 'Company Driver' && (
                 <div><label className="text-[10px] font-black text-slate-500 uppercase">⛽ Fuel Efficiency (km/L)</label>
@@ -6219,8 +6322,17 @@ const DailySummary = ({ loads }) => {
   loadsToday.forEach(l => { (l.legs || []).forEach(leg => { if (leg?.truckNo) activeTrucks.add(leg.truckNo); }); });
   const numActiveTrucks = activeTrucks.size;
   
-  const needToBill = safeLoads.filter(l => { const legs = getSafeLegs(l); return l.status === 'Open' && legs.length > 0 && legs.every(leg => leg.status === 'Completed'); }).length;
-  const pendingTerminationLoads = safeLoads.filter(l => { if(l.status !== 'Open') return false; const legs = getSafeLegs(l); const hasCompleted = legs.some(leg => leg.status === 'Completed'); const hasPending = legs.some(leg => leg.status !== 'Completed'); return hasCompleted && hasPending; });
+  // REPLACE WITH THIS:
+  // ✅ FIXED: Only count loads specifically marked as Ready for Billing
+  const needToBill = safeLoads.filter(l => l.status === 'Ready for Billing' || l.status === 'Waiting for Approval').length;
+  
+  // ✅ FIXED: Only count loads that are dropped/ready but NOT terminated yet
+  const pendingTerminationLoads = safeLoads.filter(l => {
+    if (l.isTerminated || l.status !== 'Open') return false;
+    if (!l.isDroppedAtCustomer && !l.isReadyForPickup) return false;
+    const hasCompletedTermination = (l.legs || []).some(leg => leg.legType === 'termination' && (leg.status === 'Completed' || leg.status === 'Delivered'));
+    return !hasCompletedTermination;
+  });
   const needToTerminate = pendingTerminationLoads.length;
 
   return (
@@ -6759,8 +6871,10 @@ const ProfitDashboard = ({ loads, drivers }) => {
 const ActionRequired = ({ loads, onEdit, onStatusChange }) => {
   const safeLoads = Array.isArray(loads) ? loads : [];
   const pendingTermination = safeLoads.filter(l => {
-    const legs = getSafeLegs(l);
-    return l?.status === 'Open' && legs.length > 0 && legs.every(leg => leg.status === 'Completed');
+    if (l.isTerminated || l.status !== 'Open') return false;
+    if (!l.isDroppedAtCustomer && !l.isReadyForPickup) return false;
+    const hasCompletedTermination = (l.legs || []).some(leg => leg.legType === 'termination' && (leg.status === 'Completed' || leg.status === 'Delivered'));
+    return !hasCompletedTermination;
   });
   if (pendingTermination.length === 0) return null;
  
@@ -9058,8 +9172,11 @@ const handleSubmitLoad = useCallback(async (formData) => {
   cleanedData.fuelCost = "";
   cleanedData.brokerRate = "";
 
-  if (!cleanedData.workOrderNo) {
-    cleanedData.workOrderNo = `WO-${Math.floor(100000 + Math.random() * 900000)}`;
+    if (!cleanedData.workOrderNo) {
+    // Generate Prefix from Company Name (e.g., "IFS Transport Ltd" -> "IFS")
+    const companyPrefix = (companyName || 'WO').replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 3) || 'WO';
+    const randomNum = Math.floor(100000 + Math.random() * 900000);
+    cleanedData.workOrderNo = `${companyPrefix}${randomNum}`;
   }
 
     // ===== OPTIMIZED SAVE - INSTANT! =====
@@ -9102,8 +9219,16 @@ const handleSubmitLoad = useCallback(async (formData) => {
     
     // Instantly update local state
     const newLoad = { id: loadId, ...cleanedData };
-    setLoadsOpen(prev => [newLoad, ...prev]);
-    setPaginatedLoads(prev => [newLoad, ...prev]);
+    
+    // ✅ FIX: Replace the item if editing, otherwise add to the top
+    if (editingId) {
+      setLoadsOpen(prev => prev.map(l => l.id === editingId ? newLoad : l));
+      setPaginatedLoads(prev => prev.map(l => l.id === editingId ? newLoad : l));
+      setLoadsToday(prev => prev.map(l => l.id === editingId ? newLoad : l));
+    } else {
+      setLoadsOpen(prev => [newLoad, ...prev]);
+      setPaginatedLoads(prev => [newLoad, ...prev]);
+    }
     
     // ✅ STEP 3: DO BACKGROUND UPDATES IN PARALLEL (DON'T WAIT)
     const backgroundTasks = [];
@@ -9493,14 +9618,14 @@ const handleGenerateInvoice = useCallback(async (loadId) => {
 
     // Build items from load's revenue
     const items = (load.revenueItems || []).map(item => ({
-      item: item.item || 'Service',
-      details: '',
-      qty: safeFloat(item.qty || 1),
-      uom: 'RATE',
-      rate: safeFloat(item.rate),
-      amount: safeFloat(item.amount),
-      tax: 0,
-    }));
+  item: item.item || 'Service',
+  details: item.details || '', // ✅ ADD THIS LINE
+  qty: safeFloat(item.qty || 1),
+  uom: 'RATE',
+  rate: safeFloat(item.rate),
+  amount: safeFloat(item.amount),
+  tax: 0,
+}));
 
     if (items.length === 0) {
       items.push({
@@ -9847,28 +9972,31 @@ const handleEditInvoiceFromHistory = useCallback((load) => {
     downloadPOD(load, leg, setCopyFeedback, companyName, effectiveDetails, locationAddress);
   }, [setCopyFeedback, companyName, companyDetails, companyLocations]);
 
-  // ========== DOWNLOAD DOCUMENT HELPER ==========
-  const downloadDocument = (file, fileName) => {
+    // ========== DOWNLOAD DOCUMENT HELPER ==========
+  const downloadDocument = async (file, fileName) => {
     if (!file) {
       setCopyFeedback("❌ No document to download");
       return;
     }
    
     try {
-      // If file has URL
       if (file.url) {
+        setCopyFeedback("⏳ Downloading...");
+        // ✅ Use fetch to force download of the exact file (bypasses browser viewing)
+        const response = await fetch(file.url);
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
         const link = document.createElement('a');
-        link.href = file.url;
+        link.href = url;
         link.download = fileName || file.name || 'document';
-        link.target = '_blank';
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
-        setCopyFeedback(`✅ Downloading: ${fileName || file.name || 'Document'}`);
+        window.URL.revokeObjectURL(url);
+        setCopyFeedback(`✅ Downloaded: ${fileName || file.name || 'Document'}`);
         return;
       }
      
-      // If file is a data URL
       if (typeof file === 'string' && file.startsWith('data:')) {
         const link = document.createElement('a');
         link.href = file;
@@ -9880,7 +10008,6 @@ const handleEditInvoiceFromHistory = useCallback((load) => {
         return;
       }
      
-      // If file is a File object
       if (file instanceof File || file.name) {
         const url = URL.createObjectURL(file);
         const link = document.createElement('a');
@@ -11362,13 +11489,9 @@ if (appState === 'dashboard' && !authReady) {
     }));
   }}
 />
-          <LoadForm
+                  <LoadForm
           isOpen={isFormOpen}
-          onClose={() => { 
-            setIsFormOpen(false); 
-            setEditingId(null); 
-            setEditingLoadData(null); 
-          }}
+          onClose={() => { setIsFormOpen(false); setEditingId(null); setEditingLoadData(null); }}
           onSubmit={handleSubmitLoad}
           initialData={loadToEdit}
           savedCustomers={savedCustomers}
@@ -11386,8 +11509,9 @@ if (appState === 'dashboard' && !authReady) {
           dataSharingMode={dataSharingMode}
           companyLocations={companyLocations}
           companyTerminals={savedTerminals}
-          companyName={companyName}           // ✅ ADD THIS
-          companyDetails={companyDetails}     // ✅ ADD THIS
+          companyName={companyName}           
+          companyDetails={companyDetails}     
+          downloadDocument={downloadDocument}  // ✅ ADD THIS LINE
         />
             </div>
     </ErrorBoundary>

@@ -84,10 +84,19 @@ const buildInvoiceHTML = (invoice, companyName, companyDetails, locationAddress,
   let rowsHtml = '';
   if (invoice.items && Array.isArray(invoice.items) && invoice.items.length > 0) {
     invoice.items.forEach(item => {
-      if (safeFloat(item?.amount) > 0 || safeFloat(item?.rate) > 0) {
-        rowsHtml += `<tr><td style="padding: 12px; border-bottom: 1px solid #e5e7eb;"><div class="font-bold text-base">${item.item || 'Service Charge'}</div></td><td style="padding: 12px; border-bottom: 1px solid #e5e7eb; text-align: center;">${item.qty || 1}</td><td style="padding: 12px; border-bottom: 1px solid #e5e7eb; text-align: right;">${currencySymbol}${safeFloat(item.rate).toFixed(2)}</td><td style="padding: 12px; border-bottom: 1px solid #e5e7eb; text-align: right;" class="font-black text-base">${currencySymbol}${safeFloat(item.amount).toFixed(2)}</td></tr>`;
-      }
-    });
+  if (safeFloat(item?.amount) > 0 || safeFloat(item?.rate) > 0) {
+    rowsHtml += `
+      <tr>
+        <td style="padding: 12px; border-bottom: 1px solid #e5e7eb;">
+          <div class="font-bold text-base">${item.item || 'Service Charge'}</div>
+          ${item.details ? `<div style="font-size: 10px; color: #6b7280; margin-top: 4px; font-style: italic;">${item.details}</div>` : ''}
+        </td>
+        <td style="padding: 12px; border-bottom: 1px solid #e5e7eb; text-align: center;">${item.qty || 1}</td>
+        <td style="padding: 12px; border-bottom: 1px solid #e5e7eb; text-align: right;">${currencySymbol}${safeFloat(item.rate).toFixed(2)}</td>
+        <td style="padding: 12px; border-bottom: 1px solid #e5e7eb; text-align: right;" class="font-black text-base">${currencySymbol}${safeFloat(item.amount).toFixed(2)}</td>
+      </tr>`;
+  }
+});
   }
 
   return `
@@ -372,14 +381,14 @@ const InvoicesModule = ({
       }
 
       const items = (load.revenueItems || []).map(item => ({
-        item: item.item || 'Service',
-        details: item.details || '',
-        qty: safeFloat(item.qty || 1),
-        uom: item.uom || 'RATE',
-        rate: safeFloat(item.rate),
-        amount: safeFloat(item.amount),
-        tax: safeFloat(item.tax || 0),
-      }));
+  item: item.item || 'Service',
+  details: item.details || '', // ✅ ADD THIS LINE
+  qty: safeFloat(item.qty || 1),
+  uom: item.uom || 'RATE',
+  rate: safeFloat(item.rate),
+  amount: safeFloat(item.amount),
+  tax: safeFloat(item.tax || 0),
+}));
 
       const subtotal = items.reduce((s, i) => s + i.amount, 0);
       const taxes = items.reduce((s, i) => s + (i.amount * i.tax / 100), 0);

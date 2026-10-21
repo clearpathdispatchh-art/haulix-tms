@@ -101,11 +101,11 @@ const ContainerBoard = ({ companyId, setFeedback, onEdit }) => {
   useEffect(() => {
     if (!companyId) return;
     
-    // Fetch active loads (Exclude Paid so they vanish)
+        // Fetch active loads (Exclude Billing, Paid, and Completed so they vanish immediately)
     const q = query(
       collection(db, 'companies', companyId, 'loads'),
       where('status', 'in', [
-        'Open', 'Dispatched', 'In Transit', 'Delivered', 'Ready for Billing', 'Completed'
+        'Open', 'Dispatched', 'In Transit', 'Delivered'
       ]),
       orderBy('createdAt', 'asc')
     );
@@ -120,11 +120,14 @@ const ContainerBoard = ({ companyId, setFeedback, onEdit }) => {
         };
       });
       
-      // Filter out Paid loads and soft-deleted loads
+            // Filter out loads that are ready for billing, completed, or soft-deleted
       const activeLoads = all.filter((l) => 
         !l.isDeleted && 
         l.status !== 'Paid' && 
-        l.status !== 'Archived'
+        l.status !== 'Archived' &&
+        l.status !== 'Ready for Billing' && // ✅ Instantly hide when sent to billing
+        l.status !== 'Completed' &&         // ✅ Instantly hide when completed
+        !l.isBillingComplete                // ✅ Hide if the "Send to Billing" button was clicked
       );
       
       setContainers(activeLoads);
@@ -213,16 +216,23 @@ const ContainerBoard = ({ companyId, setFeedback, onEdit }) => {
 
       {/* ================= SEARCH BAR ================= */}
       <div className="bg-white border-b px-4 py-3 shrink-0 flex items-center justify-between">
-        <div className="relative max-w-md w-full">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-          <input
-            type="text"
-            placeholder={`Search ${boardView === 'import' ? 'Imports' : 'Exports'} by Container, Customer, Booking...`}
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
-          />
+        <div className="flex items-center gap-4 max-w-xl w-full">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <input
+              type="text"
+              placeholder={`Search ${boardView === 'import' ? 'Imports' : 'Exports'} by Container, Customer, Booking...`}
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+            />
+          </div>
+          {/* ✅ NEW: Result Count */}
+          <div className="text-xs font-black text-slate-500 bg-slate-100 px-3 py-2 rounded-lg whitespace-nowrap border border-slate-200">
+            Found: <span className="text-blue-600">{filteredContainers.length}</span> Containers
+          </div>
         </div>
+        
         
         {/* Color Legend */}
         <div className="hidden lg:flex items-center gap-3 text-[9px] font-bold uppercase tracking-wider">

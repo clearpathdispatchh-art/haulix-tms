@@ -120,8 +120,17 @@ const getWorkType = (container, selectedDateStr) => {
   }
 
     // 2. Check if delivered / dropped (needs follow-up or back-dated drop)
-  if (container.isDelivered || container.isDroppedAtCustomer) {
-    const deliveryDate = container.deliveryDate || container.appointmentDate;
+  // ✅ NEW: Also check if a DROP leg is completed, even if the lifecycle box wasn't checked
+  const hasCompletedDropLeg = (container.legs || []).some(
+    leg => (leg.legType === 'delivery' || leg.legType === 'drop' || leg.legType === 'stopoff') && 
+            (leg.status === 'Completed' || leg.status === 'Delivered')
+  );
+
+  if (container.isDelivered || container.isDroppedAtCustomer || (hasCompletedDropLeg && container.loadType === 'DROP')) {
+    // Get the date the leg was completed, or fallback to appointment date
+    const completedLeg = (container.legs || []).find(l => l.status === 'Completed' || l.status === 'Delivered');
+    const deliveryDate = container.deliveryDate || container.appointmentDate || completedLeg?.legDate;
+    
     if (deliveryDate && isSameDay(deliveryDate, selectedDateStr) === false) {
       try {
         const d1 = new Date(deliveryDate);
@@ -236,6 +245,7 @@ const DailyDispatchBoard = ({
   
   // ===== DEFAULT TO CARDS VIEW (LIKE TOMORROW'S BOARD) =====
   const [viewMode, setViewMode] = useState('cards'); 
+  const [boardTab, setBoardTab] = useState('deliveries'); // ✅ NEW: 'deliveries' | 'followup'
 
   const [selectedContainers, setSelectedContainers] = useState(new Set());
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
@@ -465,6 +475,17 @@ const DailyDispatchBoard = ({
 
       if (isFinished) return false;
 
+      const isBackdated = c.workType === WORK_TYPES.BACKDATE_DROPPED;
+      const isPending = c.workType === WORK_TYPES.PENDING_FOLLOWUP;
+
+      // ✅ NEW: Tab Separation Logic
+      if (boardTab === 'followup') {
+        if (!isBackdated && !isPending) return false;
+      } else {
+        // boardTab === 'deliveries'
+        if (isBackdated || isPending) return false;
+      }
+
       // ✅ 3. If it's dropped or ready for pickup, it STAYS on the board until terminated
       const needsTermination = c.isDroppedAtCustomer || c.isReadyForPickup || c.workType === WORK_TYPES.PENDING_FOLLOWUP || c.workType === WORK_TYPES.BACKDATE_DROPPED;
 
@@ -558,8 +579,7 @@ const DailyDispatchBoard = ({
     });
 
     return filtered;
-  }, [containers, workTypeFilter, searchTerm, sortField, sortDirection, selectedDate, todayStr, advancedFilters]);
-
+}, [containers, workTypeFilter, searchTerm, sortField, sortDirection, selectedDate, todayStr, advancedFilters, boardTab]);
   // ===== TRIGGER SMART SUGGESTIONS BASED ONLY ON TODAY'S FILTERED LOADS =====
   useEffect(() => {
     setSmartSuggestions(generateSmartSuggestions(filteredAndSortedContainers));
@@ -713,100 +733,52 @@ const DailyDispatchBoard = ({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       {/* HEADER */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
         <div>
-          <h2 className="text-2xl font-black text-slate-900 flex items-center gap-2">
-            <Calendar className="w-6 h-6 text-blue-600" />
+          <h2 className="text-xl font-black text-slate-900 flex items-center gap-2">
+            <Calendar className="w-5 h-5 text-blue-600" />
             Today's Board
           </h2>
-          <p className="text-sm text-slate-500 font-medium flex items-center gap-2">
+          <p className="text-xs text-slate-500 font-medium flex items-center gap-2 mt-0.5">
             {formatDate(selectedDate)} • {stats.total} containers
             {backdateDroppedCount > 0 && (
-              <span className="flex items-center gap-1 text-orange-600 text-xs font-bold bg-orange-50 px-2 py-0.5 rounded-full">
-                <AlertOctagon className="w-3 h-3" /> {backdateDroppedCount} from previous dates
+              <span className="flex items-center gap-1 text-orange-600 text-[10px] font-bold bg-orange-50 px-2 py-0.5 rounded-full">
+                <AlertOctagon className="w-3 h-3" /> {backdateDroppedCount} backdated
               </span>
             )}
-            <span className="flex items-center gap-1 text-blue-600 text-xs font-bold bg-blue-50 px-2 py-0.5 rounded-full">
+            <span className="flex items-center gap-1 text-blue-600 text-[10px] font-bold bg-blue-50 px-2 py-0.5 rounded-full">
               <Activity className="w-3 h-3" /> {stats.progress}% complete
             </span>
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="px-4 py-2 bg-white border border-slate-200 rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-blue-500" />
-          <div className="flex rounded-xl border border-slate-200 overflow-hidden bg-white">
-            <button onClick={() => setViewMode('cards')} className={`px-3 py-2 text-xs font-bold transition-all ${viewMode === 'cards' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}>📋 Cards</button>
-            <button onClick={() => setViewMode('table')} className={`px-3 py-2 text-xs font-bold transition-all ${viewMode === 'table' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}>📊 Table</button>
+          <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-xs outline-none focus:ring-2 focus:ring-blue-500" />
+          <div className="flex rounded-lg border border-slate-200 overflow-hidden bg-white">
+            <button onClick={() => setViewMode('cards')} className={`px-3 py-1.5 text-[10px] font-bold transition-all ${viewMode === 'cards' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}>📋 Cards</button>
+            <button onClick={() => setViewMode('table')} className={`px-3 py-1.5 text-[10px] font-bold transition-all ${viewMode === 'table' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}>📊 Table</button>
           </div>
-          <button onClick={handleRefresh} disabled={refreshing} className="flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 rounded-xl font-bold text-sm transition-colors disabled:opacity-50">
-            <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+          <button onClick={handleRefresh} disabled={refreshing} className="flex items-center gap-1 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg font-bold text-xs transition-colors disabled:opacity-50">
+            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
           </button>
         </div>
       </div>
 
-      {/* BACK-DATED DROPS ALERT SECTION */}
-      {backdateDroppedContainers.length > 0 && (
-        <div className="bg-orange-50 border-2 border-orange-400 rounded-[32px] p-6 animate-in slide-in-from-top-4 relative overflow-hidden shadow-lg">
-          <div className="absolute top-0 right-0 p-8 opacity-10 pointer-events-none"><History className="w-32 h-32 text-orange-600" /></div>
-          <div className="relative z-10">
-            <div className="flex items-center gap-4 mb-4">
-              <div className="bg-orange-100 p-3 rounded-2xl text-orange-700 shadow-sm"><AlertOctagon className="w-8 h-8" /></div>
-              <div>
-                <h3 className="font-black text-2xl text-orange-900 tracking-tight">📦 Back-Dated Drops — Action Required</h3>
-                <p className="text-orange-800 font-bold text-sm">{backdateDroppedContainers.length} container{backdateDroppedContainers.length > 1 ? 's' : ''} dropped at customer on previous dates — please follow up and plan termination</p>
-                <p className="text-orange-600 text-xs mt-1 font-medium">These containers were delivered before today and need customer confirmation</p>
-              </div>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {backdateDroppedContainers.map(container => {
-                const isExport = container._type === 'export';
-                const daysSinceDrop = getDaysBetween(container.deliveryDate, selectedDate);
-                return (
-                  <div key={container.id} className="bg-white p-5 rounded-2xl border border-orange-200 shadow-sm flex flex-col gap-3 group hover:shadow-md hover:border-orange-300 transition-all cursor-pointer" onClick={() => onEdit && onEdit(container)}>
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <div className="font-black text-slate-800 text-lg flex items-center gap-2">
-                          {container.containerNo || 'N/A'}
-                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${isExport ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>{isExport ? '📤 EXPORT' : '📥 IMPORT'}</span>
-                        </div>
-                        <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">{container.customerName || 'N/A'}</div>
-                      </div>
-                      <div className="bg-orange-100 text-orange-700 px-2 py-1 rounded-lg text-[10px] font-black uppercase border border-orange-200">{isExport ? 'LOADED 📦' : 'DROPPED 📦'}</div>
-                    </div>
-                    <div className="flex items-center gap-2 text-xs font-medium">
-                      <Calendar className="w-3.5 h-3.5 text-orange-500" />
-                      <span>Dropped: {formatDate(container.deliveryDate)}</span>
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${daysSinceDrop > 5 ? 'bg-red-100 text-red-700' : daysSinceDrop > 3 ? 'bg-orange-100 text-orange-700' : 'bg-yellow-100 text-yellow-700'}`}>{daysSinceDrop}d ago</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-xs font-bold text-slate-500"><MapPin className="w-3.5 h-3.5 text-orange-500" /><span className="truncate">{container.delivery || container.terminal || 'Customer Location'}</span></div>
-                    {daysSinceDrop > 3 && (<div className="flex items-center gap-2 text-xs font-bold text-red-600 bg-red-50 p-2 rounded-lg"><AlertCircle className="w-3.5 h-3.5" /><span>Urgent — {daysSinceDrop} days since drop!</span></div>)}
-                    <div className="pt-3 mt-auto flex gap-2 border-t border-slate-100">
-                      <button onClick={(e) => { e.stopPropagation(); handleConfirmReady(container.id); }} disabled={updatingContainer === container.id} className="flex-1 py-2 bg-green-600 text-white rounded-xl font-bold text-xs hover:bg-green-700 shadow-md shadow-green-200 transition-all active:scale-95 disabled:opacity-50">{updatingContainer === container.id ? <span className="flex items-center justify-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />Updating...</span> : '✅ Confirm Ready'}</button>
-                      <button onClick={(e) => { e.stopPropagation(); if (onEdit) onEdit(container); }} className="flex-1 py-2 bg-orange-600 text-white rounded-xl font-bold text-xs hover:bg-orange-700 shadow-md shadow-orange-200 transition-all active:scale-95">📝 Plan Termination</button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* MODERN STATS CARDS */}
-      <div className="grid grid-cols-2 md:grid-cols-7 gap-3">
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-all cursor-pointer" onClick={() => setWorkTypeFilter('all')}>
-          <div className="flex items-center justify-between"><div className="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center"><Package className="w-5 h-5 text-slate-600" /></div><span className="text-2xl font-black text-slate-900">{stats.total}</span></div>
-          <div className="mt-2 text-[10px] font-black text-slate-400 uppercase">Total</div>
+      <div className="grid grid-cols-3 md:grid-cols-7 gap-2">
+        <div className="bg-white p-2 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-all cursor-pointer" onClick={() => setWorkTypeFilter('all')}>
+          <div className="flex items-center justify-between"><div className="w-6 h-6 bg-slate-100 rounded flex items-center justify-center"><Package className="w-3 h-3 text-slate-600" /></div><span className="text-lg font-black text-slate-900">{stats.total}</span></div>
+          <div className="mt-1 text-[9px] font-black text-slate-400 uppercase">Total</div>
         </div>
         {Object.entries(WORK_TYPES).map(([key, value]) => {
           const style = STATUS_STYLES[value];
           const icons2 = { PREPULL: Truck, DELIVERY: Navigation, PENDING_FOLLOWUP: Bell, BACKDATE_DROPPED: History, TERMINATION: Anchor, COMPLETED: CheckCircle };
           const IconComponent = icons2[key];
           return (
-            <div key={value} className={`${style.bg} p-4 rounded-2xl border ${style.border} shadow-sm hover:shadow-md transition-all cursor-pointer ${key === 'PENDING_FOLLOWUP' ? 'ring-2 ring-amber-400 ring-offset-1' : key === 'BACKDATE_DROPPED' ? 'ring-2 ring-orange-400 ring-offset-1' : ''}`} onClick={() => setWorkTypeFilter(workTypeFilter === value ? 'all' : value)}>
-              <div className="flex items-center justify-between"><div className="w-10 h-10 bg-white/50 rounded-xl flex items-center justify-center"><IconComponent className={`w-5 h-5 ${style.text}`} /></div><span className={`text-2xl font-black ${style.text}`}>{stats[value] || 0}</span></div>
-              <div className={`mt-2 text-[9px] font-black uppercase ${style.text}`}>{value === 'backdate_dropped' ? '📦 Back-Dated' : key.charAt(0) + key.slice(1).toLowerCase()}</div>
+            <div key={value} className={`${style.bg} p-2 rounded-xl border ${style.border} shadow-sm hover:shadow-md transition-all cursor-pointer ${key === 'PENDING_FOLLOWUP' ? 'ring-1 ring-amber-400' : key === 'BACKDATE_DROPPED' ? 'ring-1 ring-orange-400' : ''}`} onClick={() => setWorkTypeFilter(workTypeFilter === value ? 'all' : value)}>
+              <div className="flex items-center justify-between"><div className="w-6 h-6 bg-white/50 rounded flex items-center justify-center"><IconComponent className={`w-3 h-3 ${style.text}`} /></div><span className={`text-lg font-black ${style.text}`}>{stats[value] || 0}</span></div>
+              <div className={`mt-1 text-[8px] font-black uppercase ${style.text}`}>{value === 'backdate_dropped' ? '📦 Back-Dated' : key.charAt(0) + key.slice(1).toLowerCase()}</div>
             </div>
           );
         })}
@@ -840,13 +812,34 @@ const DailyDispatchBoard = ({
         </div>
       )}
 
-      {/* FILTERS & SEARCH */}
-      <div className="flex flex-col sm:flex-row gap-4">
+            {/* ✅ NEW: TABS */}
+      <div className="flex gap-4 border-b border-slate-200 pb-1">
+        <button 
+          onClick={() => setBoardTab('deliveries')} 
+          className={`px-4 py-2 font-black text-sm border-b-2 transition-all ${boardTab === 'deliveries' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400 hover:text-slate-700'}`}
+        >
+          Active Deliveries
+        </button>
+        <button 
+          onClick={() => setBoardTab('followup')} 
+          className={`px-4 py-2 font-black text-sm border-b-2 flex items-center gap-2 transition-all ${boardTab === 'followup' ? 'border-orange-600 text-orange-600' : 'border-transparent text-slate-400 hover:text-slate-700'}`}
+        >
+          Follow Up Required
+          {(backdateDroppedContainers.length + pendingFollowupContainers.length) > 0 && (
+            <span className="bg-orange-500 text-white text-[10px] px-2 py-0.5 rounded-full">
+              {backdateDroppedContainers.length + pendingFollowupContainers.length}
+            </span>
+          )}
+        </button>
+      </div>
+
+      {/* FILTERS & SEARCH (YOUR BLOCK GOES HERE) */}
+      <div className="flex flex-col sm:flex-row gap-2">
         <div className="relative flex-1">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
-          <input type="text" placeholder="Search container #, PO#, customer, driver..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-12 pr-4 py-3 bg-white border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
+          <input type="text" placeholder="Search container #, customer..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-xs font-medium" />
         </div>
-        <select value={workTypeFilter} onChange={(e) => setWorkTypeFilter(e.target.value)} className="appearance-none w-full sm:w-48 px-4 py-3 bg-white border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-blue-500 transition-all font-bold text-sm pr-10 cursor-pointer">
+        <select value={workTypeFilter} onChange={(e) => setWorkTypeFilter(e.target.value)} className="appearance-none w-full sm:w-36 px-3 py-2 bg-white border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 font-bold text-[10px] cursor-pointer">
           <option value="all">📋 All Types</option>
           <option value="prepull">🔵 Pre-Pull</option>
           <option value="delivery">🟡 Delivery</option>
@@ -984,10 +977,10 @@ const DailyDispatchBoard = ({
           </div>
         </div>
       ) : (
-        /* CARD VIEW - EXACTLY MATCHES TOMORROW'S BOARD */
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        /* CARD VIEW - HIGHLY COMPACT */
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2">
           {filteredAndSortedContainers.length === 0 ? (
-            <div className="col-span-full text-center py-12 text-slate-400 font-bold italic bg-white rounded-2xl border border-slate-200">No containers scheduled for {formatDate(selectedDate)}</div>
+            <div className="col-span-full text-center py-8 text-slate-400 font-bold italic bg-white rounded-xl border border-slate-200 text-xs">No containers scheduled for {formatDate(selectedDate)}</div>
           ) : (
             filteredAndSortedContainers.map(container => {
               const isExport = container._type === 'export';
@@ -997,89 +990,75 @@ const DailyDispatchBoard = ({
               return (
                 <div 
                   key={container.id} 
-                  className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm hover:shadow-md hover:border-blue-300 transition-all cursor-pointer group"
+                  className="bg-white border border-slate-200 rounded-lg p-2 shadow-sm hover:shadow-md hover:border-blue-400 transition-all cursor-pointer group flex flex-col"
                   onClick={() => onEdit?.(container)}
                 >
-                  {/* Card Header */}
-                  <div className="flex justify-between items-start mb-3">
-                    <div className="flex gap-2">
-                      <span className={`text-[10px] font-black px-2 py-1 rounded uppercase tracking-wider ${
-                        isExport ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'
-                      }`}>
-                        {isExport ? 'EXPORT' : 'IMPORT'}
+                  {/* Header Tags */}
+                  <div className="flex justify-between items-start mb-1">
+                    <div className="flex gap-1">
+                      <span className={`text-[8px] font-black px-1 py-0.5 rounded ${isExport ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>
+                        {isExport ? 'EXP' : 'IMP'}
                       </span>
-                      <span className={`text-[10px] font-black px-2 py-1 rounded uppercase tracking-wider ${
-                        container.loadType === 'LIVE' ? 'bg-blue-100 text-blue-700' : 
-                        container.loadType === 'DROP' ? 'bg-green-100 text-green-700' : 
-                        'bg-slate-100 text-slate-700'
-                      }`}>
+                      <span className={`text-[8px] font-black px-1 py-0.5 rounded ${container.loadType === 'LIVE' ? 'bg-blue-50 text-blue-600' : 'bg-green-50 text-green-600'}`}>
                         {container.loadType || 'DROP'}
                       </span>
                     </div>
                     {container.isPrePull && (
-                      <span className="text-[10px] font-black text-purple-600 bg-purple-50 px-2 py-1 rounded border border-purple-200">
-                        Pre-Pull
-                      </span>
+                      <span className="text-[8px] font-black text-purple-600 bg-purple-50 px-1 py-0.5 rounded border border-purple-200">Pre-Pull</span>
                     )}
                   </div>
 
                   {/* Container & Customer */}
-                  <div className="mb-3">
-                    <h4 className="font-black text-xl text-slate-800 group-hover:text-blue-600 transition-colors">
-                      {container.containerNo || 'N/A'}
-                    </h4>
-                    <p className="text-sm font-bold text-slate-600 truncate">
-                      {container.customerName || 'N/A'}
-                    </p>
+                  <div className="mb-1.5">
+                    <h4 className="font-black text-xs text-slate-800 group-hover:text-blue-600 truncate">{container.containerNo || 'N/A'}</h4>
+                    <p className="text-[9px] font-bold text-slate-500 truncate">{container.customerName || 'N/A'}</p>
                   </div>
 
-                  {/* Time & Location */}
-                  <div className="space-y-1.5 text-xs text-slate-500 font-medium mb-3">
-                    <div className="flex items-center gap-2">
-                      <Clock className="w-3.5 h-3.5 text-slate-400" />
+                  {/* Details */}
+                  <div className="space-y-1 text-[9px] font-medium text-slate-600 mb-1.5 flex-1">
+                    <div className="flex items-start gap-1">
+                      <Clock className="w-2.5 h-2.5 text-slate-400 shrink-0 mt-0.5" />
                       <span>{container.appointmentTime || 'TBD'}</span>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <MapPin className="w-3.5 h-3.5 text-slate-400" />
+                    <div className="flex items-start gap-1">
+                      <MapPin className="w-2.5 h-2.5 text-slate-400 shrink-0 mt-0.5" />
                       <span className="truncate">{container.delivery || container.terminal || 'No Location'}</span>
                     </div>
                     {container.size && (
-                      <div className="flex items-center gap-2">
-                        <Package className="w-3.5 h-3.5 text-slate-400" />
-                        <span className="font-bold text-slate-700">{container.size}</span>
+                      <div className="flex items-start gap-1">
+                        <Package className="w-2.5 h-2.5 text-slate-400 shrink-0 mt-0.5" />
+                        <span className="font-bold">{container.size}</span>
                       </div>
                     )}
                   </div>
 
-                  {/* Termination / Status Note */}
+                  {/* Alerts */}
                   {(isBackdated || isPending) && (
-                    <div className="mb-3 bg-red-50 p-2.5 rounded-xl border border-red-100 flex items-start gap-2">
-                      <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
-                      <span className="text-xs font-bold text-red-700">
-                        {isBackdated 
-                          ? `Dropped on ${container.deliveryDate}. Please follow up and plan termination!`
-                          : `Dropped on ${container.deliveryDate || container.appointmentDate}. Ready to terminate today!`}
+                    <div className="mb-1.5 bg-red-50 p-1 rounded border border-red-100 flex items-start gap-1">
+                      <AlertCircle className="w-2.5 h-2.5 text-red-500 shrink-0 mt-0.5" />
+                      <span className="text-[8px] font-bold text-red-700 leading-tight">
+                        {isBackdated ? `Dropped: ${container.deliveryDate}` : 'Ready to terminate!'}
                       </span>
                     </div>
                   )}
 
                   {/* Driver Info */}
-                  {container.driverName ? (
-                    <div className="flex items-center gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-100">
-                      <div className="w-6 h-6 rounded-full bg-slate-200 flex items-center justify-center">
-                        <User className="w-3.5 h-3.5 text-slate-500" />
+                  <div className="mt-auto pt-1 border-t border-slate-100 flex items-center justify-between">
+                    {container.driverName ? (
+                      <div className="flex items-center gap-1 min-w-0">
+                        <User className="w-2.5 h-2.5 text-slate-400 shrink-0" />
+                        <span className="text-[9px] font-bold text-slate-700 truncate">{container.driverName}</span>
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-xs font-black text-slate-700 truncate">{container.driverName}</div>
-                        <div className="text-[10px] font-bold text-slate-400">Truck: {container.truckNo || 'N/A'}</div>
+                    ) : (
+                      <div className="flex items-center gap-1 text-yellow-600">
+                        <User className="w-2.5 h-2.5 shrink-0" />
+                        <span className="text-[8px] font-bold uppercase">Unassigned</span>
                       </div>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-2 bg-yellow-50 p-2.5 rounded-xl border border-yellow-100">
-                      <User className="w-4 h-4 text-yellow-500" />
-                      <span className="text-xs font-bold text-yellow-700">Driver Unassigned</span>
-                    </div>
-                  )}
+                    )}
+                    <span className="text-[8px] font-bold text-slate-400 bg-slate-50 px-1 rounded">
+                      {container.truckNo || 'No Truck'}
+                    </span>
+                  </div>
                 </div>
               );
             })
@@ -1128,15 +1107,15 @@ const DailyDispatchBoard = ({
       )}
 
       {/* LEGEND */}
-      <div className="p-4 bg-white rounded-2xl border border-slate-200 flex flex-wrap items-center gap-4">
-        <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Work Types:</span>
+      <div className="p-2 bg-white rounded-lg border border-slate-200 flex flex-wrap items-center gap-3">
+        <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Work Types:</span>
         {Object.entries(WORK_TYPES).map(([key, value]) => {
           const style = STATUS_STYLES[value];
           const icons = { PREPULL: '🔵', DELIVERY: '🟡', PENDING_FOLLOWUP: '⏳', BACKDATE_DROPPED: '📦', TERMINATION: '🔴', COMPLETED: '✅' };
           return (
             <div key={value} className="flex items-center gap-1">
-              <span className={`w-4 h-4 rounded border ${style.border} ${style.bg}`}></span>
-              <span className={`text-[9px] font-bold ${style.text}`}>{icons[key]} {value === 'backdate_dropped' ? 'Back-Dated' : key.charAt(0) + key.slice(1).toLowerCase()}</span>
+              <span className={`w-3 h-3 rounded border ${style.border} ${style.bg}`}></span>
+              <span className={`text-[8px] font-bold ${style.text}`}>{icons[key]} {value === 'backdate_dropped' ? 'Back-Dated' : key.charAt(0) + key.slice(1).toLowerCase()}</span>
             </div>
           );
         })}
