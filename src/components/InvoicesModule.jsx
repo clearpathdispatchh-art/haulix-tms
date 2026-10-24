@@ -187,7 +187,9 @@ const InvoicesModule = ({
   userEmail,
   pendingLoadId,
   onPendingLoadConsumed,
+  onEditLoad, // ✅ ADD THIS LINE
 }) => {
+
   const [invoices, setInvoices] = useState([]);
   const [loads, setLoads] = useState([]);
   const [customers, setCustomers] = useState([]);
@@ -369,15 +371,16 @@ const InvoicesModule = ({
     }
 
     try {
-      const counterRef = doc(db, 'companies', companyId, 'counters', 'invoices');
+            const counterRef = doc(db, 'companies', companyId, 'counters', 'invoices');
       let counterSnap = await getDoc(counterRef);
-      let nextSeq = 7001;
+      let nextSeq = 7944; // ✅ Start at 7944
       if (counterSnap.exists()) {
         const data = counterSnap.data();
-        nextSeq = (data.lastNumber || 7000) + 1;
-        await updateDoc(counterRef, { lastNumber: nextSeq, updatedAt: new Date().toISOString() });
+        const currentSeq = data.lastNumber || data.sequence || 7943;
+        nextSeq = currentSeq + 1;
+        await updateDoc(counterRef, { lastNumber: nextSeq, sequence: nextSeq, updatedAt: new Date().toISOString() });
       } else {
-        await setDoc(counterRef, { lastNumber: nextSeq, createdAt: new Date().toISOString() });
+        await setDoc(counterRef, { lastNumber: nextSeq, sequence: nextSeq, createdAt: new Date().toISOString() });
       }
 
       const items = (load.revenueItems || []).map(item => ({
@@ -982,7 +985,15 @@ const InvoicesModule = ({
                     <td className="px-4 py-3 text-sm cursor-pointer" onClick={() => setSelectedInvoice(inv)}>
                       {formatDate(inv.invoiceDate)}
                     </td>
-                    <td className="px-4 py-3 text-sm font-mono cursor-pointer" onClick={() => setSelectedInvoice(inv)}>
+                    <td className="px-4 py-3 text-sm font-mono cursor-pointer hover:text-blue-600 hover:underline transition-colors" onClick={(e) => {
+                      e.stopPropagation();
+                      const relatedLoad = loads.find(l => l.id === inv.loadId);
+                      if (relatedLoad && onEditLoad) {
+                        onEditLoad(relatedLoad);
+                      } else {
+                        setFeedback?.('❌ Load details not found or it has been archived.');
+                      }
+                    }}>
                       {inv.containerNo}
                     </td>
                     <td className="px-4 py-3 text-sm font-medium cursor-pointer" onClick={() => setSelectedInvoice(inv)}>

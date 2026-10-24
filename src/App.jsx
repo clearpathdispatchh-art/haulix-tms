@@ -213,6 +213,16 @@ const TAB_CONFIG = {
 };
 
 // ========== HELPER FUNCTIONS ==========
+
+// ✅ NEW: Local Date Helper
+const getLocalDateString = () => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 const escapeCsv = (value) => {
   if (value === undefined || value === null) return '""';
   const stringValue = String(value);
@@ -457,6 +467,7 @@ const normalizeLoad = (data, id) => ({
   isPrePull: data?.isPrePull || false,
   prePullDate: data?.prePullDate || "",
   locationId: data?.locationId || null,
+  returnLocation: data?.returnLocation || "", // ✅ NEW
   chassisNumber: data?.chassisNumber || "",
   weightUnit: data?.weightUnit || "lbs",
   appointmentAmPm: data?.appointmentAmPm || "AM",
@@ -2855,12 +2866,20 @@ const LoadForm = ({
               {formData.shipmentType === 'export' && (
                 <div className="space-y-3 bg-teal-50 p-4 rounded-xl border-2 border-teal-200 shadow-sm">
                   <h3 className="font-black text-xs uppercase tracking-widest text-teal-900 flex items-center gap-1.5"><Ship className="w-4 h-4" /> Export Details</h3>
-                  <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                  <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
                     <div><label className="text-[10px] font-black text-teal-800 uppercase block mb-1">Booking No.*</label><input name="bookingNo" value={formData.bookingNo || ''} onChange={handleChange} className="w-full px-3 py-2 bg-white border-2 border-teal-200 rounded-xl text-sm font-bold outline-none focus:border-teal-500" required /></div>
                     <div><label className="text-[10px] font-black text-teal-800 uppercase block mb-1">Vessel Name*</label><input name="vesselName" value={formData.vesselName || ''} onChange={handleChange} className="w-full px-3 py-2 bg-white border-2 border-teal-200 rounded-xl text-sm font-bold outline-none focus:border-teal-500" required /></div>
                     <div><label className="text-[10px] font-black text-teal-800 uppercase block mb-1">Port Name*</label><input name="portName" value={formData.portName || ''} onChange={handleChange} className="w-full px-3 py-2 bg-white border-2 border-teal-200 rounded-xl text-sm font-bold outline-none focus:border-teal-500" required /></div>
+                    <div><label className="text-[10px] font-black text-teal-800 uppercase block mb-1">Return Location</label><input name="returnLocation" value={formData.returnLocation || ''} onChange={handleChange} className="w-full px-3 py-2 bg-white border-2 border-teal-200 rounded-xl text-sm font-bold outline-none focus:border-teal-500" list="returnLocations" placeholder="Search..." />
+                      <datalist id="returnLocations">
+                        {companyTerminals?.map((t, i) => (<option key={t.id || i} value={t.name + (t.code ? ` (${t.code})` : '') + ' - ' + t.address}></option>))}
+                        {savedDestinations?.map((d, i) => (<option key={d.id || i} value={d.name + ' - ' + d.address}></option>))}
+                      </datalist>
+                    </div>
                     <div><label className="text-[10px] font-black text-teal-800 uppercase block mb-1">ERD Date*</label><input type="date" name="erdDate" value={formData.erdDate || ''} onChange={handleChange} className="w-full px-3 py-2 bg-white border-2 border-teal-200 rounded-xl text-sm font-bold outline-none focus:border-teal-500" required /></div>
                     <div><label className="text-[10px] font-black text-teal-800 uppercase block mb-1">Cut-Off Date*</label><input type="date" name="cutoffDate" value={formData.cutoffDate || ''} onChange={handleChange} className="w-full px-3 py-2 bg-white border-2 border-teal-200 rounded-xl text-sm font-bold outline-none focus:border-teal-500" required /></div>
+                    {/* ✅ NEW: Loading Date Input */}
+                    <div><label className="text-[10px] font-black text-teal-800 uppercase block mb-1">Loading Date</label><input type="date" name="loadingDate" value={formData.loadingDate || ''} onChange={handleChange} className="w-full px-3 py-2 bg-white border-2 border-teal-200 rounded-xl text-sm font-bold outline-none focus:border-teal-500" /></div>
                   </div>
                 </div>
               )}
@@ -4685,7 +4704,8 @@ const AddressBook = ({
         </p>
         <form onSubmit={onAddLocation} className="space-y-3">
           <input required className="w-full p-3 border rounded-xl text-sm font-bold" placeholder="Location Name*" value={newLoc.name} onChange={e => setNewLoc({...newLoc, name: e.target.value})} />
-          <input className="w-full p-3 border rounded-xl text-sm" placeholder="Address*" value={newLoc.address} onChange={e => setNewLoc({...newLoc, address: e.target.value})} />
+          {/* ✅ ADDED 'required' HERE */}
+          <input required className="w-full p-3 border rounded-xl text-sm" placeholder="Address*" value={newLoc.address} onChange={e => setNewLoc({...newLoc, address: e.target.value})} />
           <button type="submit" className="w-full py-3 bg-red-600 text-white rounded-xl font-bold text-sm uppercase tracking-widest hover:bg-red-700 transition-colors">Save Location</button>
         </form>
       </div>
@@ -6220,91 +6240,102 @@ const AddressBook = ({
 
 // ========== OTHER COMPONENTS ==========
 const AssignmentView = ({ loads, assignmentDate, setAssignmentDate, assignmentSlots, onEdit }) => (
-  <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-    <div className="bg-white p-6 rounded-[32px] border border-slate-200 shadow-sm mb-8 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+  <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 bg-slate-50 min-h-screen pb-10">
+    
+    {/* Header */}
+    <div className="bg-white p-4 border-b border-slate-200 sticky top-0 z-10 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 shadow-sm">
       <div>
-        <h2 className="text-2xl font-black text-slate-900 tracking-tight">Assignment Schedule</h2>
-        <p className="text-slate-400 font-bold text-sm">Review delivery timeline date-wise</p>
+        <h2 className="text-xl font-black text-slate-900 tracking-tight flex items-center gap-2">
+          <CalendarDays className="w-5 h-5 text-blue-600" />
+          Assignment Schedule
+        </h2>
+        <p className="text-slate-500 font-bold text-xs mt-0.5">Review delivery timeline date-wise</p>
       </div>
-      <div className="flex items-center gap-4 bg-slate-50 p-2 rounded-2xl border border-slate-100 w-full sm:w-auto">
-        <CalendarDays className="w-5 h-5 text-blue-600 ml-2" />
-        <input type="date" className="bg-transparent font-black text-slate-800 outline-none w-full sm:w-auto" value={assignmentDate} onChange={(e) => setAssignmentDate && setAssignmentDate(e.target.value)} />
+      <div className="flex items-center gap-2 bg-slate-100 p-1.5 rounded-lg border border-slate-200">
+        <CalendarDays className="w-4 h-4 text-blue-600 ml-1" />
+        <input 
+          type="date" 
+          className="bg-transparent font-bold text-sm text-slate-800 outline-none pr-2" 
+          value={assignmentDate} 
+          onChange={(e) => setAssignmentDate && setAssignmentDate(e.target.value)} 
+        />
       </div>
     </div>
-    <div className="space-y-12 pb-20 relative">
-      <div className="absolute left-[70px] top-0 bottom-0 w-px bg-slate-200 border-dashed border-l hidden md:block"></div>
+
+    {/* Timeline */}
+    <div className="p-4 sm:p-6 space-y-2 max-w-7xl mx-auto">
       {(assignmentSlots || []).map((slot) => (
-        <div key={slot.id} className="relative z-10">
-          <div className="flex flex-col md:flex-row md:items-center gap-4 md:gap-6 mb-8 group">
-            <div className="w-full md:w-[140px] md:text-center">
-              <span className="bg-blue-50 text-blue-600 px-4 py-1.5 rounded-full text-[11px] font-black tracking-tight border border-blue-100 whitespace-nowrap">{slot.label}</span>
+        <div key={slot.id} className="relative mb-6">
+          
+          {/* Time Header (Dashed Line with Centered Label) */}
+          <div className="flex items-center gap-4 mb-4">
+            <div className="flex-1 border-t border-dashed border-slate-300"></div>
+            <span className="text-xs font-black text-blue-500 tracking-wider bg-blue-50/50 px-3 py-1 rounded-full border border-blue-100">
+              {slot.label}
+            </span>
+            <div className="flex-1 border-t border-dashed border-slate-300"></div>
+          </div>
+
+          {/* Cards Grid */}
+          {(!slot.items || slot.items.length === 0) ? (
+            <div className="text-center py-2 text-slate-400 font-bold italic text-xs bg-slate-100/50 rounded-lg">
+              No assignments scheduled for this window.
             </div>
-            <div className="hidden md:block flex-1 h-px bg-slate-200 border-dashed border-b"></div>
-          </div>
-          <div className="md:ml-[140px] grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {!slot.items || slot.items.length === 0 ? (
-              <div className="col-span-full py-4 text-slate-300 font-bold italic text-sm">No assignments scheduled for this window.</div>
-            ) : slot.items.map((item) => (
-              <div
-                key={item.id}
-                className="bg-white border border-slate-200 p-6 rounded-[28px] shadow-sm hover:shadow-xl transition-all hover:-translate-y-1 group cursor-pointer"
-                onClick={() => {
-                  if (onEdit) {
-                    const fullLoad = loads.find(l => l.id === item.id);
-                    if (fullLoad) {
-                      onEdit(fullLoad);
-                    }
-                  }
-                }}
-              >
-                <div className="flex justify-between items-start mb-4">
-                  <div className="bg-blue-50 text-blue-600 p-2 rounded-xl">
-                    <Package className="w-5 h-5" />
-                  </div>
-                  <div className="text-right">
-                    <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Appointment</div>
-                    <div className="text-sm font-black text-slate-900">{item.appointmentTime || 'N/A'}</div>
-                  </div>
-                </div>
-                <div className="mb-2 flex items-center gap-2">
-                  {item.loadType === 'LIVE' ? (
-                    <span className="text-[10px] font-black text-blue-600 bg-blue-100 px-2.5 py-0.5 rounded flex items-center gap-1">
-                      <Clock className="w-3 h-3" /> LIVE LOAD
-                    </span>
-                  ) : item.loadType === 'DROP' ? (
-                    <span className="text-[10px] font-black text-green-600 bg-green-100 px-2.5 py-0.5 rounded flex items-center gap-1">
-                      <Package className="w-3 h-3" /> DROP LOAD
-                    </span>
-                  ) : (
-                    <span className="text-[10px] font-bold text-red-500 bg-red-50 px-2.5 py-0.5 rounded flex items-center gap-1">
-                      ⚠️ MISSING
-                    </span>
-                  )}
-                </div>
-                <div className="mb-4">
-                  <div className="text-lg font-black text-slate-900 tracking-tight flex items-center gap-2">
-                    {item.containerNo || 'N/A'}
-                    <span className="text-[10px] font-bold bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded">{item.size || 'N/A'}</span>
-                  </div>
-                  <div className="text-sm font-bold text-blue-600 mt-1">{item.customerName || 'N/A'}</div>
-                </div>
-                <div className="space-y-3 pt-4 border-t border-slate-50">
-                  <div className="flex items-center gap-3">
-                    <div className="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center shrink-0">
-                      <MapPin className="w-3.5 h-3.5 text-slate-400" />
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {slot.items.map((item) => {
+                // Highlight missing container numbers in red (like your screenshot)
+                const isMissingContainer = !item.containerNo || item.containerNo === 'N/A';
+                
+                return (
+                  <div
+                    key={item.id}
+                    onClick={() => onEdit && onEdit(item)}
+                    className={`flex justify-between gap-2 p-2.5 rounded-lg border shadow-sm hover:shadow-md transition-all cursor-pointer overflow-hidden ${
+                      isMissingContainer 
+                        ? 'bg-red-50 border-red-200 hover:border-red-400' 
+                        : 'bg-white border-slate-200 hover:border-blue-400'
+                    }`}
+                  >
+                    {/* Left Column: Container & Origin */}
+                    <div className="flex flex-col w-[35%] shrink-0 border-r border-slate-100 pr-2">
+                      <div className="flex items-center gap-1 text-[10px] font-black text-blue-600 truncate" title={item.containerNo || item.bookingNo}>
+                        <BadgeInfo className="w-3 h-3 shrink-0" />
+                        <span className="truncate">{item.containerNo || item.bookingNo || 'TBD'}</span>
+                      </div>
+                      <div className="text-[10px] font-bold text-slate-800 mt-1 truncate" title={item.legs?.[0]?.from || item.terminal}>
+                        {item.legs?.[0]?.from?.split(' - ')[0] || item.terminal || 'Origin TBD'}
+                      </div>
+                      <div className="text-[9px] font-bold text-slate-400 mt-0.5 truncate">
+                        Size: {item.size || 'N/A'}
+                      </div>
                     </div>
-                    <span className="text-xs font-bold text-slate-500 truncate">{item.legs?.[0]?.to?.split(' - ')[0] || "No Location Assigned"}</span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div className="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center shrink-0">
-                      <Truck className="w-3.5 h-3.5 text-slate-400" />
+
+                    {/* Middle Column: Customer & Destination */}
+                    <div className="flex flex-col flex-1 min-w-0 justify-center">
+                      <div className="text-[10px] font-black text-slate-800 truncate" title={item.customerName}>
+                        {item.customerName || 'N/A'}
+                      </div>
+                      <div className="text-[9px] text-slate-500 mt-0.5 truncate" title={item.delivery || item.legs?.[0]?.to}>
+                        {item.delivery || item.legs?.[0]?.to || 'No Destination'}
+                      </div>
                     </div>
-                    <span className="text-xs font-bold text-slate-800">{item.legs?.[0]?.driverName || "Driver TBD"}</span>
+
+                                        {/* Right Column: Badges */}
+                    <div className="flex flex-col items-end justify-center gap-1 shrink-0">
+                      <span className="bg-teal-100 text-teal-800 text-[9px] font-black px-1.5 py-0.5 rounded whitespace-nowrap">
+                        {/* ✅ FIXED: Using native date formatter instead of missing helper */}
+                        {item.appointmentDate ? new Date(item.appointmentDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'N/A'}
+                      </span>
+                      <span className="bg-slate-100 text-slate-600 text-[9px] font-black px-1.5 py-0.5 rounded whitespace-nowrap">
+                        {item.appointmentTime || 'TBD'}
+                      </span>
+                    </div>
                   </div>
-                </div>
-              </div>
-            ))}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       ))}
     </div>
@@ -6324,8 +6355,7 @@ const DailySummary = ({ loads }) => {
   
   // REPLACE WITH THIS:
   // ✅ FIXED: Only count loads specifically marked as Ready for Billing
-  const needToBill = safeLoads.filter(l => l.status === 'Ready for Billing' || l.status === 'Waiting for Approval').length;
-  
+
   // ✅ FIXED: Only count loads that are dropped/ready but NOT terminated yet
   const pendingTerminationLoads = safeLoads.filter(l => {
     if (l.isTerminated || l.status !== 'Open') return false;
@@ -6337,7 +6367,7 @@ const DailySummary = ({ loads }) => {
 
   return (
     <>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 animate-in fade-in">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-5 animate-in fade-in">
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4 hover:shadow-md transition-shadow">
           <div className="w-12 h-12 rounded-xl bg-purple-50 flex items-center justify-center flex-shrink-0">
             <Package className="w-6 h-6 text-purple-600" />
@@ -6355,16 +6385,6 @@ const DailySummary = ({ loads }) => {
           <div>
             <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Active Trucks</div>
             <div className="text-3xl font-black text-slate-900 leading-none">{numActiveTrucks}</div>
-          </div>
-        </div>
-
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4 hover:shadow-md transition-shadow">
-          <div className="w-12 h-12 rounded-xl bg-emerald-50 flex items-center justify-center flex-shrink-0">
-            <Receipt className="w-6 h-6 text-emerald-600" />
-          </div>
-          <div>
-            <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Need to Bill</div>
-            <div className="text-3xl font-black text-slate-900 leading-none">{needToBill}</div>
           </div>
         </div>
 
@@ -7827,7 +7847,7 @@ useEffect(() => {
   
     // Build query to get loads in billing statuses
   let constraints = [
-    where('status', 'in', ['Ready for Billing', 'Waiting for Approval', 'Approved', 'Invoiced']),
+    where('status', 'in', ['Ready for Billing', 'Waiting for Approval', 'Approved']), // ✅ Removed 'Invoiced'
     limit(100)
   ];
   
@@ -7879,7 +7899,7 @@ useEffect(() => {
   // ✅ Keep this - it already excludes completed/paid loads
   constraints.push(where('status', 'in', ['Open', 'Ready for Billing', 'Invoiced', 'Dispatched', 'In Transit', 'Delivered']));
 } else if (activeTab === 'billing') {
-  constraints.push(where('status', 'in', ['Ready for Billing', 'Waiting for Approval', 'Approved', 'Invoiced']));
+  constraints.push(where('status', 'in', ['Ready for Billing', 'Waiting for Approval', 'Approved'])); // ✅ Removed 'Invoiced'
 } else if (activeTab === 'history') {
   constraints.push(where('status', 'in', ['Paid', 'Completed']));
 }
@@ -8030,6 +8050,25 @@ const handleUpdateLocation = useCallback(async (locationId, updatedData) => {
     setCopyFeedback("❌ Missing required data");
     return;
   }
+
+  // ✅ Block Duplicate Addresses (excluding the current location being edited, but checking Terminals)
+  if (updatedData.address && updatedData.address.trim() !== '') {
+    const newAddressNormalized = updatedData.address.trim().toLowerCase();
+    
+    const isDuplicateLocation = savedDestinations.some(loc => 
+      loc.id !== locationId && // Ignore the current location we are editing
+      (loc.address || '').trim().toLowerCase() === newAddressNormalized
+    );
+
+    const isDuplicateTerminal = savedTerminals.some(term => 
+      (term.address || '').trim().toLowerCase() === newAddressNormalized
+    );
+
+    if (isDuplicateLocation || isDuplicateTerminal) {
+      setCopyFeedback(`❌ This address is already saved in ${isDuplicateTerminal ? 'the Terminals tab' : 'another location'}.`);
+      return; // Stops the save process
+    }
+  }
  
   try {
     const locationRef = doc(db, 'companies', companyId, 'locations', locationId);
@@ -8152,13 +8191,30 @@ const handleUpdateDriver = useCallback(async (driverId, updatedData) => {
 
   const handleAddLocation = useCallback(async (e) => {
   e.preventDefault();
-  console.log('🟢 handleAddLocation called');
-  console.log('newLoc:', newLoc);
-  console.log('companyId:', companyId);
   
   if (!newLoc.name.trim() || !companyId) {
-    console.log('❌ Validation failed: missing name or companyId');
     setCopyFeedback('❌ Missing required fields');
+    return;
+  }
+  
+  // ✅ Block Duplicate Addresses (Check both Locations AND Terminals)
+  if (!newLoc.address || !newLoc.address.trim()) {
+    setCopyFeedback('❌ Address is required to save a location');
+    return;
+  }
+  
+  const newAddressNormalized = newLoc.address.trim().toLowerCase();
+  
+  const isDuplicateLocation = savedDestinations.some(loc => 
+    (loc.address || '').trim().toLowerCase() === newAddressNormalized
+  );
+
+  const isDuplicateTerminal = savedTerminals.some(term => 
+    (term.address || '').trim().toLowerCase() === newAddressNormalized
+  );
+
+  if (isDuplicateLocation || isDuplicateTerminal) {
+    setCopyFeedback(`❌ This address is already saved in ${isDuplicateTerminal ? 'the Terminals tab' : 'the system'}. Please check the Terminals tab or use a different address.`);
     return;
   }
   
@@ -9106,6 +9162,7 @@ const handleSubmitLoad = useCallback(async (formData) => {
   returnDate: formatDateForStorage(formData.returnDate),
   erdDate: formatDateForStorage(formData.erdDate),
   cutoffDate: formatDateForStorage(formData.cutoffDate),
+  loadingDate: formatDateForStorage(formData.loadingDate), // ✅ ADD THIS LINE
   yardStorageStartDate: formatDateForStorage(formData.yardStorageStartDate),
   yardStorageEndDate: formatDateForStorage(formData.yardStorageEndDate),
   chassisStartDate: formatDateForStorage(formData.chassisStartDate),
@@ -9555,47 +9612,63 @@ const handleApproveBilling = useCallback(async (loadId) => {
     return;
   }
   try {
-    // Reserve an invoice number (don't create invoice doc yet)
+                // Reserve an invoice number
     const generateInvoiceNumber = async () => {
-      const year = new Date().getFullYear();
       const counterRef = doc(db, 'companies', companyId, 'counters', 'invoices');
-      let nextSequence = 1;
+      
+      // ✅ SMART START: If it's IFS Transport, start at 7942. Otherwise, start at 1.
+      const isIFS = (companyName || '').toUpperCase().includes('IFS') || (companyName || '').toUpperCase().includes('TRANSPORT');
+      const START_NUM = isIFS ? 7942 : 1; 
+
+      let nextSequence = START_NUM;
       try {
         const counterSnap = await getDoc(counterRef);
         if (counterSnap.exists()) {
           const data = counterSnap.data();
-          if (data.year === year) {
-            nextSequence = data.sequence + 1;
-            await updateDoc(counterRef, { sequence: nextSequence, updatedAt: new Date().toISOString() });
-          } else {
-            nextSequence = 1;
-            await updateDoc(counterRef, { year, sequence: nextSequence, updatedAt: new Date().toISOString() });
-          }
+          const currentSeq = data.sequence || data.lastNumber || (START_NUM - 1);
+          nextSequence = currentSeq + 1;
+          await updateDoc(counterRef, { sequence: nextSequence, lastNumber: nextSequence, updatedAt: new Date().toISOString() });
         } else {
-          await setDoc(counterRef, { year, sequence: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+          await setDoc(counterRef, { sequence: nextSequence, lastNumber: nextSequence, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
         }
       } catch (error) {
         console.error('Counter error:', error);
-        nextSequence = Math.floor(Math.random() * 9000) + 1000;
+        nextSequence = START_NUM;
       }
-      return `INV-${year}-${String(nextSequence).padStart(4, '0')}`;
+      return String(nextSequence); 
     };
 
-    const invoiceNumber = await generateInvoiceNumber();
-    
-    // ✅ Just mark as approved — DO NOT create invoice doc here
+        const invoiceNumber = await generateInvoiceNumber();
+
+    // ✅ NEW: Instantly update the UI before waiting for the database
+    setPaginatedLoads(prev => prev.map(load => 
+      load.id === loadId 
+        ? { 
+            ...load, 
+            billingApproved: true, 
+            billingApprovedAt: new Date().toISOString(),
+            billingApprovedBy: userEmail || user?.email || 'Unknown',
+            invoiceNumber, 
+            status: 'Approved' 
+          } 
+        : load
+    ));
+
+    // Save to database
     const loadRef = doc(db, 'companies', companyId, 'loads', loadId);
     await updateDoc(loadRef, {
       billingApproved: true,
       billingApprovedAt: new Date().toISOString(),
       billingApprovedBy: userEmail || user?.email || 'Unknown',
-      invoiceNumber,              // Reserved number
-      status: 'Approved',         // ✅ Moves to Approved
+      invoiceNumber,
+      status: 'Approved',
       updatedAt: new Date().toISOString()
     });
     
     setCopyFeedback(`✅ Charges approved! Invoice #${invoiceNumber} reserved`);
-    if (activeTab === 'billing') await fetchPaginatedLoads(true);
+    
+    // ❌ REMOVED: if (activeTab === 'billing') await fetchPaginatedLoads(true);
+    // (The real-time listener will automatically sync the background data without causing a screen reload)
   } catch (error) {
     console.error("Approval error:", error);
     setCopyFeedback("❌ Failed to approve billing");
@@ -9643,12 +9716,12 @@ const handleGenerateInvoice = useCallback(async (loadId) => {
     const taxes = 0;
     const total = subtotal + taxes;
 
-    const today = new Date().toISOString().split('T')[0];
+    const today = getLocalDateString();
     const dueObj = new Date(today);
     dueObj.setDate(dueObj.getDate() + 30);
     const dueDate = dueObj.toISOString().split('T')[0];
 
-    // Get customer info
+        // Get customer info
     let customer = null;
     if (load.customerName) {
       const custQuery = query(
@@ -9660,7 +9733,32 @@ const handleGenerateInvoice = useCallback(async (loadId) => {
       if (!custSnap.empty) customer = custSnap.docs[0].data();
     }
 
-    const invoiceNumber = load.invoiceNumber || `INV-${new Date().getFullYear()}-${Math.floor(Math.random()*9000)+1000}`;
+          // ✅ SMART FIX: Force new number if it's an old INV- format, lower than the starting number, or missing
+    const isIFS = (companyName || '').toUpperCase().includes('IFS') || (companyName || '').toUpperCase().includes('TRANSPORT');
+    const START_NUM = isIFS ? 7942 : 1;
+
+    let invoiceNumber = load.invoiceNumber;
+    const numericInv = parseInt(invoiceNumber, 10);
+    const needsNewNumber = !invoiceNumber || 
+                           invoiceNumber.startsWith('INV-') || 
+                           isNaN(numericInv) || 
+                           numericInv < START_NUM;
+
+    if (needsNewNumber) {
+      const counterRef = doc(db, 'companies', companyId, 'counters', 'invoices');
+      const counterSnap = await getDoc(counterRef);
+      let nextSeq = START_NUM; 
+      
+      if (counterSnap.exists()) {
+        const data = counterSnap.data();
+        const currentSeq = data.sequence || data.lastNumber || (START_NUM - 1);
+        nextSeq = Math.max(currentSeq + 1, START_NUM); 
+        await updateDoc(counterRef, { sequence: nextSeq, lastNumber: nextSeq, updatedAt: new Date().toISOString() });
+      } else {
+        await setDoc(counterRef, { sequence: nextSeq, lastNumber: nextSeq, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+      }
+      invoiceNumber = String(nextSeq);
+    }
 
     const invoiceData = {
       companyId,
@@ -10221,7 +10319,7 @@ useEffect(() => { return () => debouncedSearch.cancel && debouncedSearch.cancel(
       setLoadsOpen(snapshot.docs.map(docSnap => normalizeLoad(docSnap.data(), docSnap.id)));
      
       // Refresh today's loads
-      const today = new Date().toISOString().split('T')[0];
+      const today = getLocalDateString();
       let todayConstraints = [
         where('appointmentDate', '==', today),
         limit(50)
@@ -11021,9 +11119,9 @@ if (appState === 'dashboard' && !authReady) {
         </div>
       )}
 
-      {(activeTab === 'loads' || activeTab === 'billing' || activeTab === 'history') && (
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm mb-6 flex gap-4">
-          <div className="relative flex-1">
+            {(activeTab === 'loads' || activeTab === 'billing' || activeTab === 'history') && (
+        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm mb-6 flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
+          <div className="relative flex-1 w-full">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
             <input
               type="text"
@@ -11032,6 +11130,14 @@ if (appState === 'dashboard' && !authReady) {
               onChange={(e) => debouncedSearch(e.target.value)}
             />
           </div>
+          
+          {/* ✅ NEW: Show Count for Billing Tab */}
+          {activeTab === 'billing' && (
+            <div className="flex items-center gap-2 bg-blue-50 text-blue-700 px-5 py-3 rounded-xl font-black border border-blue-200 shadow-sm whitespace-nowrap">
+              <FileText className="w-5 h-5" />
+              <span>{paginatedLoads.length} Containers</span>
+            </div>
+          )}
         </div>
       )}
 
@@ -11448,6 +11554,7 @@ if (appState === 'dashboard' && !authReady) {
   userEmail={userEmail}
   pendingLoadId={pendingInvoiceLoadId}
   onPendingLoadConsumed={() => setPendingInvoiceLoadId(null)}
+  onEditLoad={handleEdit} // ✅ ADD THIS LINE
 />
       )}
 

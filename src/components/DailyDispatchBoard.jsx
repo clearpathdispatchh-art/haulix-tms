@@ -471,6 +471,7 @@ const DailyDispatchBoard = ({
         c.status === 'Paid' ||
         c.status === 'Closed' ||
         c.status === 'Ready for Billing' ||
+        c.isInYard || // ✅ NEW: Hide if marked In Yard
         hasCompletedTerminationLeg;
 
       if (isFinished) return false;
@@ -510,7 +511,7 @@ const DailyDispatchBoard = ({
       const hasLoadingDateToday = isSameDay(c.loadingDate, today);
       const hasErdToday = isSameDay(c.erd, today);
       const hasReadyForPickupToday = isSameDay(c.readyForPickupDate, today) && c.isReadyForPickup === true;
-      const hasLfdToday = isSameDay(c.lfdDate, today);
+      const hasLfdToday = isSameDay(c.lfdDate, today) && !c.isInYard; // ✅ Don't show if already in yard
       const hasLegToday = (c.legs || []).some(leg => isSameDay(leg.legDate, today));
 
       const hasEventToday = hasAppointmentToday ||

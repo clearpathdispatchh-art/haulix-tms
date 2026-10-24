@@ -35,7 +35,7 @@ const getRowColorClass = (load) => {
 
   // 3. Dropped at Customer = YELLOW
   if (load.isDroppedAtCustomer) {
-    return 'bg-yellow-300 text-yellow-900 hover:bg-yellow-400';
+    return 'bg-yellow-300 text-yellow-900 hover:bg-yellow-400 animate-pulse'; // ✅ Added animate-pulse
   }
 
     // ✅ 4. In Yard / Prepulled = BLUE (Moved ABOVE Grounded)
@@ -72,21 +72,25 @@ const getSortPriority = (load) => {
 // 👇 PASTE THE NEW FUNCTION HERE 👇
 // ────────────── DERIVE RAIL CARRIER & LOCATION ──────────────
 const getRailCarrier = (load) => {
-  // 1. PRIORITIZE TERMINAL: Check the terminal field first to get the specific location
+  // 1. Check if we manually typed a Return Location in the form
+  if (load.returnLocation && load.returnLocation.trim() !== '') {
+    // Splits "CN CALGARY - 123 Road" and just grabs "CN CALGARY"
+    return load.returnLocation.split(' - ')[0].trim();
+  }
+
+  // 2. Fallback to Terminal
   const terminal = (load.terminal || '').toUpperCase().trim();
-  
   if (terminal && terminal !== 'N/A' && terminal !== 'NONE') {
-    // Splits "CN EDMONTON - 12311 - 184th Street" and grabs "CN EDMONTON"
     const shortTerminal = terminal.split(' - ')[0].trim();
     if (shortTerminal) return shortTerminal;
   }
 
-  // 2. FALLBACK: If terminal is empty, use the saved railCarrier
+  // 3. Fallback to saved railCarrier
   if (load.railCarrier && load.railCarrier.trim() !== '') {
     return load.railCarrier;
   }
 
-  // 3. Default
+  // 4. Default
   return '—';
 };
 // 👆 END OF NEW FUNCTION 👆
@@ -248,7 +252,8 @@ const ContainerBoard = ({ companyId, setFeedback, onEdit }) => {
 
       {/* ================= SPREADSHEET VIEW ================= */}
       <div className="flex-1 overflow-auto bg-slate-100 p-2">
-        <table className="w-full text-left border-collapse bg-white shadow-sm border border-slate-300">
+        <table className="w-full text-left border-collapse bg-white shadow-sm border border-slate-300 table-fixed">
+
           
           {/* ================= IMPORTS HEADERS ================= */}
           {boardView === 'import' && (
@@ -274,21 +279,21 @@ const ContainerBoard = ({ companyId, setFeedback, onEdit }) => {
           {boardView === 'export' && (
             <thead className="sticky top-0 bg-slate-200 z-10 shadow-sm">
               <tr className="text-[10px] font-black text-slate-700 uppercase tracking-wider border-b-2 border-slate-300">
-                <th className="px-3 py-2 border-r border-slate-300 w-32">Customer</th>
-                <th className="px-3 py-2 border-r border-slate-300 w-24">Booking #</th>
-                <th className="px-3 py-2 border-r border-slate-300 w-32">Release Location</th>
-                <th className="px-3 py-2 border-r border-slate-300 w-20">SSL</th>
-                <th className="px-3 py-2 border-r border-slate-300 w-16 text-center">Size / Type</th>
-                <th className="px-3 py-2 border-r border-slate-300 w-40">Vessel Name</th>
-                <th className="px-3 py-2 border-r border-slate-300 w-20">Return Rail</th>
-                <th className="px-3 py-2 border-r border-slate-300 w-32">Port Name</th>
-                <th className="px-3 py-2 border-r border-slate-300 w-20">ERD</th>
-                <th className="px-3 py-2 border-r border-slate-300 w-24 bg-red-100 text-red-800">CUT OFF</th>
-                <th className="px-3 py-2 border-r border-slate-300 w-24">Prepull Date</th>
-                <th className="px-3 py-2 border-r border-slate-300 w-24">Loading Date</th>
-                <th className="px-3 py-2 border-r border-slate-300 w-24">Return Date</th>
-                <th className="px-3 py-2 border-r border-slate-300 w-24">Rail bill / RV?</th>
-                <th className="px-3 py-2 text-center w-12">Edit</th>
+                <th className="px-2 py-2 border-r border-slate-300 w-[120px]">Customer</th>
+                <th className="px-2 py-2 border-r border-slate-300 w-[80px]">Booking #</th>
+                <th className="px-2 py-2 border-r border-slate-300 w-[120px]">Release Location</th>
+                <th className="px-2 py-2 border-r border-slate-300 w-[50px]">SSL</th>
+                <th className="px-2 py-2 border-r border-slate-300 w-[60px] text-center">Size</th>
+                <th className="px-2 py-2 border-r border-slate-300 w-[110px]">Vessel Name</th>
+                <th className="px-2 py-2 border-r border-slate-300 w-[90px]">Return Rail</th>
+                <th className="px-2 py-2 border-r border-slate-300 w-[100px]">Port Name</th>
+                <th className="px-2 py-2 border-r border-slate-300 w-[60px]">ERD</th>
+                <th className="px-2 py-2 border-r border-slate-300 w-[60px] bg-red-100 text-red-800">CUT OFF</th>
+                <th className="px-2 py-2 border-r border-slate-300 w-[70px]">Prepull</th>
+                <th className="px-2 py-2 border-r border-slate-300 w-[70px]">Loading</th>
+                <th className="px-2 py-2 border-r border-slate-300 w-[70px]">Return</th>
+                <th className="px-2 py-2 border-r border-slate-300 w-[70px]">Rail Bill</th>
+                <th className="px-2 py-2 text-center w-[40px]">Edit</th>
               </tr>
             </thead>
           )}
@@ -328,7 +333,9 @@ const ContainerBoard = ({ companyId, setFeedback, onEdit }) => {
                   {boardView === 'import' && (
                     <>
                       <td className="px-3 py-2 border-r border-black/10 truncate" title={load.customerName}>{load.customerName || '—'}</td>
-                      <td className="px-3 py-2 border-r border-black/10">{getRailCarrier(load)}</td>
+                      <td className="px-3 py-2 border-r border-black/10">
+                        {load.returnLocation ? load.returnLocation : getRailCarrier(load)}
+                      </td>
                       <td className="px-3 py-2 border-r border-black/10 font-black">{load.containerNo || '—'}</td>
                       <td className="px-3 py-2 border-r border-black/10">{load.pickupNo || '—'}</td>
                       <td className="px-3 py-2 border-r border-black/10 text-center">{load.size?.split(' ')[0] || '—'}</td>
@@ -353,35 +360,34 @@ const ContainerBoard = ({ companyId, setFeedback, onEdit }) => {
                   {/* ────────────── EXPORT ROW DATA ────────────── */}
                   {boardView === 'export' && (
                     <>
-                      <td className="px-3 py-2 border-r border-black/10 truncate" title={load.customerName}>{load.customerName || '—'}</td>
-                      <td className="px-3 py-2 border-r border-black/10 font-black">{load.bookingNo || '—'}</td>
-                      <td className="px-3 py-2 border-r border-black/10 truncate" title={load.releaseLocation || load.terminal}>{load.releaseLocation || load.terminal || '—'}</td>
-                      <td className="px-3 py-2 border-r border-black/10 truncate">{load.shippingLine || '—'}</td>
-                      <td className="px-3 py-2 border-r border-black/10 text-center">{load.size?.split(' ')[0] || '—'}</td>
-                      <td className="px-3 py-2 border-r border-black/10 truncate" title={load.vesselName}>{load.vesselName || '—'}</td>
-                      <td className="px-3 py-2 border-r border-black/10">{getRailCarrier(load)}</td>
-                      <td className="px-3 py-2 border-r border-black/10 truncate" title={load.portName}>{load.portName || '—'}</td>
-                      <td className="px-3 py-2 border-r border-black/10">{formatDate(load.erdDate)}</td>
+                      <td className="px-2 py-2 border-r border-black/10 truncate" title={load.customerName}>{load.customerName || '—'}</td>
+                      <td className="px-2 py-2 border-r border-black/10 font-black truncate" title={load.bookingNo}>{load.bookingNo || '—'}</td>
+                      <td className="px-2 py-2 border-r border-black/10 truncate" title={load.releaseLocation || load.terminal}>{load.releaseLocation || load.terminal || '—'}</td>
+                      <td className="px-2 py-2 border-r border-black/10 truncate">{load.shippingLine || '—'}</td>
+                      <td className="px-2 py-2 border-r border-black/10 text-center">{load.size?.split(' ')[0] || '—'}</td>
+                      <td className="px-2 py-2 border-r border-black/10 truncate" title={load.vesselName}>{load.vesselName || '—'}</td>
+                      <td className="px-2 py-2 border-r border-black/10 truncate" title={getRailCarrier(load)}>{getRailCarrier(load)}</td>
+                      <td className="px-2 py-2 border-r border-black/10 truncate" title={load.portName}>{load.portName || '—'}</td>
+                      <td className="px-2 py-2 border-r border-black/10">{formatDate(load.erdDate)}</td>
                       
-                      {/* CUT OFF CELL */}
-                      <td className={`px-3 py-2 border-r border-black/10 ${cutoffCellClass}`}>
+                      <td className={`px-2 py-2 border-r border-black/10 ${cutoffCellClass}`}>
                         {formatDate(load.cutoffDate)}
                       </td>
                       
-                      <td className="px-3 py-2 border-r border-black/10">{formatDate(load.prepullDate)}</td>
-                      <td className="px-3 py-2 border-r border-black/10">{formatDate(load.loadingDate)}</td>
-                      <td className="px-3 py-2 border-r border-black/10">{formatDate(load.returnDate)}</td>
-                      <td className="px-3 py-2 border-r border-black/10 text-center">
+                      <td className="px-2 py-2 border-r border-black/10">{formatDate(load.prepullDate)}</td>
+                      <td className="px-2 py-2 border-r border-black/10">{formatDate(load.loadingDate)}</td>
+                      <td className="px-2 py-2 border-r border-black/10">{formatDate(load.returnDate)}</td>
+                      <td className="px-2 py-2 border-r border-black/10 text-center truncate">
                         {load.railBill ? `✅ ${load.railBillNumber || 'Yes'}` : '❌ No'}
                       </td>
                     </>
                   )}
 
                   {/* EDIT BUTTON */}
-                  <td className="px-3 py-2 text-center">
+                  <td className="px-1 py-2 text-center whitespace-nowrap">
                     <button 
                       onClick={(e) => { e.stopPropagation(); onEdit && onEdit(load); }}
-                      className="p-1 hover:bg-black/10 rounded transition-colors"
+                      className="p-1 hover:bg-black/10 rounded transition-colors mx-auto flex items-center justify-center"
                       title="Edit Load"
                     >
                       <Edit3 className="w-3.5 h-3.5" />

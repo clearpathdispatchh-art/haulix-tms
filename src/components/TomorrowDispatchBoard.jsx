@@ -7,6 +7,21 @@ import {
   ChevronDown, AlertCircle, Loader2, Zap, CheckCircle2 
 } from 'lucide-react';
 
+// ✅ ADD THIS HELPER FUNCTION AT THE TOP
+const isSameDay = (dateStr1, dateStr2) => {
+  if (!dateStr1 || !dateStr2) return false;
+  try {
+    const d1 = new Date(dateStr1);
+    const d2 = new Date(dateStr2);
+    if (isNaN(d1.getTime()) || isNaN(d2.getTime())) return false;
+    return d1.getFullYear() === d2.getFullYear() &&
+           d1.getMonth() === d2.getMonth() &&
+           d1.getDate() === d2.getDate();
+  } catch (e) {
+    return false;
+  }
+};
+
 const TomorrowDispatchBoard = ({ 
   companyId, 
   onEdit, 
@@ -39,43 +54,45 @@ const TomorrowDispatchBoard = ({
   });
 
   // ===== SMART MATCHING LOGIC =====
+    // ===== SMART MATCHING LOGIC (FIXED) =====
   const generateSmartSuggestions = useCallback((loads) => {
     const suggestions = [];
     
-    // 1. Find all containers that are terminating (Ready for pickup / Empty)
+    // 1. Find containers that are RETURNING empty (Terminations) - Exclude Prepulls!
     const terminatingContainers = loads.filter(l => 
-      l.isReadyForPickup || 
-      l.isTerminated ||
-      l.legs?.some(leg => leg.legType === 'termination') ||
-      l.status === 'Ready for Termination'
+      !l.isPrePull && // ✅ A prepull is NOT a termination
+      (l.isReadyForPickup || l.legs?.some(leg => leg.legType === 'termination'))
     );
 
-    // 2. Find all containers that are picking up (Import / Pre-pull / Live load)
+    // 2. Find containers that need to be picked up (Exports or Imports)
     const pickupContainers = loads.filter(l => 
       l.shipmentType === 'import' || 
       l.isPrePull || 
       l.legs?.some(leg => leg.legType === 'pickup' || leg.legType === 'prepull')
     );
 
-    // 3. Match them based on Location and Size
+    // 3. Match them STRICTLY based on exact Location and Size
     terminatingContainers.forEach(term => {
       pickupContainers.forEach(pickup => {
         if (term.id === pickup.id) return; // Don't match with itself
 
-        // Extract locations (Terminal or first leg origin)
-        const termLocation = (term.terminal || term.legs?.[0]?.to || '').toLowerCase().trim();
-        const pickupLocation = (pickup.terminal || pickup.legs?.[0]?.from || '').toLowerCase().trim();
+        // Get the exact location where the empty container is being dropped off
+        const termLeg = term.legs?.find(leg => leg.legType === 'termination');
+        const termLocation = (termLeg?.to || term.terminal || '').toLowerCase().trim();
+        
+        // Get the exact location where the new container is being picked up
+        const pickupLeg = pickup.legs?.find(leg => leg.legType === 'pickup' || leg.legType === 'prepull');
+        const pickupLocation = (pickupLeg?.from || pickup.terminal || '').toLowerCase().trim();
 
-        // Extract sizes (e.g., 40GE, 20GE, 40HC)
         const termSize = (term.size || '').trim();
         const pickupSize = (pickup.size || '').trim();
 
-        // STRICT MATCHING: Location must match AND Size must match
+        // Only suggest if locations match exactly and sizes match
         if (termLocation && termLocation === pickupLocation && termSize && termSize === pickupSize) {
           suggestions.push({
             terminationContainer: term.containerNo || 'N/A',
             pickupContainer: pickup.containerNo || 'N/A',
-            location: term.terminal || term.legs?.[0]?.to || 'N/A',
+            location: termLeg?.to || term.terminal || 'N/A',
             size: termSize,
             termId: term.id,
             pickupId: pickup.id,
@@ -148,6 +165,13 @@ const TomorrowDispatchBoard = ({
         const prepullSnap = await getDocs(prepullQuery);
         addLoads(prepullSnap);
       } catch (e) { /* ignore */ }
+
+      // ✅ 3.5 LFD Date = tomorrow (Needs Pre-pull)
+      const lfdQuery = query(loadsCollection, where('lfdDate', '==', tomorrowDate));
+      try {
+        const lfdSnap = await getDocs(lfdQuery);
+        addLoads(lfdSnap);
+      } catch (e) { /* ignore */ }
       
             // 4. Backdated drops AND Today's drops (needs follow-up tomorrow)
       const todayStr = new Date().toISOString().split('T')[0];
@@ -193,29 +217,28 @@ const TomorrowDispatchBoard = ({
       setTomorrowLoads(merged);
       setSmartSuggestions(generateSmartSuggestions(merged));
       
-            // Statistics
-      const statsData = {
-        total: merged.length,
-        prepull: merged.filter(l => l.isPrePull).length,
-        // ✅ Count all active loads that aren't pre-pulls or terminations as deliveries
-        delivery: merged.filter(l => 
-          !l.isPrePull && 
-          !l.isTerminated && 
-          !l.isReadyForPickup && 
-          l.status !== 'Completed' && 
-          l.status !== 'Delivered' && 
-          l.status !== 'Ready for Billing' &&
-          !(l.legs?.some(leg => leg.legType === 'termination'))
-        ).length,
-        termination: merged.filter(l => 
-          l.legs?.some(leg => leg.legType === 'termination') || l.isReadyForPickup || l.isTerminated
-        ).length,
-        completed: merged.filter(l => 
-          l.status === 'Completed' || 
-          l.status === 'Delivered' || 
-          l.status === 'Ready for Billing'
-        ).length
-      };
+                        // Statistics (Mutually Exclusive Priority Order)
+      const statsData = { total: merged.length, prepull: 0, delivery: 0, termination: 0, completed: 0 };
+      
+      merged.forEach(l => {
+        const isCompleted = l.status === 'Completed' || l.status === 'Delivered' || l.status === 'Ready for Billing';
+        
+        // ✅ FIXED: Removed the check for termination legs so it only counts physical drops
+        const isFollowUp = l.isDroppedAtCustomer || l.isDelivered || l.isReadyForPickup;
+        
+        const isPrePull = l.isPrePull || (isSameDay(l.lfdDate, tomorrowDate) && !l.isInYard);
+
+        if (isCompleted) {
+          statsData.completed++;
+        } else if (isFollowUp) {
+          statsData.termination++; // Follow-ups go in the Termination box
+        } else if (isPrePull) {
+          statsData.prepull++;
+        } else {
+          statsData.delivery++;
+        }
+      });
+      
       setStats(statsData);
       
     } catch (error) {
@@ -450,9 +473,14 @@ const TomorrowDispatchBoard = ({
                       {load.loadType || 'DROP'}
                     </span>
                   </div>
-                  {load.isPrePull && (
+                                    {/* ✅ Show Pre-Pull badge if flagged OR if LFD is tomorrow */}
+                  {/* ✅ FIXED: Don't show Pre-Pull badge if it's already dropped/ready */}
+{(load.isPrePull || isSameDay(load.lfdDate, tomorrowDate)) && 
+ !load.isDroppedAtCustomer && 
+ !load.isDelivered && 
+ !load.isReadyForPickup && (
                     <span className="text-[10px] font-black text-purple-600 bg-purple-50 px-2 py-1 rounded border border-purple-200">
-                      Pre-Pull
+                      Pre-Pull (LFD)
                     </span>
                   )}
                 </div>
