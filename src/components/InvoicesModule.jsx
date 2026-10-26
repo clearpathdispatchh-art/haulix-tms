@@ -4,7 +4,7 @@ import {
   FileText, Search, Plus, X, Send, Printer, Trash2, Edit3,
   Loader2, AlertCircle, CheckCircle, DollarSign, Mail, Paperclip,
   Calendar, User, Building, Download, RefreshCw, Filter, ChevronDown,
-  ShieldCheck, Clock, CheckSquare, Square
+  ShieldCheck, Clock, CheckSquare, Square, Eye
 } from 'lucide-react';
 import {
   collection, query, onSnapshot, where, orderBy, getDocs,
@@ -78,83 +78,138 @@ const STATUS_STYLES = {
 
 // ========== PDF GENERATION ==========
 const buildInvoiceHTML = (invoice, companyName, companyDetails, locationAddress, currencySymbol) => {
-  const addressStr = locationAddress
-    || [companyDetails?.address, companyDetails?.city, companyDetails?.postalCode].filter(Boolean).join(', ');
+  const addressStr = locationAddress || [companyDetails?.address, companyDetails?.city, companyDetails?.postalCode].filter(Boolean).join(', ');
 
   let rowsHtml = '';
   if (invoice.items && Array.isArray(invoice.items) && invoice.items.length > 0) {
     invoice.items.forEach(item => {
-  if (safeFloat(item?.amount) > 0 || safeFloat(item?.rate) > 0) {
-    rowsHtml += `
-      <tr>
-        <td style="padding: 12px; border-bottom: 1px solid #e5e7eb;">
-          <div class="font-bold text-base">${item.item || 'Service Charge'}</div>
-          ${item.details ? `<div style="font-size: 10px; color: #6b7280; margin-top: 4px; font-style: italic;">${item.details}</div>` : ''}
-        </td>
-        <td style="padding: 12px; border-bottom: 1px solid #e5e7eb; text-align: center;">${item.qty || 1}</td>
-        <td style="padding: 12px; border-bottom: 1px solid #e5e7eb; text-align: right;">${currencySymbol}${safeFloat(item.rate).toFixed(2)}</td>
-        <td style="padding: 12px; border-bottom: 1px solid #e5e7eb; text-align: right;" class="font-black text-base">${currencySymbol}${safeFloat(item.amount).toFixed(2)}</td>
-      </tr>`;
-  }
-});
+      if (safeFloat(item?.amount) > 0 || safeFloat(item?.rate) > 0) {
+        rowsHtml += `
+          <tr>
+            <td style="padding: 12px 8px; border-bottom: 1px solid #e5e7eb;">
+              <div style="font-weight: 900; font-size: 12px; color: #111827;">${item.item || 'Service Charge'}</div>
+              ${item.details ? `<div style="font-size: 10px; color: #6b7280; margin-top: 2px;">${item.details}</div>` : ''}
+            </td>
+            <td style="padding: 12px 8px; border-bottom: 1px solid #e5e7eb; text-align: center; font-size: 12px; font-weight: bold;">${safeFloat(item.qty || 1).toFixed(2)}</td>
+            <td style="padding: 12px 8px; border-bottom: 1px solid #e5e7eb; text-align: center; font-size: 12px;">${item.uom || 'RATE'}</td>
+            <td style="padding: 12px 8px; border-bottom: 1px solid #e5e7eb; text-align: right; font-size: 12px; font-weight: bold;">${currencySymbol}${safeFloat(item.rate).toFixed(2)}</td>
+            <td style="padding: 12px 8px; border-bottom: 1px solid #e5e7eb; text-align: right; font-size: 12px; font-weight: 900;">${currencySymbol}${safeFloat(item.amount).toFixed(2)}</td>
+          </tr>`;
+      }
+    });
   }
 
   return `
-    <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 12px; color: #111827; background: #fff; line-height: 1.4; box-sizing: border-box; width: 100%;">
-      <style>
-        * { box-sizing: border-box; }
-        .flex { display: flex; }
-        .justify-between { justify-content: space-between; }
-        .items-start { align-items: flex-start; }
-        .gap-4 { gap: 16px; }
-        .w-1-2 { width: 50%; }
-        .text-right { text-align: right; }
-        .mb-8 { margin-bottom: 32px; }
-        .font-bold { font-weight: 700; }
-        .font-black { font-weight: 900; }
-        .text-blue { color: #1d4ed8; }
-        .text-gray { color: #9ca3af; }
-        .text-xs { font-size: 10px; text-transform: uppercase; font-weight: 800; letter-spacing: 0.5px; }
-        .text-base { font-size: 13px; }
-        .text-2xl { font-size: 26px; letter-spacing: -0.5px; }
-        .divider { border-bottom: 3px solid #111827; margin: 15px 0 25px 0; }
-        .section-title { font-weight: 900; font-size: 12px; color: #1f2937; margin-bottom: 12px; display: flex; align-items: center; }
-        .section-title::before { content: ''; display: inline-block; width: 4px; height: 14px; background-color: #1d4ed8; margin-right: 8px; }
-        .card { border: 1px solid #e5e7eb; border-radius: 6px; padding: 16px; background: #f9fafb; }
-        .meta-table { width: auto; margin-left: auto; border-collapse: collapse; }
-        .meta-table td { padding: 4px 8px; font-size: 11px; }
-        .meta-table .label { font-weight: 800; text-align: right; text-transform: uppercase; color: #4b5563; }
-        .meta-table .value { font-weight: 800; text-align: right; color: #111827; }
-        .invoice-table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-        .invoice-table th { background: #f3f4f6; border-bottom: 2px solid #d1d5db; padding: 12px; text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: #4b5563;}
-        .invoice-table td { color: #111827; }
-        .totals-box { border: 1px solid #e5e7eb; border-radius: 6px; overflow: hidden; }
-        .totals-row { display: flex; justify-content: space-between; padding: 10px 16px; border-bottom: 1px solid #e5e7eb; }
-        .totals-row.grand { background: #1d4ed8; color: #fff; border-bottom: none; }
-        .totals-row.grand .label, .totals-row.grand .value { color: #fff; font-weight: 900; font-size: 16px; }
-      </style>
-      <div class="flex justify-between items-start">
-        <!-- LEFT SIDE: Company Info -->
-        <div>
-          <div class="text-2xl font-black text-blue mb-2">${companyName || 'Company Name'}</div>
-          ${addressStr ? `<div style="color: #374151; font-size: 11px; line-height: 1.4; font-weight: bold;">${addressStr}</div>` : ''}
-          ${companyDetails?.phone ? `<div style="color: #374151; font-size: 11px; line-height: 1.4; font-weight: bold;">Tel: ${companyDetails.phone}</div>` : ''}
-          ${companyDetails?.email ? `<div style="color: #374151; font-size: 11px; line-height: 1.4; font-weight: bold;">Email: ${companyDetails.email}</div>` : ''}
-        </div>
-        
-        <!-- RIGHT SIDE: Logo and Invoice Details -->
-        <div class="text-right">
-          ${companyDetails?.logoUrl ? `<img src="${companyDetails.logoUrl}" style="max-height: 70px; max-width: 220px; margin-bottom: 10px; margin-left: auto; display: block;" alt="Company Logo" crossorigin="anonymous" />` : ''}
-          <div class="text-2xl font-black text-gray mb-2">INVOICE</div>
-          <table class="meta-table"><tr><td class="label">INVOICE #</td><td class="value">${invoice.invoiceNumber}</td></tr><tr><td class="label">DATE</td><td class="value">${invoice.invoiceDate || new Date().toISOString().split('T')[0]}</td></tr><tr><td class="label">PO #</td><td class="value">${invoice.poNumber || 'N/A'}</td></tr><tr><td class="label">CURRENCY</td><td class="value">${invoice.currency || 'CAD'}</td></tr><tr><td class="label">TERMS</td><td class="value">${invoice.paymentTerms || 'Due on Receipt'}</td></tr></table></div>
-      </div>
-      <div class="divider"></div>
-      <div class="flex gap-4 mb-8">
-        <div class="w-1-2"><div class="section-title">BILL TO</div><div class="card" style="height: 120px; background: #fff;"><div class="font-black text-base mb-1">${invoice.billTo || invoice.customerName || 'N/A'}</div><div style="color: #374151; line-height: 1.5;">${invoice.customerAddress || 'Address on file'}</div><div style="color: #374151; margin-top: 4px;">${invoice.customerEmail || ''}</div></div></div>
-        <div class="w-1-2"><div class="section-title">SHIPMENT SUMMARY</div><div class="card flex" style="height: 120px; flex-wrap: wrap; gap: 15px;"><div style="width: 45%;"><div class="text-xs" style="color: #6b7280;">CONTAINER #</div><div class="font-bold">${invoice.containerNo || 'N/A'}</div></div><div style="width: 45%;"><div class="text-xs" style="color: #6b7280;">SIZE / TYPE</div><div class="font-bold">${invoice.size || 'N/A'}</div></div><div style="width: 45%;"><div class="text-xs" style="color: #6b7280;">WEIGHT</div><div class="font-bold">${invoice.weight || 'N/A'}</div></div><div style="width: 45%;"><div class="text-xs" style="color: #6b7280;">REF NO</div><div class="font-bold">${invoice.customerRefNo || 'N/A'}</div></div></div></div>
-      </div>
-      <table class="invoice-table"><thead><tr><th style="width: 50%;">Description</th><th style="width: 15%; text-align: center;">Qty</th><th style="width: 15%; text-align: right;">Rate</th><th style="width: 20%; text-align: right;">Amount</th></tr></thead><tbody>${rowsHtml || `<tr><td style="padding: 12px; border-bottom: 1px solid #e5e7eb;"><div class="font-bold text-base">Freight Charge</div></td><td style="padding: 12px; border-bottom: 1px solid #e5e7eb; text-align: center;">1</td><td style="padding: 12px; border-bottom: 1px solid #e5e7eb; text-align: right;">${currencySymbol}${safeFloat(invoice.total).toFixed(2)}</td><td style="padding: 12px; border-bottom: 1px solid #e5e7eb; text-align: right;" class="font-black text-base">${currencySymbol}${safeFloat(invoice.total).toFixed(2)}</td></tr>`}</tbody></table>
-      <div class="flex justify-between" style="margin-top: 30px; align-items: flex-start;"><div style="width: 50%; color: #6b7280; font-size: 11px; padding-right: 20px;"><p>Thank you for your business.</p><p>Please include invoice number on your check or remittance advice.</p></div><div style="width: 40%;"><div class="totals-box"><div class="totals-row"><span class="label font-bold" style="color: #4b5563;">Subtotal</span><span class="value font-bold">${currencySymbol}${safeFloat(invoice.subtotal).toFixed(2)}</span></div><div class="totals-row"><span class="label font-bold" style="color: #4b5563;">Tax (0%)</span><span class="value font-bold">${currencySymbol}${safeFloat(invoice.taxes).toFixed(2)}</span></div><div class="totals-row grand"><span class="label">TOTAL DUE</span><span class="value">${currencySymbol}${safeFloat(invoice.total).toFixed(2)}</span></div></div></div></div>
+    <div style="font-family: Arial, Helvetica, sans-serif; font-size: 12px; color: #111827; background: #fff; padding: 40px; box-sizing: border-box; width: 100%; line-height: 1.5;">
+
+      <!-- 1. HEADER -->
+      <table style="width: 100%; margin-bottom: 20px;">
+        <tr>
+          <!-- Left side: Company Info -->
+          <td style="vertical-align: top;">
+            <div style="font-size: 26px; font-weight: 900; letter-spacing: -0.5px; margin-bottom: 8px;">${companyName || 'COMPANY NAME'}</div>
+            <div style="font-size: 12px; color: #4b5563; font-weight: bold;">${addressStr}</div>
+            ${companyDetails?.phone ? `<div style="font-size: 12px; color: #4b5563;">Tel: ${companyDetails.phone}</div>` : ''}
+            ${companyDetails?.email ? `<div style="font-size: 12px; color: #4b5563;">${companyDetails.email}</div>` : ''}
+          </td>
+          <!-- Right side: Logo (Increased Size) -->
+          <td style="vertical-align: top; text-align: right; width: 250px;">
+            ${companyDetails?.logoUrl ? `<img src="${companyDetails.logoUrl}" style="max-height: 90px; max-width: 240px; object-fit: contain; display: block; margin-left: auto; border: none;" alt="Logo" crossorigin="anonymous" />` : ''}
+          </td>
+        </tr>
+      </table>
+
+      <!-- 2. BILL TO & INVOICE DETAILS -->
+      <table style="width: 100%; margin-bottom: 30px;">
+        <tr>
+          <!-- Left side: Addresses -->
+          <td style="width: 50%; vertical-align: top; padding-right: 20px;">
+            <div style="background: #9ca3af; color: #fff; font-weight: bold; padding: 3px 8px; display: inline-block; margin-bottom: 8px; font-size: 11px; letter-spacing: 0.5px;">BILL TO:</div>
+            <div style="font-size: 12px; margin-bottom: 24px;">
+              <div style="font-weight: 900; font-size: 13px;">${invoice.customerName || invoice.billTo || 'N/A'}</div>
+              <div style="color: #4b5563;">${invoice.customerAddress || 'Address on file'}</div>
+              <div style="color: #4b5563;">${invoice.customerEmail || ''}</div>
+            </div>
+
+            <div style="background: #9ca3af; color: #fff; font-weight: bold; padding: 3px 8px; display: inline-block; margin-bottom: 8px; font-size: 11px; letter-spacing: 0.5px;">DELIVER TO:</div>
+            <div style="font-size: 12px; color: #4b5563;">
+              <div style="font-weight: 900; font-size: 13px; color: #111827;">${invoice.deliverTo || 'N/A'}</div>
+            </div>
+          </td>
+
+          <!-- Right side: Invoice Details -->
+          <td style="width: 50%; vertical-align: top; text-align: right;">
+            <div style="font-size: 28px; font-weight: 900; margin-bottom: 16px; letter-spacing: -0.5px;">INVOICE # <span style="margin-left: 10px;">${invoice.invoiceNumber}</span></div>
+
+            <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+              <tr><td style="padding: 4px 0; text-align: right; font-weight: 900; width: 60%;">Invoice date:</td><td style="padding: 4px 0; text-align: right;">${invoice.invoiceDate || '—'}</td></tr>
+              <tr><td style="padding: 4px 0; text-align: right; font-weight: 900;">Container:</td><td style="padding: 4px 0; text-align: right;">${invoice.containerNo || '—'}</td></tr>
+              <tr><td style="padding: 4px 0; text-align: right; font-weight: 900;">Delivery date:</td><td style="padding: 4px 0; text-align: right;">${invoice.deliveryDate || invoice.appointmentDate || '—'}</td></tr>
+              <tr><td style="padding: 4px 0; text-align: right; font-weight: 900;">Pickup date:</td><td style="padding: 4px 0; text-align: right;">${invoice.pickupDate || invoice.appointmentDate || '—'}</td></tr>
+              <tr><td style="padding: 4px 0; text-align: right; font-weight: 900;">Return date:</td><td style="padding: 4px 0; text-align: right;">${invoice.returnDate || '—'}</td></tr>
+              <tr><td style="padding: 4px 0; text-align: right; font-weight: 900;">PO:</td><td style="padding: 4px 0; text-align: right;">${invoice.poNumber || '—'}</td></tr>
+              <tr><td style="padding: 4px 0; text-align: right; font-weight: 900;">Due date:</td><td style="padding: 4px 0; text-align: right;">${invoice.dueDate || '—'}</td></tr>
+            </table>
+                        <!-- ADD THIS HERE -->
+            <div style="margin-top: 20px; border: 2px solid #111827; padding: 10px 15px; display: flex; justify-content: space-between; align-items: center; background: #f9fafb; border-radius: 4px;">
+              <span style="font-size: 12px; font-weight: 900; color: #4b5563;">Amount due:</span>
+              <span style="font-size: 16px; font-weight: 900;">${invoice.currency || 'CAD'} $ ${safeFloat(invoice.total).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+            </div>
+          </td>
+        </tr>
+      </table>
+
+      <!-- 3. LINE ITEMS TABLE -->
+      <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+        <thead>
+          <tr style="border-bottom: 2px solid #111827; text-align: left; font-size: 12px;">
+            <th style="padding: 8px 0; width: 40%;">Description</th>
+            <th style="padding: 8px 0; width: 15%; text-align: center;">Quantity</th>
+            <th style="padding: 8px 0; width: 15%; text-align: center;">UOM</th>
+            <th style="padding: 8px 0; width: 15%; text-align: right;">Price</th>
+            <th style="padding: 8px 0; width: 15%; text-align: right;">Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rowsHtml || `<tr><td colspan="5" style="padding: 20px 0; text-align: center; color: #6b7280;">No items</td></tr>`}
+        </tbody>
+      </table>
+
+      <!-- 4. TOTALS & AMOUNT DUE (Anchored properly at the bottom) -->
+      <table style="width: 100%; margin-top: 20px;">
+        <tr>
+          <td style="width: 55%;"></td>
+          <td style="width: 45%;">
+            <table style="width: 100%; font-size: 12px; margin-bottom: 15px;">
+              <tr>
+                <td style="padding: 6px 0; color: #6b7280; font-weight: 900;">Subtotal:</td>
+                <td style="padding: 6px 0; text-align: right;">${currencySymbol}${safeFloat(invoice.subtotal).toFixed(2)}</td>
+              </tr>
+              <tr>
+                <td style="padding: 6px 0; color: #6b7280; font-weight: 900;">Total:</td>
+                <td style="padding: 6px 0; text-align: right;">${currencySymbol}${safeFloat(invoice.total).toFixed(2)}</td>
+              </tr>
+            </table>
+
+            
+          </td>
+        </tr>
+      </table>
+
+      <!-- 5. FOOTER NOTES -->
+      <table style="width: 100%; margin-top: 50px; padding-top: 20px; border-top: 1px solid #e5e7eb; font-size: 10px;">
+        <tr>
+          <td style="width: 45%; vertical-align: top;">
+            <div style="font-weight: 900; color: #111827; margin-bottom: 4px;">NOTE TO RECIPIENT:</div>
+            <div style="color: #6b7280;">Thank you for your business.</div>
+          </td>
+          <td style="width: 45%; vertical-align: top;">
+            <div style="font-weight: 900; color: #111827; margin-bottom: 4px;">TERMS AND CONDITIONS:</div>
+            <div style="color: #6b7280;">Please include invoice number on your check or remittance advice.</div>
+          </td>
+        </tr>
+      </table>
+
     </div>
   `;
 };
@@ -170,7 +225,7 @@ const generateInvoicePDFBlob = async (invoice, companyName, companyDetails, loca
   const opt = {
     margin: 0.4,
     image: { type: 'jpeg', quality: 0.85 },
-    html2canvas: { scale: 1.5, useCORS: true, logging: false, backgroundColor: '#ffffff' },
+    html2canvas: { scale: 2, useCORS: true, logging: false, backgroundColor: '#ffffff' }, // Increased scale for sharper text
     jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' },
     pagebreak: { mode: ['avoid-all', 'css'] },
   };
@@ -187,9 +242,8 @@ const InvoicesModule = ({
   userEmail,
   pendingLoadId,
   onPendingLoadConsumed,
-  onEditLoad, // ✅ ADD THIS LINE
+  onEditLoad,
 }) => {
-
   const [invoices, setInvoices] = useState([]);
   const [loads, setLoads] = useState([]);
   const [customers, setCustomers] = useState([]);
@@ -249,17 +303,15 @@ const InvoicesModule = ({
     return () => unsub();
   }, [companyId]);
 
-      // ✅ Auto-open invoice when navigating from History or Billing tab
+  // ✅ Auto-open invoice when navigating from History or Billing tab
   useEffect(() => {
     if (!pendingLoadId) {
       pendingAutoCreateRef.current = null;
       return;
     }
 
-    // ✅ Automatically switch the filter to show all invoices so it doesn't get hidden
     setStatusFilter('all');
 
-    // 1. Try to find the invoice in the invoices list
     const existingInvoice = invoices.find(i => i.loadId === pendingLoadId);
     if (existingInvoice) {
       setSelectedInvoice(existingInvoice);
@@ -267,12 +319,10 @@ const InvoicesModule = ({
       return;
     }
 
-    // 2. If not found, check if the load exists and needs the invoice generated
     if (loads.length > 0) {
       const load = loads.find(l => l.id === pendingLoadId);
       
       if (load && load.billingApproved) {
-        // Check if we already tried to create it for this specific loadId
         if (pendingAutoCreateRef.current !== pendingLoadId) {
           pendingAutoCreateRef.current = pendingLoadId;
           setFeedback?.('⏳ Recovering missing invoice record...');
@@ -371,27 +421,26 @@ const InvoicesModule = ({
     }
 
     try {
-            const counterRef = doc(db, 'companies', companyId, 'counters', 'invoices');
+      const counterRef = doc(db, 'companies', companyId, 'counters', 'invoices');
       let counterSnap = await getDoc(counterRef);
-      let nextSeq = 7944; // ✅ Start at 7944
+      let nextSeq = 7944;
       if (counterSnap.exists()) {
         const data = counterSnap.data();
-        const currentSeq = data.lastNumber || data.sequence || 7943;
-        nextSeq = currentSeq + 1;
-        await updateDoc(counterRef, { lastNumber: nextSeq, sequence: nextSeq, updatedAt: new Date().toISOString() });
+        nextSeq = (data.lastNumber || 7943) + 1;
+        await updateDoc(counterRef, { lastNumber: nextSeq, updatedAt: new Date().toISOString() });
       } else {
-        await setDoc(counterRef, { lastNumber: nextSeq, sequence: nextSeq, createdAt: new Date().toISOString() });
+        await setDoc(counterRef, { lastNumber: nextSeq, createdAt: new Date().toISOString() });
       }
 
       const items = (load.revenueItems || []).map(item => ({
-  item: item.item || 'Service',
-  details: item.details || '', // ✅ ADD THIS LINE
-  qty: safeFloat(item.qty || 1),
-  uom: item.uom || 'RATE',
-  rate: safeFloat(item.rate),
-  amount: safeFloat(item.amount),
-  tax: safeFloat(item.tax || 0),
-}));
+        item: item.item || 'Service',
+        details: item.details || '',
+        qty: safeFloat(item.qty || 1),
+        uom: item.uom || 'RATE',
+        rate: safeFloat(item.rate),
+        amount: safeFloat(item.amount),
+        tax: safeFloat(item.tax || 0),
+      }));
 
       const subtotal = items.reduce((s, i) => s + i.amount, 0);
       const taxes = items.reduce((s, i) => s + (i.amount * i.tax / 100), 0);
@@ -404,6 +453,9 @@ const InvoicesModule = ({
 
       const customer = customers.find(c => c.name === load.customerName);
 
+      const terminationLeg = (load.legs || []).find(l => l.legType === 'termination');
+      const calculatedReturnDate = terminationLeg?.legDate || load.returnDate || '';
+
       const newInvoice = {
         companyId,
         invoiceNumber: String(nextSeq),
@@ -413,7 +465,7 @@ const InvoicesModule = ({
         containerNo: load.containerNo || 'N/A',
         workOrderNo: load.workOrderNo || 'N/A',
         customerName: load.customerName || 'N/A',
-        customerEmail: customer?.email || load.customerEmail || '',
+        customerEmail: customer?.accountingEmail || customer?.email || load.customerEmail || '',
         customerAddress: customer?.address || load.customerAddress || '',
         billTo: customer?.name || load.customerName || 'N/A',
         salesRep: userEmail || 'N/A',
@@ -432,11 +484,14 @@ const InvoicesModule = ({
         billingApprovedAt: load.billingApprovedAt || null,
         createdAt: new Date().toISOString(),
         createdBy: userEmail || 'N/A',
-        // ✅ COPY MISSING FIELDS FROM LOAD FOR PDF
         poNumber: load.poNumber || 'N/A',
         size: load.size || 'N/A',
         weight: load.weight || 'N/A',
         customerRefNo: load.customerRefNo || 'N/A',
+        pickupDate: load.legs?.[0]?.legDate || load.erdDate || '',
+        deliveryDate: load.deliveryDate || load.appointmentDate || '',
+        returnDate: calculatedReturnDate,
+        deliverTo: load.delivery || 'N/A',
       };
 
       const ref = await addDoc(collection(db, 'companies', companyId, 'invoices'), newInvoice);
@@ -534,9 +589,32 @@ const InvoicesModule = ({
     }
 
     const attachments = [];
-    if (load?.signedPodDoc?.url) {
-      attachments.push({ url: load.signedPodDoc.url, filename: `POD_${inv.containerNo}.pdf` });
+    
+    if (load?.loadConfirmation?.url) {
+      attachments.push({ 
+        url: load.loadConfirmation.url, 
+        filename: load.loadConfirmation.name || `Load_Confirmation_${inv.containerNo}.pdf` 
+      });
     }
+    
+    if (load?.signedPodDoc?.url) {
+      attachments.push({ 
+        url: load.signedPodDoc.url, 
+        filename: load.signedPodDoc.name || `POD_${inv.containerNo}.pdf` 
+      });
+    }
+
+    if (load?.documents && Array.isArray(load.documents)) {
+      load.documents.forEach((doc, idx) => {
+        if (doc.url) {
+          attachments.push({ 
+            url: doc.url, 
+            filename: doc.name || `Document_${idx}_${inv.containerNo}.pdf` 
+          });
+        }
+      });
+    }
+
     attachments.push({ url: invoiceUrl, filename: safeFileName });
 
     const toList = (inv.customerEmail || '').split(',').map(s => s.trim()).filter(Boolean);
@@ -544,7 +622,7 @@ const InvoicesModule = ({
       throw new Error(`No customer email for invoice #${inv.invoiceNumber}`);
     }
 
-    const subject = `Invoice: ${inv.invoiceNumber}, Container: ${inv.containerNo}, LC #: ${inv.workOrderNo || ''}`;
+    const subject = `Invoice: ${inv.invoiceNumber}, Container: ${inv.containerNo}, Ref #: ${inv.customerRefNo || 'N/A'}`;
     const body = buildEmailBody(inv, companyName, companyDetails);
 
     const sendFn = httpsCallable(getFunctions(), 'sendInvoiceEmail');
@@ -1239,6 +1317,21 @@ const InvoiceDetailModal = ({ invoice, customers, onSave, onClose, onEmail }) =>
   const [data, setData] = useState({ ...invoice });
   const [activeTab, setActiveTab] = useState('items');
   const [saving, setSaving] = useState(false);
+  
+  const [loadData, setLoadData] = useState(null);
+  const [fetchingDocs, setFetchingDocs] = useState(false);
+
+  useEffect(() => {
+    if (invoice.loadId) {
+      setFetchingDocs(true);
+      getDoc(doc(db, 'companies', invoice.companyId, 'loads', invoice.loadId))
+        .then(snap => {
+          if (snap.exists()) setLoadData(snap.data());
+        })
+        .catch(console.error)
+        .finally(() => setFetchingDocs(false));
+    }
+  }, [invoice.loadId, invoice.companyId]);
 
   const updateField = (field, value) => setData(prev => ({ ...prev, [field]: value }));
 
@@ -1412,7 +1505,7 @@ const InvoiceDetailModal = ({ invoice, customers, onSave, onClose, onEmail }) =>
           </div>
 
           <div className="flex gap-2 border-b">
-            {['items', 'comments'].map(tab => (
+            {['items', 'comments', 'docs'].map(tab => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -1422,7 +1515,7 @@ const InvoiceDetailModal = ({ invoice, customers, onSave, onClose, onEmail }) =>
                     : 'border-transparent text-slate-500 hover:text-slate-700'
                 }`}
               >
-                {tab === 'items' ? 'Items' : 'Internal Comments'}
+                {tab === 'items' ? 'Items' : tab === 'comments' ? 'Internal Comments' : 'Attachments'}
               </button>
             ))}
           </div>
@@ -1528,6 +1621,55 @@ const InvoiceDetailModal = ({ invoice, customers, onSave, onClose, onEmail }) =>
             </div>
           )}
 
+          {activeTab === 'docs' && (
+             <div className="space-y-4">
+                <h3 className="font-black text-slate-800 text-sm">Load Attachments</h3>
+                {fetchingDocs ? (
+                  <div className="flex items-center justify-center p-6 text-slate-400">
+                    <Loader2 className="w-6 h-6 animate-spin" />
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* LC */}
+                    <div className="border border-slate-200 rounded-xl p-4 flex items-center justify-between bg-slate-50">
+                      <div className="flex items-center gap-3">
+                        <div className="bg-blue-100 p-2 rounded-lg text-blue-600">
+                          <FileText className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <div className="font-bold text-sm text-slate-800">Load Confirmation</div>
+                          <div className="text-[10px] text-slate-500">{loadData?.loadConfirmation ? 'Available' : 'Not uploaded'}</div>
+                        </div>
+                      </div>
+                      {loadData?.loadConfirmation?.url && (
+                        <a href={loadData.loadConfirmation.url} target="_blank" rel="noreferrer" className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold text-blue-600 hover:bg-blue-50 transition-colors flex items-center gap-1">
+                          <Download className="w-3 h-3" /> View
+                        </a>
+                      )}
+                    </div>
+
+                    {/* POD */}
+                    <div className="border border-slate-200 rounded-xl p-4 flex items-center justify-between bg-slate-50">
+                      <div className="flex items-center gap-3">
+                        <div className="bg-green-100 p-2 rounded-lg text-green-600">
+                          <CheckCircle className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <div className="font-bold text-sm text-slate-800">Signed POD</div>
+                          <div className="text-[10px] text-slate-500">{loadData?.signedPodDoc ? 'Available' : 'Not uploaded'}</div>
+                        </div>
+                      </div>
+                      {loadData?.signedPodDoc?.url && (
+                        <a href={loadData.signedPodDoc.url} target="_blank" rel="noreferrer" className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold text-green-600 hover:bg-green-50 transition-colors flex items-center gap-1">
+                          <Download className="w-3 h-3" /> View
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                )}
+             </div>
+          )}
+
           <div className="flex justify-end">
             <div className="w-full max-w-xs space-y-2">
               <div className="flex justify-between text-sm font-bold">
@@ -1569,13 +1711,59 @@ const InvoiceDetailModal = ({ invoice, customers, onSave, onClose, onEmail }) =>
 // ========== EMAIL INVOICE MODAL ==========
 const EmailInvoiceModal = ({ invoice, companyId, companyName, companyDetails, companyLocations, setFeedback, onClose }) => {
   const [sending, setSending] = useState(false);
+  const [previewLoading, setPreviewLoading] = useState(false);
   const [to, setTo] = useState(invoice.customerEmail || '');
   const [cc, setCc] = useState('');
   const [bcc, setBcc] = useState('');
   const [subject, setSubject] = useState(
-    `Invoice: ${invoice.invoiceNumber}, Container: ${invoice.containerNo}, LC #: ${invoice.workOrderNo || ''}`
+    `Invoice: ${invoice.invoiceNumber}, Container: ${invoice.containerNo}, Ref #: ${invoice.customerRefNo || 'N/A'}`
   );
   const [body, setBody] = useState(() => buildEmailBody(invoice, companyName, companyDetails));
+
+  const [loadData, setLoadData] = useState(null);
+  const [fetchingDocs, setFetchingDocs] = useState(false);
+
+  const [attachInvoice, setAttachInvoice] = useState(true);
+  const [attachLC, setAttachLC] = useState(true);
+  const [attachPOD, setAttachPOD] = useState(true);
+
+  useEffect(() => {
+    if (invoice.loadId) {
+      setFetchingDocs(true);
+      getDoc(doc(db, 'companies', companyId, 'loads', invoice.loadId))
+        .then(snap => {
+          if (snap.exists()) setLoadData(snap.data());
+        })
+        .catch(console.error)
+        .finally(() => setFetchingDocs(false));
+    }
+  }, [invoice.loadId, companyId]);
+
+  // ✅ NEW: Preview Invoice PDF on the fly
+  const handlePreviewInvoice = async () => {
+    setPreviewLoading(true);
+    try {
+      let locationAddress = null;
+      if (invoice.locationId) {
+        const loc = companyLocations.find(l => l.id === invoice.locationId);
+        if (loc) {
+          locationAddress = [loc.name, loc.address, loc.city, loc.province, loc.postalCode].filter(Boolean).join(', ');
+        }
+      }
+      if (!locationAddress) {
+        locationAddress = [companyDetails?.address, companyDetails?.city, companyDetails?.postalCode].filter(Boolean).join(', ');
+      }
+
+      const pdfBlob = await generateInvoicePDFBlob(invoice, companyName, companyDetails, locationAddress);
+      const url = URL.createObjectURL(pdfBlob);
+      window.open(url, '_blank');
+    } catch (err) {
+      console.error('Preview error:', err);
+      setFeedback?.('❌ Failed to generate preview');
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
 
   const handleSend = async () => {
     if (!to.trim()) { setFeedback?.('❌ Please enter recipient email'); return; }
@@ -1604,18 +1792,24 @@ const EmailInvoiceModal = ({ invoice, companyId, companyName, companyDetails, co
       await uploadBytes(storageRef, pdfBlob, { contentType: 'application/pdf' });
       const invoiceUrl = await getDownloadURL(storageRef);
 
-      const attachments = [{ url: invoiceUrl, filename: safeFileName }];
+      const attachments = [];
 
-      if (invoice.loadId) {
-        try {
-          const loadSnap = await getDoc(doc(db, 'companies', companyId, 'loads', invoice.loadId));
-          if (loadSnap.exists()) {
-            const load = loadSnap.data();
-            if (load.signedPodDoc?.url) {
-              attachments.push({ url: load.signedPodDoc.url, filename: `POD_${invoice.containerNo}.pdf` });
-            }
-          }
-        } catch (e) { /* ignore */ }
+      if (loadData?.loadConfirmation?.url && attachLC) {
+        attachments.push({ 
+          url: loadData.loadConfirmation.url, 
+          filename: loadData.loadConfirmation.name || `Load_Confirmation_${invoice.containerNo}.pdf` 
+        });
+      }
+      
+      if (loadData?.signedPodDoc?.url && attachPOD) {
+        attachments.push({ 
+          url: loadData.signedPodDoc.url, 
+          filename: loadData.signedPodDoc.name || `POD_${invoice.containerNo}.pdf` 
+        });
+      }
+
+      if (attachInvoice) {
+        attachments.push({ url: invoiceUrl, filename: safeFileName });
       }
 
       const toList = to.split(',').map(s => s.trim()).filter(Boolean);
@@ -1720,11 +1914,77 @@ const EmailInvoiceModal = ({ invoice, companyId, companyName, companyDetails, co
             <textarea
               value={body}
               onChange={(e) => setBody(e.target.value)}
-              className="w-full p-3 border rounded-xl text-sm mt-1 min-h-[200px] font-mono"
+              className="w-full p-3 border rounded-xl text-sm mt-1 min-h-[150px] font-mono"
             />
           </div>
-          <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-700">
-            <strong>Attachments:</strong> Invoice PDF (auto-generated) + Signed POD (if available)
+
+          {/* ✅ NEW: Attachment Checkboxes with View Links */}
+          <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
+            <h3 className="text-xs font-black text-slate-700 uppercase mb-3">Attachments</h3>
+            {fetchingDocs ? (
+              <div className="flex items-center text-xs text-slate-500"><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Checking for documents...</div>
+            ) : (
+              <div className="space-y-3">
+                
+                {/* 1. Invoice */}
+                <div className="flex items-center justify-between">
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input type="checkbox" checked={attachInvoice} onChange={(e) => setAttachInvoice(e.target.checked)} className="w-4 h-4 accent-blue-600" />
+                    <span className="text-sm font-bold text-slate-700">📄 Invoice PDF (Auto-generated)</span>
+                  </label>
+                  <button 
+                    type="button" 
+                    onClick={handlePreviewInvoice} 
+                    disabled={previewLoading}
+                    className="text-xs font-bold text-blue-600 hover:underline flex items-center gap-1"
+                  >
+                    {previewLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Eye className="w-3.5 h-3.5" />}
+                    Preview
+                  </button>
+                </div>
+                
+                {/* 2. LC */}
+                {loadData?.loadConfirmation?.url ? (
+                  <div className="flex items-center justify-between">
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <input type="checkbox" checked={attachLC} onChange={(e) => setAttachLC(e.target.checked)} className="w-4 h-4 accent-blue-600" />
+                      <span className="text-sm font-bold text-slate-700">📎 Load Confirmation (LC)</span>
+                    </label>
+                    <a 
+                      href={loadData.loadConfirmation.url} 
+                      target="_blank" 
+                      rel="noreferrer" 
+                      className="text-xs font-bold text-blue-600 hover:underline flex items-center gap-1"
+                    >
+                      <Eye className="w-3.5 h-3.5" /> View
+                    </a>
+                  </div>
+                ) : (
+                  <div className="text-xs text-slate-400 italic pl-7">No Load Confirmation found</div>
+                )}
+
+                {/* 3. POD */}
+                {loadData?.signedPodDoc?.url ? (
+                  <div className="flex items-center justify-between">
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <input type="checkbox" checked={attachPOD} onChange={(e) => setAttachPOD(e.target.checked)} className="w-4 h-4 accent-blue-600" />
+                      <span className="text-sm font-bold text-slate-700">✍️ Signed Proof of Delivery (POD)</span>
+                    </label>
+                    <a 
+                      href={loadData.signedPodDoc.url} 
+                      target="_blank" 
+                      rel="noreferrer" 
+                      className="text-xs font-bold text-blue-600 hover:underline flex items-center gap-1"
+                    >
+                      <Eye className="w-3.5 h-3.5" /> View
+                    </a>
+                  </div>
+                ) : (
+                  <div className="text-xs text-slate-400 italic pl-7">No Signed POD found</div>
+                )}
+
+              </div>
+            )}
           </div>
         </div>
         <div className="p-4 border-t flex gap-3">

@@ -344,6 +344,12 @@ const validateLoadForm = (formData) => {
 
 const migrateToLineItems = (loadData) => {
   const migrated = { ...loadData };
+  
+  // ✅ FIX: Strip legacy "(General)" text so the dropdown matches perfectly
+  if (migrated.size) {
+    migrated.size = migrated.size.replace(' (General)', '');
+  }
+
   if (!migrated.currency) {
     migrated.currency = "CAD";
   }
@@ -401,7 +407,7 @@ const copyDispatch = async (load, leg, setFeedback) => {
 Work Order: ${load.workOrderNo || 'N/A'}
 Booking #: ${load.emptyPickupBookingNo || 'N/A'}
 Line: ${load.shippingLine || 'N/A'}
-Size/Weight: ${load.size || 'N/A'} / ${load.weight || 'N/A'}
+Size/Weight: ${(load?.size || 'N/A').replace(' (General)', '')} / ${load?.weight || 'N/A'}
 ERD Date: ${load.erdDate || 'N/A'}
 CutOff Date: ${load.cutoffDate || 'N/A'}
 
@@ -422,7 +428,7 @@ Truck: ${leg?.truckNo || 'TBD'}
 Work Order: ${load?.workOrderNo || 'N/A'}
 Container: ${load?.containerNo || 'TBD'}
 Line: ${load?.shippingLine || 'N/A'}
-Size/Weight: ${load?.size || 'N/A'} / ${load?.weight || 'N/A'}
+Size/Weight: ${(load?.size || 'N/A').replace(' (General)', '')} / ${load?.weight || 'N/A'}
 PO #: ${load?.poNumber || 'N/A'}
 Pickup #: ${load?.pickupNo || 'N/A'}
 Ref #: ${load?.customerRefNo || 'N/A'}
@@ -553,7 +559,7 @@ const createEmptyLoadForm = () => ({
   poNumber: "",
   pickupNo: "",
   customerRefNo: "",
-  size: "40GE (General)",
+  size: "40GE",
   weight: "",
   weightUnit: "lbs",
   sealNumber: "", // ✅ ADD THIS
@@ -598,6 +604,10 @@ const createEmptyLoadForm = () => ({
   terminal: "",
   loadType: "",
   shipmentType: "",
+  rvNo: "",
+  rvEarlyReturnDate: "",
+  rvEarlyReturnTime: "",
+  rvCutoffDate: "",
   bookingNo: "",
   vesselName: "",
   portName: "",
@@ -959,7 +969,7 @@ export const downloadInvoice = (load, setFeedback, companyName, companyDetails =
           
           <!-- RIGHT SIDE: Logo and Invoice Details -->
           <div class="text-right">
-            ${companyDetails?.logoUrl ? `<img src="${sanitizeInput(companyDetails.logoUrl)}" style="max-height: 70px; max-width: 220px; margin-bottom: 10px; margin-left: auto; display: block;" alt="Company Logo" crossorigin="anonymous" />` : ''}
+            ${companyDetails?.logoUrl ? `<img src="${sanitizeInput(companyDetails.logoUrl)}" style="max-height: 50px; max-width: 160px; object-fit: contain; margin-bottom: 10px; margin-left: auto; display: block;" alt="Company Logo" crossorigin="anonymous" />` : ''}
             <div class="text-2xl font-black text-gray mb-2">INVOICE</div>
             <table class="meta-table"><tr><td class="label">INVOICE #</td><td class="value">${sanitizeInput(load.workOrderNo || String(load.id || '').substring(0,8).toUpperCase())}</td></tr><tr><td class="label">DATE</td><td class="value">${currentDate}</td></tr><tr><td class="label">PO #</td><td class="value">${sanitizeInput(load.poNumber || 'N/A')}</td></tr><tr><td class="label">CURRENCY</td><td class="value">${load.currency || 'CAD'}</td></tr><tr><td class="label">TERMS</td><td class="value">Due on Receipt</td></tr></table></div>
         </div>
@@ -1825,6 +1835,91 @@ const importExcelData = async (file, companyId, setFeedback, onProgress) => {
 
 // ========== LOAD FORM COMPONENT ==========
 // Find this block around line 985
+const SearchableSelect = ({ value, options, onChange, placeholder, theme = 'blue' }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const wrapperRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(event.target)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const filteredOptions = options.filter(opt => 
+    opt.toLowerCase().includes(search.toLowerCase())
+  );
+
+  let borderColor = 'border-slate-300 focus:border-blue-500';
+  let ringColor = 'focus:ring-blue-100';
+  
+  if (theme === 'emerald') {
+    borderColor = 'border-emerald-200 focus:border-emerald-500';
+    ringColor = 'focus:ring-emerald-200';
+  } else if (theme === 'rose') {
+    borderColor = 'border-rose-200 focus:border-rose-500';
+    ringColor = 'focus:ring-rose-200';
+  }
+
+  return (
+    <div className="relative" ref={wrapperRef}>
+      {/* The box you click to open */}
+      <div 
+        className={`w-full px-3 py-2 border-2 ${borderColor} rounded-xl text-sm font-bold bg-white cursor-pointer flex justify-between items-center outline-none focus:ring-2 ${ringColor} transition-all`}
+        onClick={() => setIsOpen(!isOpen)}
+      >
+        <span className={`truncate ${!value ? 'text-slate-400 font-normal' : 'text-slate-900'}`} title={value}>
+          {value || placeholder}
+        </span>
+        <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+      </div>
+
+      {/* The Dropdown Menu */}
+      {isOpen && (
+        <div className="absolute z-[200] w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl max-h-64 flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-100">
+          <div className="p-2 border-b border-slate-100 bg-slate-50 sticky top-0 z-10">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <input
+                type="text"
+                autoFocus
+                placeholder="Type to search..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full pl-8 pr-3 py-2 bg-white border border-slate-200 rounded-lg text-xs outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              />
+            </div>
+          </div>
+          <ul className="overflow-y-auto flex-1 p-1">
+            {filteredOptions.length === 0 ? (
+              <li className="px-3 py-4 text-center text-xs text-slate-400 italic">No results found</li>
+            ) : (
+              filteredOptions.map((opt, i) => (
+                <li
+                  key={i}
+                  onClick={() => {
+                    onChange(opt);
+                    setIsOpen(false);
+                    setSearch('');
+                  }}
+                  className={`px-3 py-2 text-xs font-medium rounded-lg cursor-pointer truncate ${value === opt ? 'bg-blue-50 text-blue-700' : 'text-slate-700 hover:bg-slate-100'}`}
+                  title={opt}
+                >
+                  {opt}
+                </li>
+              ))
+            )}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const LoadForm = ({
   isOpen,
   onClose,
@@ -2006,9 +2101,10 @@ const LoadForm = ({
       const migratedData = migrateToLineItems(initialData);
       const revItems = buildLegacyRevenueItems(migratedData);
       const expItems = buildLegacyExpenseItems(migratedData);
-      setFormData({
+            setFormData({
         ...createEmptyLoadForm(),
         ...migratedData,
+        size: migratedData.size || '40GE', // ✅ Ensure size is clean
         weightUnit: migratedData.weightUnit || 'lbs',
         appointmentAmPm: migratedData.appointmentAmPm || 'AM',
         legs: getSafeLegs(migratedData).length > 0 ? getSafeLegs(migratedData) : [createDefaultLeg()],
@@ -2080,9 +2176,11 @@ const LoadForm = ({
     return cleaned;
   };
 
-  const handleChange = (e) => {
+    const handleChange = (e) => {
     const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: sanitizeInput(value) }));
+    // ✅ Clean the size value immediately if it comes from a dropdown
+    const cleanValue = name === 'size' ? value.replace(' (General)', '') : value;
+    setFormData(prev => ({ ...prev, [name]: sanitizeInput(cleanValue) }));
   };
  
   const handleLineItemChange = (type, id, field, value) => {
@@ -2677,7 +2775,7 @@ const LoadForm = ({
                     <div className="flex items-center gap-3">
             
                         {/* ✅ ALWAYS SHOW GENERATE POD BUTTON */}
-            <button
+                        <button
               type="button"
               onClick={() => {
                 const effectiveDetails = {
@@ -2687,7 +2785,11 @@ const LoadForm = ({
                   province: companyDetails?.province || companyLocations?.[0]?.province || '',
                   postalCode: companyDetails?.postalCode || companyLocations?.[0]?.postalCode || '',
                 };
-                downloadPOD(formData, formData.legs?.[0], setFeedback, companyName || 'Company', effectiveDetails, null);
+                
+                // ✅ FIX: Find the delivery leg instead of hardcoding the first leg
+                const deliveryLeg = formData.legs?.find(l => l.legType === 'delivery' || l.legType === 'drop') || formData.legs?.[formData.legs.length - 1];
+                
+                downloadPOD(formData, deliveryLeg, setFeedback, companyName || 'Company', effectiveDetails, null);
               }}
               className="flex items-center gap-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 px-3 py-1.5 rounded-lg font-bold text-xs transition-colors border border-blue-200 shadow-sm"
               title="Generate & Download POD from form data"
@@ -2884,13 +2986,44 @@ const LoadForm = ({
                 </div>
               )}
 
-              {/* Row 5: Tracking & References */}
+                            {/* Row 5: Tracking & References */}
               <div className="space-y-3 bg-slate-100 p-4 rounded-xl border-2 border-slate-200 shadow-sm">
                 <h3 className="font-black text-xs uppercase tracking-widest text-slate-700 flex items-center gap-1.5"><Hash className="w-4 h-4" /> Tracking & Reference</h3>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div><label className="text-[10px] font-black text-slate-600 uppercase block mb-1">PO Number</label><input name="poNumber" value={formData.poNumber} onChange={handleChange} className="w-full px-3 py-2 bg-white border-2 border-slate-300 rounded-xl text-sm font-bold outline-none focus:border-blue-500" /></div>
                   <div><label className="text-[10px] font-black text-slate-600 uppercase block mb-1">Pick up Number</label><input name="pickupNo" value={formData.pickupNo} onChange={handleChange} className="w-full px-3 py-2 bg-white border-2 border-slate-300 rounded-xl text-sm font-bold outline-none focus:border-blue-500" /></div>
                   <div><label className="text-[10px] font-black text-slate-600 uppercase block mb-1">Customer Ref No.</label><input name="customerRefNo" value={formData.customerRefNo} onChange={handleChange} className="w-full px-3 py-2 bg-white border-2 border-slate-300 rounded-xl text-sm font-bold outline-none focus:border-blue-500" /></div>
+                </div>
+              </div>
+
+              {/* ✅ RV DETAILS PASTED INSIDE STEP 1 */}
+              <div className="space-y-3 bg-indigo-50 p-4 rounded-xl border-2 border-indigo-200 shadow-sm mt-4">
+                <h3 className="font-black text-xs uppercase tracking-widest text-indigo-900 flex items-center gap-1.5">
+                  <Train className="w-4 h-4" /> RV / Rail Release Details
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div>
+                    <label className="text-[10px] font-black text-indigo-800 uppercase block mb-1">RV Number</label>
+                    <input name="rvNo" value={formData.rvNo || ''} onChange={handleChange} className="w-full px-3 py-2 bg-white border-2 border-indigo-200 rounded-xl text-sm font-bold outline-none focus:border-indigo-500" placeholder="RV #" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-black text-indigo-800 uppercase block mb-1">Early Return Date</label>
+                    <input type="date" name="rvEarlyReturnDate" value={formData.rvEarlyReturnDate || ''} onChange={handleChange} className="w-full px-3 py-2 bg-white border-2 border-indigo-200 rounded-xl text-sm font-bold outline-none focus:border-indigo-500" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-black text-indigo-800 uppercase block mb-1">Early Return Time</label>
+                    <input type="text" placeholder="HH:MM" name="rvEarlyReturnTime" value={formData.rvEarlyReturnTime || ''} onChange={(e) => setFormData(prev => ({ ...prev, rvEarlyReturnTime: formatTimeString(e.target.value) }))} className="w-full px-3 py-2 bg-white border-2 border-indigo-200 rounded-xl text-sm font-bold outline-none focus:border-indigo-500" />
+                  </div>
+                                    <div className="flex gap-2">
+                    <div className="flex-1">
+                      <label className="text-[10px] font-black text-indigo-800 uppercase block mb-1">Cut-Off Date</label>
+                      <input type="date" name="rvCutoffDate" value={formData.rvCutoffDate || ''} onChange={handleChange} className="w-full px-3 py-2 bg-white border-2 border-indigo-200 rounded-xl text-sm font-bold outline-none focus:border-indigo-500" />
+                    </div>
+                    <div className="w-24">
+                      <label className="text-[10px] font-black text-indigo-800 uppercase block mb-1">Time</label>
+                      <input type="text" placeholder="HH:MM" name="rvCutoffTime" value={formData.rvCutoffTime || ''} onChange={(e) => setFormData(prev => ({ ...prev, rvCutoffTime: formatTimeString(e.target.value) }))} className="w-full px-3 py-2 bg-white border-2 border-indigo-200 rounded-xl text-sm font-bold outline-none focus:border-indigo-500" />
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -2902,15 +3035,28 @@ const LoadForm = ({
             <div className="space-y-4 animate-in fade-in">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-emerald-50/50 p-4 rounded-xl border-2 border-emerald-100 shadow-sm">
                 {/* ✅ Customer Name is now FIRST */}
-                <div>
+                                <div>
                   <label className="text-[11px] font-black text-slate-700 uppercase block mb-1.5">Customer Name *</label>
-                  <select name="customerName" value={formData.customerName} onChange={(e) => {
-                    const cust = savedCustomers.find(c => c.name === e.target.value);
-                    setFormData(prev => cust ? { ...prev, customerName: cust.name, customerEmail: cust.email || '', customerPhone: cust.phone || '', customerAddress: cust.address || '' } : { ...prev, customerName: e.target.value });
-                  }} className="w-full px-3 py-2 bg-white border-2 border-slate-300 rounded-xl font-bold text-sm outline-none focus:border-blue-500">
-                    <option value="" disabled>Select saved customer...</option>
-                    {savedCustomers.map((c, i) => (<option key={c.id || i} value={c.name}>{c.name}</option>))}
-                  </select>
+                  <SearchableSelect
+                    value={formData.customerName}
+                    options={savedCustomers.map(c => c.name)}
+                    onChange={(selectedName) => {
+                      // ✅ Preserves your auto-fill logic for Email, Phone, and Address
+                      const cust = savedCustomers.find(c => c.name === selectedName);
+                      setFormData(prev => cust ? { 
+                        ...prev, 
+                        customerName: cust.name, 
+                        customerEmail: cust.email || '', 
+                        customerPhone: cust.phone || '', 
+                        customerAddress: cust.address || '' 
+                      } : { 
+                        ...prev, 
+                        customerName: selectedName 
+                      });
+                    }}
+                    placeholder="Type to search customers..."
+                    theme="blue"
+                  />
                 </div>
                 
                 {/* ✅ Delivery Location is now SECOND */}
@@ -3262,9 +3408,19 @@ const LoadForm = ({
             <div className="animate-in fade-in space-y-4">
               <div className="bg-gradient-to-br from-slate-100 to-gray-50 p-5 rounded-2xl border-2 border-slate-300 shadow-inner">
                 <div className="flex items-center justify-between border-b-2 border-slate-300 pb-3 mb-4">
-                  <div className="flex items-center gap-3">
+                                    <div className="flex items-center gap-3">
                     <div className="bg-purple-700 p-2 rounded-xl text-white shadow-md"><Target className="w-5 h-5" /></div>
-                    <div><h3 className="font-black text-sm uppercase tracking-widest text-slate-900">Container Lifecycle</h3></div>
+                    <div>
+                      <h3 className="font-black text-sm uppercase tracking-widest text-slate-900 flex items-center gap-2">
+                        Container Lifecycle
+                        {/* ✅ NEW: Display Container Number prominently */}
+                        {formData.containerNo && (
+                          <span className="bg-slate-800 text-white text-xs px-3 py-1 rounded-lg border border-slate-700 font-mono tracking-normal">
+                            {formData.containerNo}
+                          </span>
+                        )}
+                      </h3>
+                    </div>
                   </div>
                   <span className="text-xs font-black text-purple-800 bg-purple-100 px-3 py-1 rounded-lg border-2 border-purple-200">Current: {formData.isTerminated ? 'Terminated' : formData.isReadyForPickup ? 'Ready Pickup' : formData.isDroppedAtCustomer ? 'At Cust' : formData.lfdDate ? 'LFD Set' : formData.isInYard ? 'In Yard' : formData.isGrounded ? 'Grounded' : formData.etaDate ? 'ETA Recv' : 'New'}</span>
                 </div>
@@ -3354,25 +3510,54 @@ const LoadForm = ({
                       <div><label className="text-[10px] font-black text-slate-500 uppercase block mb-1">Leg Type</label><select value={legToEdit.legType || 'delivery'} onChange={e => updateLeg(legToEdit.id, 'legType', e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm font-bold bg-white outline-none focus:ring-2 focus:ring-blue-200"><option value="delivery">📦 Delivery</option><option value="pickup">🏗️ Pickup</option><option value="prepull">⏳ Pre-pull</option><option value="termination">🏁 Termination</option></select></div>
                     </div>
 
-                    {/* Locations */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-200">
-                      <div>
-                        <label className="text-[10px] font-black text-emerald-600 uppercase block mb-1">Pickup Location</label>
-                        <input type="text" value={legToEdit.from} onChange={e => handleAddressChange(legToEdit.id, 'from', e.target.value)} placeholder="Search location or terminal..." className="w-full px-3 py-2 border border-emerald-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-emerald-200" list={'loclist-' + legToEdit.id} />
-                        <datalist id={'loclist-' + legToEdit.id}>
-                          {savedDestinations.map((d, i) => <option key={'dest-pick-' + i} value={d.name + ' - ' + d.address}></option>)}
-                          {companyTerminals && companyTerminals.map((t, i) => <option key={'term-pick-' + i} value={t.name + (t.code ? ` (${t.code})` : '') + ' - ' + t.address}></option>)}
-                        </datalist>
-                      </div>
-                      <div>
-                        <label className="text-[10px] font-black text-rose-600 uppercase block mb-1">Drop Location</label>
-                        <input type="text" value={legToEdit.to} onChange={e => handleAddressChange(legToEdit.id, 'to', e.target.value)} placeholder="Search location or terminal..." className="w-full px-3 py-2 border border-rose-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-rose-200" list={'loclist-to-' + legToEdit.id} />
-                        <datalist id={'loclist-to-' + legToEdit.id}>
-                          {savedDestinations.map((d, i) => <option key={'dest-drop-' + i} value={d.name + ' - ' + d.address}></option>)}
-                          {companyTerminals && companyTerminals.map((t, i) => <option key={'term-drop-' + i} value={t.name + (t.code ? ` (${t.code})` : '') + ' - ' + t.address}></option>)}
-                        </datalist>
-                      </div>
-                    </div>
+                                                            {/* Locations */}
+                    {(() => {
+                      // ✅ Build a clean, deduplicated list of available locations
+                      const uniqueLocations = new Set();
+                      
+                      (savedDestinations || []).forEach(d => {
+                        if (d.address && d.name && d.address.toLowerCase().startsWith(d.name.toLowerCase())) {
+                          uniqueLocations.add(d.address); // Prevents "CN CALGARY - CN CALGARY"
+                        } else if (d.name && d.address) {
+                          uniqueLocations.add(`${d.name} - ${d.address}`);
+                        } else if (d.address) {
+                          uniqueLocations.add(d.address);
+                        } else if (d.name) {
+                          uniqueLocations.add(d.name);
+                        }
+                      });
+                      
+                      (companyTerminals || []).forEach(t => {
+                        uniqueLocations.add(t.name + (t.code ? ` (${t.code})` : '') + (t.address ? ` - ${t.address}` : ''));
+                      });
+                      
+                      const locList = Array.from(uniqueLocations);
+
+                      return (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-200 z-50 relative">
+                          <div>
+                            <label className="text-[10px] font-black text-emerald-600 uppercase block mb-1">Pickup Location</label>
+                            <SearchableSelect 
+                              value={legToEdit.from || ''} 
+                              options={locList}
+                              onChange={(val) => handleAddressChange(legToEdit.id, 'from', val)}
+                              placeholder="Type to search locations..."
+                              theme="emerald"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[10px] font-black text-rose-600 uppercase block mb-1">Drop Location</label>
+                            <SearchableSelect 
+                              value={legToEdit.to || ''} 
+                              options={locList}
+                              onChange={(val) => handleAddressChange(legToEdit.id, 'to', val)}
+                              placeholder="Type to search locations..."
+                              theme="rose"
+                            />
+                          </div>
+                        </div>
+                      );
+                    })()}
 
                     {/* Financials */}
                     <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
@@ -3712,10 +3897,11 @@ const BillingTable = ({
   onViewDoc, 
   onSendInvoice, 
   onApprove, 
+  onDelete,  // ✅ Added onDelete here
   setFeedback,
   companyName, 
   companyEmail,
-  onSendViaInvoicesTab // ✅ ADD THIS LINE
+  onSendViaInvoicesTab
 }) => {
   const BillingRow = ({ load }) => {
     const currencySymbol = load?.currency === 'USD' ? 'US$' : 'C$';
@@ -3821,9 +4007,12 @@ const BillingTable = ({
               </button>
             )}
 
-            <div className="flex gap-1 ml-2 border-l border-slate-200 pl-2">
+                        <div className="flex gap-1 ml-2 border-l border-slate-200 pl-2">
               <button onClick={() => onEdit && onEdit(load)} className="p-2 text-slate-400 hover:text-blue-600 rounded-lg transition-colors" title="Edit Load"><Edit3 className="w-4 h-4" /></button>
               <button onClick={() => onPrint && onPrint(load)} className="p-2 text-slate-400 hover:text-green-600 rounded-lg transition-colors" title="Print Invoice"><Printer className="w-4 h-4" /></button>
+              
+              {/* ✅ NEW: Delete Button */}
+              <button onClick={() => onDelete && onDelete(load.id)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Delete Load"><Trash2 className="w-4 h-4" /></button>
             </div>
           </div>
         </td>
@@ -3992,7 +4181,8 @@ const AddressBook = ({
     stopOffRate: '',
     yardStorageRate: '',
     chassisRate: '',
-    rateCurrency: 'CAD'
+    rateCurrency: 'CAD',
+    accountingEmail: '' // ✅ ADD THIS LINE
   });
     // ===== NEW: SEARCH & BULK DELETE STATE FOR LOCATIONS =====
   const [locationSearchTerm, setLocationSearchTerm] = useState('');
@@ -4118,7 +4308,8 @@ const AddressBook = ({
       stopOffRate: customer.stopOffRate || '',
       yardStorageRate: customer.yardStorageRate || '',
       chassisRate: customer.chassisRate || '',
-      rateCurrency: customer.rateCurrency || 'CAD'
+      rateCurrency: customer.rateCurrency || 'CAD',
+      accountingEmail: customer.accountingEmail || '' // ✅ ADD THIS LINE
     });
     setShowEditModal(true);
   };
@@ -4365,6 +4556,13 @@ const AddressBook = ({
             <input type="tel" className="w-full p-3 border rounded-xl text-sm" placeholder="Fax Number" value={newCust.fax} onChange={e => setNewCust({...newCust, fax: e.target.value})} />
           </div>
           <input type="email" className="w-full p-3 border rounded-xl text-sm" placeholder="Email Address" value={newCust.email} onChange={e => setNewCust({...newCust, email: e.target.value})} />
+          
+          {/* ✅ NEW: Accounting Email */}
+          <div>
+            <input type="text" className="w-full p-3 border rounded-xl text-sm" placeholder="Accounting Email(s) - e.g. billing@company.com, ap@company.com" value={newCust.accountingEmail} onChange={e => setNewCust({...newCust, accountingEmail: e.target.value})} />
+            <p className="text-[10px] text-slate-400 mt-1 ml-1">Separate multiple emails with commas. Used for Invoices.</p>
+          </div>
+
           <input className="w-full p-3 border rounded-xl text-sm" placeholder="Address" value={newCust.address} onChange={e => setNewCust({...newCust, address: e.target.value})} />
           <div className="grid grid-cols-2 gap-3">
             <input className="w-full p-3 border rounded-xl text-sm" placeholder="City" value={newCust.city} onChange={e => setNewCust({...newCust, city: e.target.value})} />
@@ -6068,8 +6266,14 @@ const AddressBook = ({
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div><label className="text-[10px] font-black text-slate-500 uppercase">Company Name *</label><input required className="w-full p-2 border rounded-lg text-sm font-bold" value={editFormData.name} onChange={e => setEditFormData({...editFormData, name: e.target.value})} /></div>
                 <div><label className="text-[10px] font-black text-slate-500 uppercase">Email</label><input type="email" className="w-full p-2 border rounded-lg text-sm" value={editFormData.email} onChange={e => setEditFormData({...editFormData, email: e.target.value})} /></div>
-                <div><label className="text-[10px] font-black text-slate-500 uppercase">Phone</label><input className="w-full p-2 border rounded-lg text-sm" value={editFormData.phone} onChange={e => setEditFormData({...editFormData, phone: e.target.value})} /></div>
+                <div><label className="text-[10px] font-black text-slate-500 uppercase">Email</label><input type="email" className="w-full p-2 border rounded-lg text-sm" value={editFormData.email} onChange={e => setEditFormData({...editFormData, email: e.target.value})} /></div>
                 <div><label className="text-[10px] font-black text-slate-500 uppercase">Contact Name</label><input className="w-full p-2 border rounded-lg text-sm" value={editFormData.contactName} onChange={e => setEditFormData({...editFormData, contactName: e.target.value})} /></div>
+                
+                {/* ✅ NEW: Accounting Email in Edit Modal */}
+                <div className="md:col-span-2">
+                  <label className="text-[10px] font-black text-slate-500 uppercase">Accounting Email(s) (For Invoices)</label>
+                  <input type="text" className="w-full p-2 border rounded-lg text-sm" placeholder="billing@company.com, ap@company.com" value={editFormData.accountingEmail} onChange={e => setEditFormData({...editFormData, accountingEmail: e.target.value})} />
+                </div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="md:col-span-3"><label className="text-[10px] font-black text-slate-500 uppercase">Address</label><input className="w-full p-2 border rounded-lg text-sm" value={editFormData.address} onChange={e => setEditFormData({...editFormData, address: e.target.value})} /></div>
@@ -6357,11 +6561,23 @@ const DailySummary = ({ loads }) => {
   // ✅ FIXED: Only count loads specifically marked as Ready for Billing
 
   // ✅ FIXED: Only count loads that are dropped/ready but NOT terminated yet
-  const pendingTerminationLoads = safeLoads.filter(l => {
-    if (l.isTerminated || l.status !== 'Open') return false;
-    if (!l.isDroppedAtCustomer && !l.isReadyForPickup) return false;
+    const pendingTerminationLoads = safeLoads.filter(l => {
+    // 1. Exclude if already completely finished
+    if (l.isTerminated || ['Completed', 'Paid', 'Ready for Billing', 'Closed'].includes(l.status)) return false;
+
+    // 2. Exclude if the termination leg is already completed
     const hasCompletedTermination = (l.legs || []).some(leg => leg.legType === 'termination' && (leg.status === 'Completed' || leg.status === 'Delivered'));
-    return !hasCompletedTermination;
+    if (hasCompletedTermination) return false;
+
+    // 3. Check if it has been dropped (via manual checkbox OR a completed drop leg)
+    const hasCompletedDropLeg = (l.legs || []).some(
+      leg => (leg.legType === 'delivery' || leg.legType === 'drop' || leg.legType === 'stopoff') && 
+              (leg.status === 'Completed' || leg.status === 'Delivered')
+    );
+    
+    const isDroppedOrReady = l.isDroppedAtCustomer || l.isReadyForPickup || l.isDelivered || hasCompletedDropLeg;
+    
+    return isDroppedOrReady;
   });
   const needToTerminate = pendingTerminationLoads.length;
 
@@ -6890,11 +7106,23 @@ const ProfitDashboard = ({ loads, drivers }) => {
 
 const ActionRequired = ({ loads, onEdit, onStatusChange }) => {
   const safeLoads = Array.isArray(loads) ? loads : [];
-  const pendingTermination = safeLoads.filter(l => {
-    if (l.isTerminated || l.status !== 'Open') return false;
-    if (!l.isDroppedAtCustomer && !l.isReadyForPickup) return false;
+    const pendingTermination = safeLoads.filter(l => {
+    // 1. Exclude if already completely finished
+    if (l.isTerminated || ['Completed', 'Paid', 'Ready for Billing', 'Closed'].includes(l.status)) return false;
+
+    // 2. Exclude if the termination leg is already completed
     const hasCompletedTermination = (l.legs || []).some(leg => leg.legType === 'termination' && (leg.status === 'Completed' || leg.status === 'Delivered'));
-    return !hasCompletedTermination;
+    if (hasCompletedTermination) return false;
+
+    // 3. Check if it has been dropped (via manual checkbox OR a completed drop leg)
+    const hasCompletedDropLeg = (l.legs || []).some(
+      leg => (leg.legType === 'delivery' || leg.legType === 'drop' || leg.legType === 'stopoff') && 
+              (leg.status === 'Completed' || leg.status === 'Delivered')
+    );
+    
+    const isDroppedOrReady = l.isDroppedAtCustomer || l.isReadyForPickup || l.isDelivered || hasCompletedDropLeg;
+    
+    return isDroppedOrReady;
   });
   if (pendingTermination.length === 0) return null;
  
@@ -7520,7 +7748,8 @@ const [newCust, setNewCust] = useState({
   yardStorageRate: '',
   chassisRate: '',
   rateCurrency: 'CAD',
-  taxStatus: 'GST'
+  taxStatus: 'GST',
+  accountingEmail: '' // ✅ ADD THIS LINE
 });
 const [newLoc, setNewLoc] = useState({ name: '', address: '' });
 const [newDriver, setNewDriver] = useState({
@@ -7984,6 +8213,7 @@ useEffect(() => {
       yardStorageRate: sanitizeInput(newCust.yardStorageRate) || '',
       chassisRate: sanitizeInput(newCust.chassisRate) || '',
       rateCurrency: newCust.rateCurrency || 'CAD',
+      accountingEmail: sanitizeInput(newCust.accountingEmail || ''), // ✅ ADD THIS LINE
       companyId: companyId
     });
     console.log('✅ Customer added');
@@ -8031,6 +8261,7 @@ const handleUpdateCustomer = useCallback(async (customerId, updatedData) => {
       yardStorageRate: sanitizeInput(updatedData.yardStorageRate) || '',
       chassisRate: sanitizeInput(updatedData.chassisRate) || '',
       rateCurrency: updatedData.rateCurrency || 'CAD',
+      accountingEmail: sanitizeInput(updatedData.accountingEmail || ''), // ✅ ADD THIS LINE
       updatedAt: new Date().toISOString(),
       updatedBy: userEmail || user?.email || 'Unknown'
     });
@@ -9162,6 +9393,8 @@ const handleSubmitLoad = useCallback(async (formData) => {
   returnDate: formatDateForStorage(formData.returnDate),
   erdDate: formatDateForStorage(formData.erdDate),
   cutoffDate: formatDateForStorage(formData.cutoffDate),
+  rvEarlyReturnDate: formatDateForStorage(formData.rvEarlyReturnDate),
+  rvCutoffDate: formatDateForStorage(formData.rvCutoffDate),
   loadingDate: formatDateForStorage(formData.loadingDate), // ✅ ADD THIS LINE
   yardStorageStartDate: formatDateForStorage(formData.yardStorageStartDate),
   yardStorageEndDate: formatDateForStorage(formData.yardStorageEndDate),
@@ -9180,12 +9413,6 @@ const handleSubmitLoad = useCallback(async (formData) => {
 
   if (!migratedData.currency && formattedFormData.currency) {
     migratedData.currency = formattedFormData.currency;
-  }
-
-  // Save locations asynchronously (don't wait for it)
-  for (const leg of getSafeLegs(formattedFormData)) {
-    if (leg.from) saveNewLocationIfNeeded(leg.from, companyId).catch(() => {});
-    if (leg.to) saveNewLocationIfNeeded(leg.to, companyId).catch(() => {});
   }
 
   const cleanedData = {
@@ -9221,13 +9448,19 @@ const handleSubmitLoad = useCallback(async (formData) => {
     cleanedData.createdAt = now;
   }
 
-  // Remove legacy fields
+    // Remove legacy fields
   cleanedData.basePrice = "";
   cleanedData.waitingTime = "";
   cleanedData.fuelSurcharge = "";
   cleanedData.driverCost = "";
   cleanedData.fuelCost = "";
   cleanedData.brokerRate = "";
+
+  // ✅ FIX: Remove temporary UI-only fields so Firestore doesn't crash on undefined
+  delete cleanedData.hasMissedPrepull;
+  delete cleanedData.progress;
+  delete cleanedData.workType;
+  delete cleanedData._type;
 
     if (!cleanedData.workOrderNo) {
     // Generate Prefix from Company Name (e.g., "IFS Transport Ltd" -> "IFS")
@@ -9257,11 +9490,34 @@ const handleSubmitLoad = useCallback(async (formData) => {
     let loadRef;
     let loadId; // ✅ ADD THIS LINE HERE
 
-    // ✅ STEP 1: SAVE THE LOAD FIRST (INSTANT)
+        // ✅ STEP 1: SAVE THE LOAD FIRST (INSTANT)
     if (editingId) {
       loadRef = doc(db, 'companies', companyId, 'loads', editingId);
       loadId = editingId;
       await updateDoc(loadRef, cleanedData);
+      
+      // ✅ NEW: Cascade currency change to the Invoice so they stay in sync
+      try {
+        const invQuery = query(
+          collection(db, 'companies', companyId, 'invoices'),
+          where('loadId', '==', loadId),
+          limit(1)
+        );
+        const invSnap = await getDocs(invQuery);
+        if (!invSnap.empty) {
+          const invDoc = invSnap.docs[0];
+          const invData = invDoc.data();
+          if (invData.currency !== cleanedData.currency) {
+            await updateDoc(doc(db, 'companies', companyId, 'invoices', invDoc.id), { 
+              currency: cleanedData.currency 
+            });
+            console.log("✅ Cascaded currency update to Invoice");
+          }
+        }
+      } catch (err) {
+        console.error("Failed to cascade currency to invoice:", err);
+      }
+
       setCopyFeedback("✅ Load updated instantly");
     } else {
       loadRef = doc(collection(db, 'companies', companyId, 'loads'));
@@ -9598,7 +9854,7 @@ await updateDoc(driverRef, {
     if (load.signedPodDoc?.url) { emailContent += `✍️ SIGNED PROOF OF DELIVERY (POD):\n${load.signedPodDoc.url}\n\n`; hasDocuments = true; }
     emailContent += hasDocuments ? "💡 Simply click the links above to view or download the documents.\n\n" : "⚠️ No documents have been uploaded for this shipment yet.\n\n";
     emailContent += "─".repeat(60) + `\nThank you for your business!\n${companyName || 'Nexdray TMS'}`;
-    const subject = `Invoice for ${load.containerNo || 'Shipment'} - ${load.workOrderNo || ''}`;
+        const subject = `Invoice for ${load.containerNo || 'Shipment'} - Ref #: ${load.customerRefNo || 'N/A'}`;
     const fullEmail = `To: ${load.customerEmail}\nSubject: ${subject}\n\n${emailContent}`;
     copyToClipboard(fullEmail);
     setCopyFeedback("📋 Email content copied! Open Gmail/Outlook and paste (Ctrl+V)");
@@ -9744,21 +10000,26 @@ const handleGenerateInvoice = useCallback(async (loadId) => {
                            isNaN(numericInv) || 
                            numericInv < START_NUM;
 
-    if (needsNewNumber) {
+        if (needsNewNumber) {
       const counterRef = doc(db, 'companies', companyId, 'counters', 'invoices');
       const counterSnap = await getDoc(counterRef);
-      let nextSeq = START_NUM; 
+      let nextSeq = 7944; // ✅ Default start
       
       if (counterSnap.exists()) {
         const data = counterSnap.data();
-        const currentSeq = data.sequence || data.lastNumber || (START_NUM - 1);
-        nextSeq = Math.max(currentSeq + 1, START_NUM); 
+        const currentSeq = data.sequence || data.lastNumber || 7943;
+        // Math.max ensures that even if the DB counter is low, it jumps to at least 7944
+        nextSeq = Math.max(currentSeq + 1, 7944); 
         await updateDoc(counterRef, { sequence: nextSeq, lastNumber: nextSeq, updatedAt: new Date().toISOString() });
       } else {
         await setDoc(counterRef, { sequence: nextSeq, lastNumber: nextSeq, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
       }
       invoiceNumber = String(nextSeq);
     }
+
+    // ✅ NEW: Look for the termination leg to get the exact return date
+    const terminationLeg = (load.legs || []).find(l => l.legType === 'termination');
+    const calculatedReturnDate = terminationLeg?.legDate || load.returnDate || '';
 
     const invoiceData = {
       companyId,
@@ -9767,7 +10028,7 @@ const handleGenerateInvoice = useCallback(async (loadId) => {
       containerNo: load.containerNo || 'N/A',
       workOrderNo: load.workOrderNo || 'N/A',
       customerName: load.customerName || 'N/A',
-      customerEmail: customer?.email || load.customerEmail || '',
+      customerEmail: customer?.accountingEmail || customer?.email || load.customerEmail || '',
       customerAddress: customer?.address || load.customerAddress || '',
       billTo: customer?.name || load.customerName || 'N/A',
       salesRep: load.billingApprovedBy || userEmail || 'N/A',
@@ -9785,6 +10046,17 @@ const handleGenerateInvoice = useCallback(async (loadId) => {
       billingApprovedAt: load.billingApprovedAt || null,
       createdAt: new Date().toISOString(),
       createdBy: userEmail || 'N/A',
+      
+      // ✅ THE FIX: Pulling dates from the exact fields you showed in the screenshots
+      poNumber: load.poNumber || 'N/A',
+      size: load.size || 'N/A',
+      weight: load.weight || 'N/A',
+      customerRefNo: load.customerRefNo || 'N/A',
+      
+      pickupDate: load.legs?.[0]?.legDate || load.erdDate || load.appointmentDate || '',
+      deliveryDate: load.deliveryDate || load.appointmentDate || load.legs?.[0]?.legDate || '',
+            returnDate: calculatedReturnDate,
+      deliverTo: load.delivery || 'N/A',
     };
 
     // Check if invoice doc already exists (handles old stub docs)
@@ -9909,7 +10181,7 @@ const handleEditInvoiceFromHistory = useCallback((load) => {
         <div class="flex justify-between" style="align-items: flex-start;">
           <div><div class="text-2xl font-black text-blue mb-2">${sanitizeInput(companyName || 'Company Name')}</div><div style="color: #374151;">${sanitizeInput(addressStr)}</div>${companyDetails?.phone ? `<div style="color: #374151;">Tel: ${sanitizeInput(companyDetails.phone)}</div>` : ''}${companyDetails?.email ? `<div style="color: #374151;">Email: ${sanitizeInput(companyDetails.email)}</div>` : ''}</div>
                     <div class="text-right">
-            ${companyDetails?.logoUrl ? `<img src="${sanitizeInput(companyDetails.logoUrl)}" style="max-height: 60px; max-width: 200px; margin-bottom: 10px; margin-left: auto; display: block;" alt="Company Logo" />` : ''}
+            ${companyDetails?.logoUrl ? `<img src="${sanitizeInput(companyDetails.logoUrl)}" style="max-height: 50px; max-width: 160px; object-fit: contain; margin-bottom: 10px; margin-left: auto; display: block;" alt="Company Logo" crossorigin="anonymous" />` : ''}
             <div class="text-2xl font-black text-gray mb-2">INVOICE</div>
             <table class="meta-table"><tr><td class="label">INVOICE #</td><td class="value">${sanitizeInput(load.workOrderNo || String(load.id || '').substring(0,8).toUpperCase())}</td></tr><tr><td class="label">DATE</td><td class="value">${currentDate}</td></tr><tr><td class="label">PO #</td><td class="value">${sanitizeInput(load.poNumber || 'N/A')}</td></tr><tr><td class="label">CURRENCY</td><td class="value">${load.currency || 'CAD'}</td></tr><tr><td class="label">TERMS</td><td class="value">Due on Receipt</td></tr></table></div>
         </div>
@@ -11044,12 +11316,12 @@ if (appState === 'dashboard' && !authReady) {
       <div>
         <h3 className="font-black text-lg text-purple-900 tracking-tight">Pre-Pull Required</h3>
         <p className="text-purple-700 font-bold text-xs">
-          {summaryLoads.filter(l => l.isPrePull).length} containers marked for pre-pull
+          {summaryLoads.filter(l => l.isPrePull && !l.isInYard && !l.isTerminated && l.status !== 'Completed').length} containers marked for pre-pull
         </p>
       </div>
     </div>
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-      {summaryLoads.filter(l => l.isPrePull).slice(0, 6).map(load => (
+      {summaryLoads.filter(l => l.isPrePull && !l.isInYard && !l.isTerminated && l.status !== 'Completed').slice(0, 6).map(load => (
         <div
           key={load.id}
           className="bg-white p-4 rounded-xl border border-purple-100 shadow-sm flex flex-col gap-2 group hover:shadow-md hover:border-purple-200 transition-all cursor-pointer"
@@ -11077,7 +11349,7 @@ if (appState === 'dashboard' && !authReady) {
           </div>
         </div>
       ))}
-      {summaryLoads.filter(l => l.isPrePull).length === 0 && (
+      {summaryLoads.filter(l => l.isPrePull && !l.isInYard && !l.isTerminated && l.status !== 'Completed').length === 0 && (
         <div className="col-span-full text-center text-purple-500 font-bold text-sm py-6 bg-white/50 rounded-xl border border-purple-100 border-dashed">
           ✅ No containers need pre-pull
         </div>
@@ -11431,7 +11703,7 @@ if (appState === 'dashboard' && !authReady) {
       )}
 
             {activeTab === 'billing' && (
-                <BillingTable
+                        <BillingTable
           loads={paginatedLoads}
           onStatusChange={quickUpdateStatus}
           onGenerateInvoice={handleGenerateInvoice}
@@ -11441,6 +11713,7 @@ if (appState === 'dashboard' && !authReady) {
           onViewDoc={setViewingDoc}
           onSendInvoice={handleSendInvoiceEmail}
           onApprove={handleApproveBilling}
+          onDelete={confirmDeleteLoad} 
           setFeedback={setCopyFeedback}
           companyName={companyName}
           companyEmail={companyDetails.email}

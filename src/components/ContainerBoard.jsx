@@ -9,6 +9,47 @@ import {
 import { db } from '../firebase';
 
 // ────────────── DATE HELPERS ──────────────
+const getRvAlert = (load) => {
+  if (!load.rvNo && !load.rvEarlyReturnDate && !load.rvCutoffDate) return null;
+
+  const now = new Date();
+    // ✅ FIX: Use local date to prevent timezone offsets
+  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  
+  const parseDate = (d) => d ? (d.includes('T') ? d.split('T')[0] : d) : null;
+  const earlyDateStr = parseDate(load.rvEarlyReturnDate);
+  const cutoffDateStr = parseDate(load.rvCutoffDate);
+  
+  if (cutoffDateStr) {
+      const cutoff = new Date(cutoffDateStr + 'T23:59:59');
+      if (now > cutoff) {
+        return { type: 'expired', message: `RV EXPIRED! Cut-off was ${formatDate(cutoffDateStr)}. Terminate immediately!` };
+      }
+      if (cutoffDateStr === todayStr) {
+        return { type: 'critical', message: `Terminate container! Cut-off is TODAY.` };
+      }
+  }
+
+  if (earlyDateStr) {
+      if (earlyDateStr === todayStr) {
+        const earlyTime = load.rvEarlyReturnTime || '00:00';
+        const [h, m] = earlyTime.split(':').map(Number);
+        const earlyDateTime = new Date();
+        earlyDateTime.setHours(h || 0, m || 0, 0, 0);
+        
+        if (now < earlyDateTime) {
+            return { type: 'upcoming', message: `RV active today after ${earlyTime}. Arrange termination.` };
+        } else {
+            return { type: 'active', message: `RV active NOW (since ${earlyTime}). Arrange termination!` };
+        }
+      } else if (earlyDateStr < todayStr) {
+        const cutoffMsg = cutoffDateStr ? ` Cut-off is ${formatDate(cutoffDateStr)}.` : '';
+        return { type: 'warning', message: `Terminate container! RV active since ${formatDate(earlyDateStr)}.${cutoffMsg}` };
+      }
+  }
+  return null;
+};
+
 const formatDate = (dateStr) => {
   if (!dateStr) return '';
   try {
@@ -140,7 +181,7 @@ const ContainerBoard = ({ companyId, setFeedback, onEdit }) => {
     return () => unsub();
   }, [companyId]);
 
-  const filteredContainers = useMemo(() => {
+    const filteredContainers = useMemo(() => {
     let list = containers.filter(c => c.type === boardView);
     
     if (searchTerm) {
@@ -150,7 +191,10 @@ const ContainerBoard = ({ companyId, setFeedback, onEdit }) => {
           c.containerNo?.toLowerCase().includes(t) ||
           c.customerName?.toLowerCase().includes(t) ||
           c.bookingNo?.toLowerCase().includes(t) ||
-          c.vesselName?.toLowerCase().includes(t)
+          c.vesselName?.toLowerCase().includes(t) ||
+          getRailCarrier(c)?.toLowerCase().includes(t) || // ✅ NEW: Search by Rail (CN, CP, etc.)
+          c.rvNo?.toLowerCase().includes(t) ||
+          c.railCarrier?.toLowerCase().includes(t)        // ✅ Fallback
       );
     }
 
@@ -179,8 +223,9 @@ const ContainerBoard = ({ companyId, setFeedback, onEdit }) => {
     );
   }
 
+
   return (
-    <div className="flex flex-col h-full bg-white overflow-hidden rounded-2xl border border-slate-200 shadow-sm">
+    <div className="flex flex-col bg-white rounded-2xl border border-slate-200 shadow-sm">
       
       {/* ================= HEADER & TABS ================= */}
       <div className="bg-slate-50 border-b border-slate-200 px-4 py-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shrink-0">
@@ -250,53 +295,85 @@ const ContainerBoard = ({ companyId, setFeedback, onEdit }) => {
         </div>
       </div>
 
+            {/* ================= RV ALERTS BANNER ================= */}
+      {(() => {
+        const rvAlerts = containers.map(c => ({ load: c, alert: getRvAlert(c) })).filter(item => item.alert !== null);
+        if (rvAlerts.length === 0) return null;
+        
+        return (
+          <div className="bg-red-50 border-2 border-red-500 rounded-xl p-4 mb-4 animate-in slide-in-from-top-4 shadow-md">
+            <div className="flex items-center gap-3 mb-2">
+              <AlertTriangle className="w-6 h-6 text-red-600 animate-pulse" />
+              <h3 className="font-black text-red-900 text-lg">RV Action Required ({rvAlerts.length})</h3>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {rvAlerts.map(({load, alert}, i) => (
+                <div key={i} className="bg-white p-3 rounded-lg border border-red-200 shadow-sm cursor-pointer hover:border-red-400 transition-all" onClick={() => onEdit && onEdit(load)}>
+                  <div className="font-black text-slate-800 text-sm flex justify-between">
+                    <span>{load.containerNo || load.bookingNo || 'N/A'}</span>
+                    <span className="text-[10px] text-slate-400">RV: {load.rvNo || 'N/A'}</span>
+                  </div>
+                  <div className={`text-xs font-bold mt-1 ${alert.type === 'expired' || alert.type === 'critical' || alert.type === 'active' ? 'text-red-600' : 'text-amber-600'}`}>
+                    {alert.message}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
       {/* ================= SPREADSHEET VIEW ================= */}
-      <div className="flex-1 overflow-auto bg-slate-100 p-2">
+      <div className="w-full overflow-x-auto bg-slate-100 p-2">
         <table className="w-full text-left border-collapse bg-white shadow-sm border border-slate-300 table-fixed">
 
           
           {/* ================= IMPORTS HEADERS ================= */}
           {boardView === 'import' && (
-            <thead className="sticky top-0 bg-slate-200 z-10 shadow-sm">
-              <tr className="text-[10px] font-black text-slate-700 uppercase tracking-wider border-b-2 border-slate-300">
-                <th className="px-3 py-2 border-r border-slate-300 w-32">Customer</th>
-                <th className="px-3 py-2 border-r border-slate-300 w-20">Rail</th>
-                <th className="px-3 py-2 border-r border-slate-300 w-32">Container #</th>
-                <th className="px-3 py-2 border-r border-slate-300 w-24">Pick up</th>
-                <th className="px-3 py-2 border-r border-slate-300 w-16 text-center">Size</th>
-                <th className="px-3 py-2 border-r border-slate-300 w-20">SSL</th>
-                <th className="px-3 py-2 border-r border-slate-300 w-20">ETA</th>
-                <th className="px-3 py-2 border-r border-slate-300 w-20">ETA Time</th>
+            <thead>
+  <tr className="sticky top-0 z-20 bg-slate-200 text-[10px] font-black text-slate-700 uppercase tracking-wider border-b-2 border-slate-300 shadow-sm">
+                <th className="px-3 py-2 border-r border-slate-300 w-32 bg-slate-200">Customer</th>
+                <th className="px-3 py-2 border-r border-slate-300 w-20 bg-slate-200">Rail</th>
+                <th className="px-3 py-2 border-r border-slate-300 w-32 bg-slate-200">Container #</th>
+                <th className="px-3 py-2 border-r border-slate-300 w-20 bg-slate-200">RV #</th>
+                <th className="px-3 py-2 border-r border-slate-300 w-24 bg-slate-200">Pick up</th>
+                <th className="px-3 py-2 border-r border-slate-300 w-16 text-center bg-slate-200">Size</th>
+                <th className="px-3 py-2 border-r border-slate-300 w-20 bg-slate-200">SSL</th>
+                <th className="px-3 py-2 border-r border-slate-300 w-20 bg-slate-200">ETA</th>
+                <th className="px-3 py-2 border-r border-slate-300 w-20 bg-slate-200">ETA Time</th>
                 <th className="px-3 py-2 border-r border-slate-300 w-24 bg-red-100 text-red-800">LFD</th>
-                <th className="px-3 py-2 border-r border-slate-300 w-24">Prepull Date</th>
-                <th className="px-3 py-2 border-r border-slate-300 w-24">Delivery Date</th>
-                <th className="px-3 py-2 text-center w-12">Edit</th>
+                <th className="px-3 py-2 border-r border-slate-300 w-24 bg-slate-200">Prepull Date</th>
+                <th className="px-3 py-2 border-r border-slate-300 w-24 bg-slate-200">Delivery Date</th>
+                <th className="px-3 py-2 text-center w-12 bg-slate-200">Edit</th>
               </tr>
             </thead>
           )}
 
+
           {/* ================= EXPORTS HEADERS ================= */}
           {boardView === 'export' && (
-            <thead className="sticky top-0 bg-slate-200 z-10 shadow-sm">
-              <tr className="text-[10px] font-black text-slate-700 uppercase tracking-wider border-b-2 border-slate-300">
-                <th className="px-2 py-2 border-r border-slate-300 w-[120px]">Customer</th>
-                <th className="px-2 py-2 border-r border-slate-300 w-[80px]">Booking #</th>
-                <th className="px-2 py-2 border-r border-slate-300 w-[120px]">Release Location</th>
-                <th className="px-2 py-2 border-r border-slate-300 w-[50px]">SSL</th>
-                <th className="px-2 py-2 border-r border-slate-300 w-[60px] text-center">Size</th>
-                <th className="px-2 py-2 border-r border-slate-300 w-[110px]">Vessel Name</th>
-                <th className="px-2 py-2 border-r border-slate-300 w-[90px]">Return Rail</th>
-                <th className="px-2 py-2 border-r border-slate-300 w-[100px]">Port Name</th>
-                <th className="px-2 py-2 border-r border-slate-300 w-[60px]">ERD</th>
+            <thead>
+  <tr className="sticky top-0 z-20 bg-slate-200 text-[10px] font-black text-slate-700 uppercase tracking-wider border-b-2 border-slate-300 shadow-sm">
+                <th className="px-2 py-2 border-r border-slate-300 w-[120px] bg-slate-200">Customer</th>
+                <th className="px-2 py-2 border-r border-slate-300 w-[80px] bg-slate-200">Booking #</th>
+                <th className="px-2 py-2 border-r border-slate-300 w-[60px] bg-slate-200">RV #</th>
+                <th className="px-2 py-2 border-r border-slate-300 w-[120px] bg-slate-200">Release Location</th>
+                <th className="px-2 py-2 border-r border-slate-300 w-[50px] bg-slate-200">SSL</th>
+                <th className="px-2 py-2 border-r border-slate-300 w-[60px] text-center bg-slate-200">Size</th>
+                <th className="px-2 py-2 border-r border-slate-300 w-[110px] bg-slate-200">Vessel Name</th>
+                <th className="px-2 py-2 border-r border-slate-300 w-[90px] bg-slate-200">Return Rail</th>
+                <th className="px-2 py-2 border-r border-slate-300 w-[100px] bg-slate-200">Port Name</th>
+                <th className="px-2 py-2 border-r border-slate-300 w-[60px] bg-slate-200">ERD</th>
                 <th className="px-2 py-2 border-r border-slate-300 w-[60px] bg-red-100 text-red-800">CUT OFF</th>
-                <th className="px-2 py-2 border-r border-slate-300 w-[70px]">Prepull</th>
-                <th className="px-2 py-2 border-r border-slate-300 w-[70px]">Loading</th>
-                <th className="px-2 py-2 border-r border-slate-300 w-[70px]">Return</th>
-                <th className="px-2 py-2 border-r border-slate-300 w-[70px]">Rail Bill</th>
-                <th className="px-2 py-2 text-center w-[40px]">Edit</th>
+                <th className="px-2 py-2 border-r border-slate-300 w-[70px] bg-slate-200">Prepull</th>
+                <th className="px-2 py-2 border-r border-slate-300 w-[70px] bg-slate-200">Loading</th>
+                <th className="px-2 py-2 border-r border-slate-300 w-[70px] bg-slate-200">Return</th>
+                <th className="px-2 py-2 border-r border-slate-300 w-[70px] bg-slate-200">Rail Bill</th>
+                <th className="px-2 py-2 text-center w-[40px] bg-slate-200">Edit</th>
               </tr>
             </thead>
           )}
+
 
           {/* ================= TABLE BODY ================= */}
           <tbody className="divide-y divide-slate-300">
@@ -336,7 +413,19 @@ const ContainerBoard = ({ companyId, setFeedback, onEdit }) => {
                       <td className="px-3 py-2 border-r border-black/10">
                         {load.returnLocation ? load.returnLocation : getRailCarrier(load)}
                       </td>
-                      <td className="px-3 py-2 border-r border-black/10 font-black">{load.containerNo || '—'}</td>
+                                            <td className="px-3 py-2 border-r border-black/10 font-black">
+                        <div className="flex items-center gap-1.5">
+                          {load.containerNo || '—'}
+                          {(() => {
+                            const rvAlert = getRvAlert(load);
+                            if (!rvAlert) return null;
+                            return <span className={`px-1.5 py-0.5 rounded text-[9px] text-white ${rvAlert.type === 'expired' || rvAlert.type === 'critical' || rvAlert.type === 'active' ? 'bg-red-600 animate-pulse' : 'bg-amber-500'}`} title={rvAlert.message}>RV Alert</span>;
+                          })()}
+                        </div>
+                      </td>
+                      <td className="px-3 py-2 border-r border-black/10 font-bold truncate" title={load.rvNo}>
+                        {load.rvNo || '—'}
+                      </td>
                       <td className="px-3 py-2 border-r border-black/10">{load.pickupNo || '—'}</td>
                       <td className="px-3 py-2 border-r border-black/10 text-center">{load.size?.split(' ')[0] || '—'}</td>
                       <td className="px-3 py-2 border-r border-black/10 truncate">{load.shippingLine || '—'}</td>
@@ -361,7 +450,19 @@ const ContainerBoard = ({ companyId, setFeedback, onEdit }) => {
                   {boardView === 'export' && (
                     <>
                       <td className="px-2 py-2 border-r border-black/10 truncate" title={load.customerName}>{load.customerName || '—'}</td>
-                      <td className="px-2 py-2 border-r border-black/10 font-black truncate" title={load.bookingNo}>{load.bookingNo || '—'}</td>
+                                            <td className="px-2 py-2 border-r border-black/10 font-black truncate" title={load.bookingNo}>
+                        <div className="flex items-center gap-1.5">
+                          {load.bookingNo || '—'}
+                          {(() => {
+                            const rvAlert = getRvAlert(load);
+                            if (!rvAlert) return null;
+                            return <span className={`px-1.5 py-0.5 rounded text-[9px] text-white ${rvAlert.type === 'expired' || rvAlert.type === 'critical' || rvAlert.type === 'active' ? 'bg-red-600 animate-pulse' : 'bg-amber-500'}`} title={rvAlert.message}>RV Alert</span>;
+                          })()}
+                        </div>
+                      </td>
+                      <td className="px-2 py-2 border-r border-black/10 truncate" title={load.rvNo}>
+                        {load.rvNo || '—'}
+                      </td>
                       <td className="px-2 py-2 border-r border-black/10 truncate" title={load.releaseLocation || load.terminal}>{load.releaseLocation || load.terminal || '—'}</td>
                       <td className="px-2 py-2 border-r border-black/10 truncate">{load.shippingLine || '—'}</td>
                       <td className="px-2 py-2 border-r border-black/10 text-center">{load.size?.split(' ')[0] || '—'}</td>
@@ -400,7 +501,7 @@ const ContainerBoard = ({ companyId, setFeedback, onEdit }) => {
             
             {filteredContainers.length === 0 && (
               <tr>
-                <td colSpan={boardView === 'import' ? 12 : 15} className="px-4 py-12 text-center text-slate-400 font-bold italic bg-white">
+                                <td colSpan={boardView === 'import' ? 13 : 16} className="px-4 py-12 text-center text-slate-400 font-bold italic bg-white">
                   No {boardView} containers found. Create a new {boardView} load to see it here.
                 </td>
               </tr>
